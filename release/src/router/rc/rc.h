@@ -712,7 +712,7 @@ extern int is_create_file_dongle(const char *vid, const char *pid);
 #endif
 extern int is_android_phone(const int mode, const char *vid, const char *pid);
 extern int write_3g_conf(FILE *fp, int dno, int aut, char *vid, char *pid);
-extern int init_3g_param(char *vid, char *pid, const char *port_path);
+extern int init_3g_param(char *vid, char *pid, int port_num);
 
 //services.c
 extern void setup_leds();

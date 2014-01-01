@@ -121,7 +121,6 @@ extern disk_info_t *create_disk(const char *device_name, disk_info_t **new_disk_
 	u32 major, minor;
 	u64 size_in_kilobytes = 0;
 	int len;
-	char usb_node[32], port_path[8];
 	char buf[64], *port, *vendor = NULL, *model = NULL, *ptr;
 	partition_info_t *new_partition_info, **follow_partition_list;
 
@@ -166,36 +165,28 @@ extern disk_info_t *create_disk(const char *device_name, disk_info_t **new_disk_
 	follow_disk_info->size_in_kilobytes = size_in_kilobytes;
 
 	if(!strncmp(device_name, "sd", 2)){
-		// Get USB node.
-		if(get_usb_node_by_device(device_name, usb_node, 32) == NULL){
-			usb_dbg("(%s): Fail to get usb node.\n", device_name);
-			free_disk_data(&follow_disk_info);
-			return NULL;
-		}
-
-		if(get_path_by_node(usb_node, port_path, 8) == NULL){
-			usb_dbg("(%s): Fail to get usb path.\n", usb_node);
-			free_disk_data(&follow_disk_info);
-			return NULL;
-		}
-
 		// Get USB port.
-		if(get_usb_port_by_string(usb_node, buf, 64) == NULL){
-			usb_dbg("Fail to get usb port: %s.\n", usb_node);
+		if(get_usb_port_by_device(device_name, buf, 64) == NULL){
+			usb_dbg("Fail to get usb port: %s.\n", device_name);
 			free_disk_data(&follow_disk_info);
 			return NULL;
 		}
 
 		len = strlen(buf);
 		if(len > 0){
-			port = (char *)malloc(8);
+			port = (char *)malloc(2);
 			if(port == NULL){
 				usb_dbg("No memory!!(port)\n");
 				free_disk_data(&follow_disk_info);
 				return NULL;
 			}
-			memset(port, 0, 8);
-			strncpy(port, port_path, 8);
+			memset(port, 0, 2);
+
+			int port_num = get_usb_port_number(buf);
+			if(port_num != -1)
+				sprintf(port, "%d", port_num);
+			else
+				strcpy(port, "0");
 
 			follow_disk_info->port = port;
 		}
@@ -573,10 +564,11 @@ extern int is_partition_name(const char *device_name, u32 *partition_order){
 	return 1;
 }
 
-int find_partition_label(const char *dev_name, char *label){
+int find_partition_label(const char *dev_name, char *label, int partition_order){
 	struct volume_id id;
 	char dev_path[128];
 	char usb_port[8];
+	int port_num;
 	char nvram_label[32], nvram_value[512];
 
 	if(label) *label = 0;
@@ -584,9 +576,10 @@ int find_partition_label(const char *dev_name, char *label){
 	memset(usb_port, 0, 8);
 	if(get_usb_port_by_device(dev_name, usb_port, 8) == NULL)
 		return 0;
+	port_num = get_usb_port_number(usb_port);
 
 	memset(nvram_label, 0, 32);
-	sprintf(nvram_label, "usb_path_%s_label", dev_name);
+	sprintf(nvram_label, "usb_path%d_label%d", port_num, partition_order);
 
 	memset(nvram_value, 0, 512);
 	strncpy(nvram_value, nvram_safe_get(nvram_label), 512);
@@ -615,7 +608,6 @@ int find_partition_label(const char *dev_name, char *label){
 		goto ret;
 	if(volume_id_probe_hfs_hfsplus(&id) == 0 || id.error)
 		goto ret;
-
 ret:
 	volume_id_free_buffer(&id);
 	if(label && (*id.label != 0))
@@ -663,7 +655,7 @@ extern partition_info_t *create_partition(const char *device_name, partition_inf
 	strncpy(follow_part_info->device, device_name, len);
 	follow_part_info->device[len] = 0;
 
-	if(find_partition_label(device_name, label)){
+	if(find_partition_label(device_name, label, partition_order)){
 		strntrim(label);
 		len = strlen(label);
 		follow_part_info->label = (char *)malloc(len+1);
@@ -956,7 +948,6 @@ extern void print_disk(const disk_info_t *const disk_info){
 	usb_dbg("           device: %s.\n", disk_info->device);
 	usb_dbg("            major: %u.\n", disk_info->major);
 	usb_dbg("            minor: %u.\n", disk_info->minor);
-	usb_dbg("             port: %s.\n", disk_info->port);
 	usb_dbg(" partition_number: %u.\n", disk_info->partition_number);
 	usb_dbg("   mounted_number: %u.\n", disk_info->mounted_number);
 	usb_dbg("size_in_kilobytes: %llu.\n", disk_info->size_in_kilobytes);

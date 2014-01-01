@@ -1702,13 +1702,11 @@ void hotplug_net(void)
 	int unit;
 	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
 #ifdef RTCONFIG_USB_MODEM
-	char device_path[128], usb_path[PATH_MAX], usb_node[32], port_path[8];
+	char device_path[128], usb_path[PATH_MAX], usb_port[8];
+	int port_num;
 	char nvram_name[32];
 	char word[PATH_MAX], *next;
-#ifndef RTCONFIG_USB_HUB
-	int port_num;
 	int got_modem;
-#endif
 #endif
 
 	if (!(interface = getenv("INTERFACE")) ||
@@ -1827,20 +1825,20 @@ NEITHER_WDS_OR_PSTA:
 			if(realpath(device_path, usb_path) == NULL)
 				return;
 
-			if(get_usb_node_by_string(usb_path, usb_node, 32) == NULL)
+			if(get_usb_port_by_string(usb_path, usb_port, sizeof(usb_port)) == NULL)
 				return;
 
-			if(get_path_by_node(usb_node, port_path, 8) == NULL)
+			port_num = get_usb_port_number(usb_port);
+			if(!port_num)
 				return;
 
 			memset(nvram_name, 0, 32);
-			sprintf(nvram_name, "usb_path%s_act", port_path);
+			sprintf(nvram_name, "usb_path%d_act", port_num);
 
 			if(strcmp(nvram_safe_get(nvram_name), "") != 0)
 				return;
 
 			nvram_set(nvram_name, interface);
-			nvram_set("usb_modem_act_path", port_path);
 
 			nvram_set(strcat_r(prefix, "ifname", tmp), interface);
 
@@ -1853,18 +1851,22 @@ NEITHER_WDS_OR_PSTA:
 				start_wan_if(unit);
 		}
 		else{
-			memset(port_path, 0, 8);
-			strncpy(port_path, nvram_safe_get("usb_modem_act_path"), 8);
+			got_modem = 0;
+			port_num = 1;
+			foreach(word, nvram_safe_get("ehci_ports"), next){
+				memset(nvram_name, 0, 32);
+				sprintf(nvram_name, "usb_path%d_act", port_num);
 
-			memset(nvram_name, 0, 32);
-			sprintf(nvram_name, "usb_path%s_act", port_path);
+				if(!strcmp(nvram_safe_get(nvram_name), interface)){
+					got_modem = 1;
+					nvram_set(nvram_name, "");
+					break;
+				}
 
-			if(!strcmp(nvram_safe_get(nvram_name), interface)){
-				nvram_unset(nvram_name);
-				nvram_unset("usb_modem_act_path");
+				++port_num;
 			}
 
-			if(strlen(port_path) <= 0)
+			if(!got_modem)
 				return;
 
 			nvram_set(strcat_r(prefix, "ifname", tmp), "");
@@ -1927,19 +1929,18 @@ NEITHER_WDS_OR_PSTA:
 				if(realpath(device_path, usb_path) == NULL)
 					return;
 
-				if(get_usb_node_by_string(usb_path, usb_node, 32) == NULL)
+				if(get_usb_port_by_string(usb_path, usb_port, sizeof(usb_port)) == NULL)
 					return;
 
-				if(get_path_by_node(usb_node, port_path, 8) == NULL)
+				port_num = get_usb_port_number(usb_port);
+				if(!port_num)
 					return;
 
 				memset(nvram_name, 0, 32);
-				sprintf(nvram_name, "usb_path%s_act", port_path);
+				sprintf(nvram_name, "usb_path%d_act", port_num);
 
-				if(!strcmp(nvram_safe_get(nvram_name), "")){
+				if(!strcmp(nvram_safe_get(nvram_name), ""))
 					nvram_set(nvram_name, interface);
-					nvram_set("usb_modem_act_path", port_path);
-				}
 			}
 
 			if(!strcmp(nvram_safe_get("success_start_service"), "1")){
@@ -1952,21 +1953,23 @@ NEITHER_WDS_OR_PSTA:
 
 			stop_wan_if(unit);
 
-			memset(port_path, 0, 8);
-			strncpy(port_path, nvram_safe_get("usb_modem_act_path"), 8);
+			got_modem = 0;
+			port_num = 1;
+			foreach(word, nvram_safe_get("ehci_ports"), next){
+				memset(nvram_name, 0, 32);
+				sprintf(nvram_name, "usb_path%d_act", port_num);
 
-			memset(nvram_name, 0, 32);
-			sprintf(nvram_name, "usb_path%s_act", port_path);
+				if(!strcmp(nvram_safe_get(nvram_name), interface)){
+					got_modem = 1;
+					nvram_set(nvram_name, "");
+					break;
+				}
 
-			if(!strcmp(nvram_safe_get(nvram_name), interface)){
-				nvram_unset(nvram_name);
-				nvram_unset("usb_modem_act_path");
+				++port_num;
 			}
 
-#ifdef RTCONFIG_USB_BECEEM
-			if(strlen(port_path) <= 0)
+			if(!got_modem)
 				system("asus_usbbcm usbbcm remove");
-#endif
 		}
 
 		// Notify wanduck to switch the wan line to WAN port.
@@ -1988,32 +1991,6 @@ NEITHER_WDS_OR_PSTA:
 			_dprintf("hotplug net INTERFACE=%s ACTION=%s: wait 2 seconds...\n", interface, action);
 			sleep(2);
 
-			// TODO: need to change the codes to suit new nvrams for USB Hub.
-#ifdef RTCONFIG_USB_HUB
-			// TODO: The codes shown below are not verified.
-			memset(device_path, 0, 128);
-			sprintf(device_path, "%s/%s/device", SYS_NET, interface);
-
-			memset(usb_path, 0, PATH_MAX);
-			if(realpath(device_path, usb_path) == NULL)
-				return;
-
-			if(get_usb_node_by_string(usb_path, usb_node, 32) == NULL)
-				return;
-
-			if(get_path_by_node(usb_node, port_path, 8) == NULL)
-				return;
-
-			memset(nvram_name, 0, 32);
-			sprintf(nvram_name, "usb_path%s", port_path);
-
-			if(!strcmp(nvram_safe_get(nvram_name), "modem")){
-				memset(nvram_name, 0, 32);
-				sprintf(nvram_name, "usb_path%s_act", port_path);
-				nvram_set(nvram_name, interface);
-				nvram_set("usb_modem_act_path", port_path);
-			}
-#else
 			got_modem = 0;
 			port_num = 1;
 			foreach(word, nvram_safe_get("ehci_ports"), next){
@@ -2030,7 +2007,6 @@ NEITHER_WDS_OR_PSTA:
 
 				++port_num;
 			}
-#endif
 
 			if(!strcmp(nvram_safe_get("success_start_service"), "1")){
 				_dprintf("%s: start_wan_if(%d)!\n", __FUNCTION__, unit);
