@@ -4082,51 +4082,28 @@ static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
 #define MAX_PRINTER_NUM 2
 
 static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
-	int printer_num = 0, first;
-	char tmp[64], prefix[] = "usb_pathXXXXXXXXXXXXXXXXX_";
+	int port_num = 0, first;
+	char tmp[64], prefix[] = "usb_pathX";
 	char printer_array[2][5][64];
-	char usb_node[32];
-	char port_path[8];
-#ifndef RTCONFIG_USB_HUB
-	char usb_port[8];
-	int port_num;
-#endif
 
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		memset(printer_array[printer_num][0], 0, 64);
-		memset(printer_array[printer_num][1], 0, 64);
-		memset(printer_array[printer_num][2], 0, 64);
-		memset(printer_array[printer_num][3], 0, 64);
-		memset(printer_array[printer_num][4], 0, 64);
-	}
+	for(port_num = 1; port_num <= MAX_PRINTER_NUM; ++port_num){
+		snprintf(prefix, sizeof(prefix), "usb_path%d", port_num);
 
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		snprintf(prefix, sizeof(prefix), "usb_path_lp%d", printer_num);
-		memset(usb_node, 0, 32);
-		strncpy(usb_node, nvram_safe_get(prefix), 32);
+		memset(printer_array[port_num-1][0], 0, 64);
+		memset(printer_array[port_num-1][1], 0, 64);
+		memset(printer_array[port_num-1][2], 0, 64);
+		memset(printer_array[port_num-1][3], 0, 64);
+		memset(printer_array[port_num-1][4], 0, 64);
 
-		if(strlen(usb_node) > 0){
-			if(get_path_by_node(usb_node, port_path, 8) != NULL){
-				snprintf(prefix, sizeof(prefix), "usb_path%s", port_path);
-
-#ifdef RTCONFIG_USB_HUB
-				strncpy(printer_array[printer_num][0], "printer", 64);
-				strncpy(printer_array[printer_num][1], nvram_safe_get(strcat_r(prefix, "_manufacturer", tmp)), 64);
-				strncpy(printer_array[printer_num][2], nvram_safe_get(strcat_r(prefix, "_product", tmp)), 64);
-				strncpy(printer_array[printer_num][3], nvram_safe_get(strcat_r(prefix, "_serial", tmp)), 64);
-				strcpy(printer_array[printer_num][4], usb_node);
-#else
-				get_usb_port_by_string(usb_node, usb_port, 8);
-				port_num = get_usb_port_number(usb_port);
-				if(port_num == 1 || port_num == 2){
-					strncpy(printer_array[port_num-1][0], "printer", 64);
-					strncpy(printer_array[port_num-1][1], nvram_safe_get(strcat_r(prefix, "_manufacturer", tmp)), 64);
-					strncpy(printer_array[port_num-1][2], nvram_safe_get(strcat_r(prefix, "_product", tmp)), 64);
-					strncpy(printer_array[port_num-1][3], nvram_safe_get(strcat_r(prefix, "_serial", tmp)), 64);
-					strcpy(printer_array[port_num-1][4], usb_node);
-				}
-#endif
-			}
+		if(nvram_match(prefix, "printer")){
+			strncpy(printer_array[port_num-1][0], "printer", 64);
+			strncpy(printer_array[port_num-1][1], nvram_safe_get(strcat_r(prefix, "_manufacturer", tmp)), 64);
+			strncpy(printer_array[port_num-1][2], nvram_safe_get(strcat_r(prefix, "_product", tmp)), 64);
+			strncpy(printer_array[port_num-1][3], nvram_safe_get(strcat_r(prefix, "_serial", tmp)), 64);
+			if(!strcmp(printer_array[port_num-1][3], nvram_safe_get("u2ec_serial")))
+				strcpy(printer_array[port_num-1][4], "VirtualPool");
+			else
+				strcpy(printer_array[port_num-1][4], "");
 		}
 	}
 
@@ -4134,9 +4111,9 @@ static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
 	websWrite(wp, "    return [");
 
 	first = 1;
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		if(strlen(printer_array[printer_num][0]) > 0)
-			websWrite(wp, "\"%s\"", printer_array[printer_num][1]);
+	for(port_num = 1; port_num <= MAX_PRINTER_NUM; ++port_num){
+		if(strlen(printer_array[port_num-1][0]) > 0)
+			websWrite(wp, "\"%s\"", printer_array[port_num-1][1]);
 		else
 			websWrite(wp, "\"\"");
 		if(first){
@@ -4152,9 +4129,9 @@ static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
 	websWrite(wp, "    return [");
 
 	first = 1;
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		if(strlen(printer_array[printer_num][0]) > 0)
-			websWrite(wp, "\"%s\"", printer_array[printer_num][2]);
+	for(port_num = 1; port_num <= MAX_PRINTER_NUM; ++port_num){
+		if(strlen(printer_array[port_num-1][0]) > 0)
+			websWrite(wp, "\"%s\"", printer_array[port_num-1][2]);
 		else
 			websWrite(wp, "\"\"");
 		if(first){
@@ -4170,9 +4147,9 @@ static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
 	websWrite(wp, "    return [");
 
 	first = 1;
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		if(strlen(printer_array[printer_num][0]) > 0)
-			websWrite(wp, "\"%s\"", printer_array[printer_num][3]);
+	for(port_num = 1; port_num <= MAX_PRINTER_NUM; ++port_num){
+		if(strlen(printer_array[port_num-1][0]) > 0)
+			websWrite(wp, "\"%s\"", printer_array[port_num-1][3]);
 		else
 			websWrite(wp, "\"\"");
 		if(first){
@@ -4188,9 +4165,9 @@ static int ej_get_printer_info(int eid, webs_t wp, int argc, char_t **argv){
 	websWrite(wp, "    return [");
 
 	first = 1;
-	for(printer_num = 0; printer_num < MAX_PRINTER_NUM; ++printer_num){
-		if(strlen(printer_array[printer_num][0]) > 0)
-			websWrite(wp, "\"%s\"", printer_array[printer_num][4]);
+	for(port_num = 1; port_num <= MAX_PRINTER_NUM; ++port_num){
+		if(strlen(printer_array[port_num-1][0]) > 0)
+			websWrite(wp, "\"%s\"", printer_array[port_num-1][4]);
 		else
 			websWrite(wp, "\"\"");
 		if(first){
