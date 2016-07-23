@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -15,47 +15,40 @@
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
-<% login_state_hook(); %>
-var wireless = [<% wl_auth_list(); %>]; // [[MAC, associated, authorized], ...]
-
 function initial(){
 	show_menu();
-	$("option5").innerHTML = '<table><tbody><tr><td><div id="index_img5"></div></td><td><div style="width:120px;"><#Menu_usb_application#></div></td></tr></tbody></table>';
-	$("option5").className = "m5_r";
+	document.getElementById("_APP_Installation").innerHTML = '<table><tbody><tr><td><div class="_APP_Installation"></div></td><td><div style="width:120px;"><#Menu_usb_application#></div></td></tr></tbody></table>';
+	document.getElementById("_APP_Installation").className = "menu_clicked";
 	hideAll(document.form.enable_webdav.value);
 }
 
 function hideAll(_value){
-	$("st_webdav_mode_tr").style.display = (_value == 0) ? "none" : "";
-	$("webdav_http_port_tr").style.display = (_value == 0) ? "none" : "";
-	$("webdav_https_port_tr").style.display = (_value == 0) ? "none" : "";
+	document.getElementById("st_webdav_mode_tr").style.display = (_value == 0) ? "none" : "";
+	document.getElementById("webdav_http_port_tr").style.display = (_value == 0) ? "none" : "";
+	document.getElementById("webdav_https_port_tr").style.display = (_value == 0) ? "none" : "";
 
 	if(_value == 1)
 		showPortItem(document.form.st_webdav_mode.value);
 }
 
 function showPortItem(_value){
-	$("webdav_http_port_tr").style.display = (_value == 0) ? "" : "none";
+	document.getElementById("webdav_http_port_tr").style.display = (_value == 0) ? "" : "none";
 	document.form.webdav_http_port.disabled = (_value == 0) ? false : true;
 
-	$("webdav_https_port_tr").style.display =  (_value == 0) ? "none" : "";
+	document.getElementById("webdav_https_port_tr").style.display =  (_value == 0) ? "none" : "";
 	document.form.webdav_https_port.disabled = (_value == 0) ? true : false;
 }
 
 function applyRule(){
 	if(document.form.st_webdav_mode.value == 0){
-		if(!validate_number_range(document.form.webdav_http_port, 1, 65535)){
+		if(!validator.numberRange(document.form.webdav_http_port, 1, 65535)){
 			return false;	
 		}
 	}
 	else{	
-		if(!validate_number_range(document.form.webdav_https_port, 1, 65535)){
+		if(!validator.numberRange(document.form.webdav_https_port, 1, 65535)){
 			return false;	
 		}
 	}
@@ -148,14 +141,14 @@ function applyRule(){
         	<tr id="webdav_http_port_tr" style="display:none;">
           	<th width="40%">WebDav to Samba Port</th>
 						<td>
-							<input type="text" name="webdav_http_port" class="input_6_table" maxlength="5" value="<% nvram_get("webdav_http_port"); %>" onKeyPress="return is_number(this, event);">
+							<input type="text" name="webdav_http_port" class="input_6_table" maxlength="5" value="<% nvram_get("webdav_http_port"); %>" onKeyPress="return validator.isNumber(this, event);" autocorrect="off" autocapitalize="off">
 						</td>
 					</tr>
 
         	<tr id="webdav_https_port_tr" style="display:none;">
           	<th width="40%">WebDav to Samba Port</th>
 						<td>
-							<input type="text" name="webdav_https_port" class="input_6_table" maxlength="5" value="<% nvram_get("webdav_https_port"); %>" onKeyPress="return is_number(this, event);">
+							<input type="text" name="webdav_https_port" class="input_6_table" maxlength="5" value="<% nvram_get("webdav_https_port"); %>" onKeyPress="return validator.isNumber(this, event);" autocorrect="off" autocapitalize="off">
 						</td>
 					</tr>
 

@@ -23,7 +23,6 @@
 
 var remoteIP = '<% nvram_get("lan_gateway"); %>';
 var reIP = '<% nvram_get("lan_ipaddr"); %>';
-var clientIP = login_ip_str_now();
 
 function initial(){
 
@@ -32,7 +31,7 @@ function initial(){
 	document.getElementById("repeaterIP").innerHTML = reIP;
 	document.getElementById("repeaterIP2").innerHTML = reIP;
 
-	document.getElementById("clientIP").innerHTML = clientIP;
+	document.getElementById("clientIP").innerHTML = login_ip_str_now();
 }
 
 function gotoAdvSetting(){
@@ -60,7 +59,7 @@ function addBookmarkForBrowser(sTitle) {
 <body onload="initial();" class="LevelQIS">
 <script>
 	var sw_mode = '<% nvram_get("sw_mode"); %>';
-	if(sw_mode == 3 && '<% nvram_get("wlc_psta"); %>' == 1)
+	if(((sw_mode == 2 ||sw_mode == 3) && '<% nvram_get("wlc_psta"); %>' == 1) || (sw_mode ==3 && '<% nvram_get("wlc_psta"); %>' == 3))
 		sw_mode = 2;
 
 	if(sw_mode != 2){

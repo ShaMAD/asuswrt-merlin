@@ -24,6 +24,8 @@
 extern const char WIF_2G[];
 extern const char WIF_5G[];
 extern const char WDSIF_5G[];
+extern const char APCLI_5G[];
+extern const char APCLI_2G[];
 #define URE	"apcli0"
 
 #ifndef ETHER_ADDR_LEN
@@ -45,6 +47,23 @@ extern const char WDSIF_5G[];
 
 #define INIC_VLAN_ID_START	4 //first vlan id used for RT3352 iNIC MII
 #define INIC_VLAN_IDX_START	2 //first available index to set vlan id and its group.
+
+#if defined(RTCONFIG_WLMODULE_MT7610_AP)
+#define RT_802_11_MAC_ENTRY_for_5G		RT_802_11_MAC_ENTRY_11AC
+#define MACHTTRANSMIT_SETTING_for_5G		MACHTTRANSMIT_SETTING_11AC
+#else
+#define RT_802_11_MAC_ENTRY_for_5G		RT_802_11_MAC_ENTRY_RT3883
+#define MACHTTRANSMIT_SETTING_for_5G		MACHTTRANSMIT_SETTING_2G
+#endif
+
+#if defined(RTN65U)
+#define RT_802_11_MAC_ENTRY_for_2G		RT_802_11_MAC_ENTRY_RT3352_iNIC
+#elif defined(RTN56UB1) || defined(RTN56UB2)
+#define RT_802_11_MAC_ENTRY_for_2G		RT_802_11_MAC_ENTRY_7603E
+#else
+#define RT_802_11_MAC_ENTRY_for_2G		RT_802_11_MAC_ENTRY_2G
+#endif
+#define MACHTTRANSMIT_SETTING_for_2G		MACHTTRANSMIT_SETTING_2G
 
 // MIMO Tx parameter, ShortGI, MCS, STBC, etc.  these are fields in TXWI. Don't change this definition!!!
 typedef union  _MACHTTRANSMIT_SETTING {
@@ -149,6 +168,21 @@ typedef struct _RT_802_11_MAC_ENTRY_2G {
     short		SoundingRespSnr[3];
 } RT_802_11_MAC_ENTRY_2G, *PRT_802_11_MAC_ENTRY_2G;
 
+typedef struct _RT_802_11_MAC_ENTRY_7603E {
+    unsigned char  ApIdx;
+    unsigned char Addr[ETHER_ADDR_LEN];
+    unsigned char Aid;
+    unsigned char Psm;              /* 0:PWR_ACTIVE, 1:PWR_SAVE */
+    unsigned char MimoPs;           /* 0:MMPS_STATIC, 1:MMPS_DYNAMIC, 3:MMPS_Enabled */
+    char AvgRssi0;
+    char AvgRssi1;
+    char AvgRssi2;
+    unsigned int ConnectedTime;
+    MACHTTRANSMIT_SETTING_2G    TxRate;
+    unsigned int LastRxRate;
+} RT_802_11_MAC_ENTRY_7603E, *PRT_802_11_MAC_ENTRY_7603E;
+
+
 typedef struct _RT_802_11_MAC_ENTRY_11AC {
     unsigned char	ApIdx;
     unsigned char	Addr[ETHER_ADDR_LEN];
@@ -165,14 +199,14 @@ typedef struct _RT_802_11_MAC_ENTRY_11AC {
     short		SoundingRespSnr[3];
 } RT_802_11_MAC_ENTRY_11AC, *PRT_802_11_MAC_ENTRY_11AC;
 
-typedef struct _RT_802_11_MAC_TABLE {
+typedef struct _RT_802_11_MAC_TABLE_5G {
     unsigned long	Num;
-    RT_802_11_MAC_ENTRY Entry[MAX_NUMBER_OF_MAC];
-} RT_802_11_MAC_TABLE, *PRT_802_11_MAC_TABLE;
+    RT_802_11_MAC_ENTRY_for_5G	Entry[MAX_NUMBER_OF_MAC];
+} RT_802_11_MAC_TABLE_5G, *PRT_802_11_MAC_TABLE_5G;
 
 typedef struct _RT_802_11_MAC_TABLE_2G {
     unsigned long	Num;
-    RT_802_11_MAC_ENTRY_2G Entry[MAX_NUMBER_OF_MAC];
+    RT_802_11_MAC_ENTRY_for_2G	Entry[MAX_NUMBER_OF_MAC];
 } RT_802_11_MAC_TABLE_2G, *PRT_802_11_MAC_TABLE_2G;
 
 typedef struct _SITE_SURVEY_RT3352_iNIC
@@ -291,14 +325,15 @@ typedef enum _RT_802_11_PHY_MODE {
  * associated with parallel NOR Flash and SPI Flash.
  */
 #define OFFSET_MTD_FACTORY	0x40000
+#define OFFSET_EEPROM_VER	0x40002
 #define OFFSET_BOOT_VER		0x4018A
 #define OFFSET_COUNTRY_CODE	0x40188
-#if defined(RTN14U)
+#if defined(RTN14U) || defined(RTN11P) || defined(RTN300)
 #define OFFSET_MAC_ADDR		0x40004
 #define OFFSET_MAC_ADDR_2G	0x40004 //only one MAC
 #define OFFSET_MAC_GMAC2	0x4018E
 #define OFFSET_MAC_GMAC0	0x40194
-#elif defined(RTAC52U) || defined(RTAC51U)
+#elif defined(RTAC52U) || defined(RTAC51U) || defined(RTN54U) || defined(RTAC54U) || defined(RTAC1200HP) || defined(RTN56UB1) || defined(RTN56UB2)
 #define OFFSET_MAC_ADDR_2G	0x40004
 #define OFFSET_MAC_ADDR		0x48004
 #define OFFSET_MAC_GMAC0	0x40022
@@ -308,6 +343,9 @@ typedef enum _RT_802_11_PHY_MODE {
 #define OFFSET_MAC_ADDR_2G	0x48004
 #define OFFSET_MAC_GMAC2	0x40022
 #define OFFSET_MAC_GMAC0	0x40028
+#endif
+#if defined(RTAC1200HP) || defined(RTN56UB1) || defined(RTN56UB2)
+#define OFFSET_FIX_CHANNEL      0x40170
 #endif
 #define OFFSET_PIN_CODE		0x40180
 #define OFFSET_TXBF_PARA	0x401A0
@@ -320,6 +358,8 @@ typedef enum _RT_802_11_PHY_MODE {
 #define REGSPEC_ADDR		0x40248 // 4 bytes
 #endif /* RTCONFIG_NEW_REGULATION_DOMAIN */
 
+#define OFFSET_PSK		0x4ff80 //15bytes
+#define OFFSET_TERRITORY_CODE	0x4ff90	/* 5 bytes, e.g., US/01, US/02, TW/01, etc. */
 #define OFFSET_DEV_FLAGS	0x4ffa0 //device dependent flags
 #define OFFSET_ODMPID		0x4ffb0 //the shown model name (for Bestbuy and others)
 #define OFFSET_FAIL_RET		0x4ffc0

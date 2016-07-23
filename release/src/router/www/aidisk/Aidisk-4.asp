@@ -28,19 +28,19 @@ function initial(){
 	showDDNS();
 	clickevent();
 	parent.restore_help_td();	
-	$("finish").focus();
+	document.getElementById("finish").focus();
 }
 
 function show_dummyshareway(){
-	switch(parent.$("dummyShareway").value){
+	switch(parent.document.getElementById("dummyShareway").value){
 		case "0":
-			showtext($("dummyShareStr"), "\"<#Step2_method1#>\"");
+			showtext(document.getElementById("dummyShareStr"), "\"<#Step2_method1#>\"");
 			break;
 		case "1":
-			showtext($("dummyShareStr"), "\"<#Step2_method2#>\"");
+			showtext(document.getElementById("dummyShareStr"), "\"<#Step2_method2#>\"");
 			break;
 		case "2":
-			showtext($("dummyShareStr"), "\"<#Step2_method3#>\"");
+			showtext(document.getElementById("dummyShareStr"), "\"<#Step2_method3#>\"");
 			break;
 		//default:
 		//	alert("dummy: System error!");
@@ -67,32 +67,32 @@ function valid_wan_ip() {
         else if(ip_num > C_class_start && ip_num < C_class_end)
                 ip_class = 'C';
         else if(ip_num != 0){
-		$("priv_wan_ip").style.display = "none";
+		document.getElementById("priv_wan_ip").style.display = "none";
                 return;
         }
-	$("priv_wan_ip").style.display = "";
+	document.getElementById("priv_wan_ip").style.display = "";
         return;
 }
 
 function showDDNS(){
-	$("priv_wan_ip").style.display = "none";
+	document.getElementById("priv_wan_ip").style.display = "none";
 	if('<% nvram_get("enable_ftp"); %>' == '1'){
 		if(this.ddns_enable_x == "1"){
-			$("haveDDNS").style.display = "";
-			$("noFTP").style.display = "none";
-			$("noDDNS").style.display = "none";
+			document.getElementById("haveDDNS").style.display = "";
+			document.getElementById("noFTP").style.display = "none";
+			document.getElementById("noDDNS").style.display = "none";
 			valid_wan_ip();
 		}
 		else{
-			$("haveDDNS").style.display = "none";
-			$("noFTP").style.display = "none";
-			$("noDDNS").style.display = "";
+			document.getElementById("haveDDNS").style.display = "none";
+			document.getElementById("noFTP").style.display = "none";
+			document.getElementById("noDDNS").style.display = "";
 		}
 	}
 	else{
-		$("haveDDNS").style.display = "none";
-		$("noFTP").style.display = "none";
-		$("noDDNS").style.display = "none";
+		document.getElementById("haveDDNS").style.display = "none";
+		document.getElementById("noFTP").style.display = "none";
+		document.getElementById("noDDNS").style.display = "none";
 	}
 }
 
@@ -102,29 +102,35 @@ function go_pre_page(){
 }
 
 function compute_work_time(){
-	var total_folder_number = 0;
-	
-	for(var i = 0; i < parent.pool_devices().length; ++i){
-		if(parent.pool_devices()[i].indexOf("part") < 0)
-			continue;
-		total_folder_number += parent.get_sharedfolder_in_pool(parent.pool_devices()[i]).length-1;
-	}
-	
-	if(parent.$("dummyShareway").value == "1")
-		return FOLDER_WORK_TIME*total_folder_number*2+SAFE_TIME;
-	else if(parent.$("dummyShareway").value == "2")
-		return FOLDER_WORK_TIME*total_folder_number+SAFE_TIME;
-	else
-		return SAFE_TIME;
+  require(['/require/modules/diskList.js'], function(diskList){
+    var total_folder_number = 0;
+    var usbDevicesList = diskList.list();
+
+    for(var i=0; i < usbDevicesList.length; i++){
+    //Scan all partition of usb device
+      for(var j=0; j < usbDevicesList[i].partition.length; j++){
+        if(usbDevicesList[i].partition[j].mountPoint.indexOf("part") < 0)
+          continue;
+        total_folder_number += parent.get_sharedfolder_in_pool(usbDevicesList[i].partition[j].mountPoint).length-1;
+      }
+    }
+
+    if(parent.document.getElementById("dummyShareway").value == "1")
+      return FOLDER_WORK_TIME*total_folder_number*2+SAFE_TIME;
+    else if(parent.document.getElementById("dummyShareway").value == "2")
+      return FOLDER_WORK_TIME*total_folder_number+SAFE_TIME;
+    else
+      return SAFE_TIME;
+  });	
 }
 
 function clickevent(){
-	$("finish").onclick = function(){
+	document.getElementById("finish").onclick = function(){
 			parent.showLoading();
 			//parent.showLoading(compute_work_time(), "waiting");
 			parent.document.parameterForm.next_page.value = "/aidisk.asp";
 
-			if(parent.$("dummyShareway").value == "0")
+			if(parent.document.getElementById("dummyShareway").value == "0")
 				parent.switchShareMode("ftp", "share");
 			else
 				parent.initialAccount();
@@ -171,8 +177,7 @@ function clickevent(){
      	 
      	 <span id="haveDDNS">
        <li>
-          <#AiDisk_linktoFTP_fromInternet#>  
-          <a target="_blank" href="ftp://<% nvram_get("ddns_hostname_x"); %>">ftp://<% nvram_get("ddns_hostname_x"); %></a>
+          Internet FTP address: <a target="_blank" style="text-decoration: underline; font-family:Lucida Console;">ftp://<% nvram_get("ddns_hostname_x"); %></a>
        </li> 
        </span> 
        <span id="priv_wan_ip" style="color:#FFCC00;">
@@ -199,14 +204,12 @@ function clickevent(){
     </tr>     
 
     <tr valign="bottom">
-  		<td width="20%">
-  			<div class="apply_gen" style="margin-top:30px">
-  				<input type="button" id="prevButton" value="<#btn_pre#>" onclick="go_pre_page();" class="button_gen">
-  				<input type="button" id="finish" value="<#CTL_finish#>" class="button_gen">
-	    		<!--a href="Aidisk-3.asp"><div class="titlebtn" align="center" style="margin-left:275px;_margin-left:137px;width:80px;"><span><#btn_pre#></span></div></a>
-	    		<a href="javascript:;"><div id="finish" class="titlebtn" align="center" style="width:80px;"><span><#CTL_finish#></span></div></a-->
-	    	</div>	
-	    </td>
+	<td width="20%">
+		<div class="apply_gen" style="margin-top:30px">
+			<input type="button" id="prevButton" value="<#CTL_prev#>" onclick="go_pre_page();" class="button_gen">
+			<input type="button" id="finish" value="<#CTL_finish#>" class="button_gen">
+		</div>	
+	</td>
     </tr>
     <!-- end -->
   </table>

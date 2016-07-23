@@ -184,10 +184,12 @@ ce_management_query_proxy (struct context *c)
   if (management)
     {
       gc = gc_new ();
-      struct buffer out = alloc_buf_gc (256, &gc);
-      buf_printf (&out, ">PROXY:%u,%s,%s", (l ? l->current : 0) + 1,
-                  (proto_is_udp (ce->proto) ? "UDP" : "TCP"), np (ce->remote));
-      management_notify_generic (management, BSTR (&out));
+      {
+	struct buffer out = alloc_buf_gc (256, &gc);
+	buf_printf (&out, ">PROXY:%u,%s,%s", (l ? l->current : 0) + 1,
+		    (proto_is_udp (ce->proto) ? "UDP" : "TCP"), np (ce->remote));
+	management_notify_generic (management, BSTR (&out));
+      }
       ce->flags |= CE_MAN_QUERY_PROXY;
       while (ce->flags & CE_MAN_QUERY_PROXY)
         {
@@ -388,8 +390,8 @@ next_connection_entry (struct context *c)
 /*
  * Query for private key and auth-user-pass username/passwords
  */
-static void
-init_query_passwords (struct context *c)
+void
+init_query_passwords (const struct context *c)
 {
 #if defined(ENABLE_CRYPTO) && defined(ENABLE_SSL)
   /* Certificate password input */
@@ -518,8 +520,6 @@ context_init_1 (struct context *c)
   packet_id_persist_init (&c->c1.pid_persist);
 
   init_connection_list (c);
-
-  init_query_passwords (c);
 
 #if defined(ENABLE_PKCS11)
   if (c->first_time) {
@@ -841,7 +841,7 @@ void
 init_options_dev (struct options *options)
 {
   if (!options->dev && options->dev_node) {
-    char *dev_node = strdup(options->dev_node); /* POSIX basename() implementaions may modify its arguments */
+    char *dev_node = string_alloc(options->dev_node, NULL); /* POSIX basename() implementaions may modify its arguments */
     options->dev = basename (dev_node);
   }
 }
@@ -867,7 +867,7 @@ print_openssl_info (const struct options *options)
 	show_available_engines ();
 #ifdef ENABLE_SSL
       if (options->show_tls_ciphers)
-	show_available_tls_ciphers ();
+	show_available_tls_ciphers (options->cipher_list);
 #endif
       return true;
     }
@@ -909,7 +909,6 @@ do_genkey (const struct options * options)
 bool
 do_persist_tuntap (const struct options *options)
 {
-#ifdef ENABLE_FEATURE_TUN_PERSIST
   if (options->persist_config)
     {
       /* sanity check on options for --mktun or --rmtun */
@@ -925,14 +924,21 @@ do_persist_tuntap (const struct options *options)
 	)
 	msg (M_FATAL|M_OPTERR,
 	     "options --mktun or --rmtun should only be used together with --dev");
+#ifdef ENABLE_FEATURE_TUN_PERSIST
       tuncfg (options->dev, options->dev_type, options->dev_node,
 	      options->persist_mode,
 	      options->username, options->groupname, &options->tuntap_options);
       if (options->persist_mode && options->lladdr)
         set_lladdr(options->dev, options->lladdr, NULL);
       return true;
-    }
+#else
+      msg( M_FATAL|M_OPTERR,
+	"options --mktun and --rmtun are not available on your operating "
+	"system.  Please check 'man tun' (or 'tap'), whether your system "
+        "supports using 'ifconfig %s create' / 'destroy' to create/remove "
+        "persistant tunnel interfaces.", options->dev );
 #endif
+    }
   return false;
 }
 
@@ -940,22 +946,19 @@ do_persist_tuntap (const struct options *options)
  * Should we become a daemon?
  * Return true if we did it.
  */
-static bool
-possibly_become_daemon (const struct options *options, const bool first_time)
+bool
+possibly_become_daemon (const struct options *options)
 {
   bool ret = false;
-  if (first_time && options->daemon)
+  if (options->daemon)
     {
       ASSERT (!options->inetd);
-      if (daemon (options->cd_dir != NULL, options->log) < 0)
+      /* Don't chdir immediately, but the end of the init sequence, if needed */
+      if (daemon (1, options->log) < 0)
 	msg (M_ERR, "daemon() failed or unsupported");
       restore_signal_state ();
       if (options->log)
 	set_std_files_to_null (true);
-
-#if defined(ENABLE_PKCS11)
-      pkcs11_forkFixup ();
-#endif
 
       ret = true;
     }
@@ -971,31 +974,30 @@ do_uid_gid_chroot (struct context *c, bool no_delay)
   static const char why_not[] = "will be delayed because of --client, --pull, or --up-delay";
   struct context_0 *c0 = c->c0;
 
-  if (c->first_time && c0 && !c0->uid_gid_set)
+  if (c0 && !c0->uid_gid_chroot_set)
     {
       /* chroot if requested */
       if (c->options.chroot_dir)
 	{
 	  if (no_delay)
 	    platform_chroot (c->options.chroot_dir);
-	  else
+	  else if (c->first_time)
 	    msg (M_INFO, "NOTE: chroot %s", why_not);
 	}
 
-      /* set user and/or group that we want to setuid/setgid to */
-      if (no_delay)
+      /* set user and/or group if we want to setuid/setgid */
+      if (c0->uid_gid_specified)
 	{
-	  platform_group_set (&c0->platform_state_group);
-	  platform_user_set (&c0->platform_state_user);
-	  c0->uid_gid_set = true;
-	}
-      else if (c0->uid_gid_specified)
-	{
-	  msg (M_INFO, "NOTE: UID/GID downgrade %s", why_not);
+	  if (no_delay) {
+	    platform_group_set (&c0->platform_state_group);
+	    platform_user_set (&c0->platform_state_user);
+	  }
+	  else if (c->first_time)
+	    msg (M_INFO, "NOTE: UID/GID downgrade %s", why_not);
 	}
 
 #ifdef ENABLE_MEMSTATS
-      if (c->options.memstats_fn)
+      if (c->first_time && c->options.memstats_fn)
 	mstats_open(c->options.memstats_fn);
 #endif
 
@@ -1014,10 +1016,16 @@ do_uid_gid_chroot (struct context *c, bool no_delay)
 	    else
 	      msg (M_INFO, "setcon to '%s' succeeded", c->options.selinux_context);
 	  }
-	  else
+	  else if (c->first_time)
 	    msg (M_INFO, "NOTE: setcon %s", why_not);
 	}
 #endif
+
+      /* Privileges are going to be dropped by now (if requested), be sure
+       * to prevent any future privilege dropping attempts from now on.
+       */
+      if (no_delay)
+	c0->uid_gid_chroot_set = true;
     }
 }
 
@@ -1453,6 +1461,9 @@ do_open_tun (struct context *c)
 		   c->plugins,
 		   OPENVPN_PLUGIN_UP,
 		   c->c1.tuntap->actual_name,
+#ifdef WIN32
+		   c->c1.tuntap->adapter_index,
+#endif
 		   dev_type_string (c->options.dev, c->options.dev_type),
 		   TUN_MTU_SIZE (&c->c2.frame),
 		   EXPANDED_SIZE (&c->c2.frame),
@@ -1462,6 +1473,15 @@ do_open_tun (struct context *c)
 		   NULL,
 		   "up",
 		   c->c2.es);
+
+#ifdef WIN32
+      if (c->options.block_outside_dns)
+      {
+        dmsg (D_LOW, "Blocking outside DNS");
+        if (!win_wfp_block_dns(c->c1.tuntap->adapter_index))
+            msg (M_FATAL, "Blocking DNS failed!");
+      }
+#endif
 
       /* possibly add routes */
       if (!c->options.route_delay_defined)
@@ -1484,12 +1504,18 @@ do_open_tun (struct context *c)
       msg (M_INFO, "Preserving previous TUN/TAP instance: %s",
 	   c->c1.tuntap->actual_name);
 
+      /* explicitly set the ifconfig_* env vars */
+      do_ifconfig_setenv(c->c1.tuntap, c->c2.es);
+
       /* run the up script if user specified --up-restart */
       if (c->options.up_restart)
 	run_up_down (c->options.up_script,
 		     c->plugins,
 		     OPENVPN_PLUGIN_UP,
 		     c->c1.tuntap->actual_name,
+#ifdef WIN32
+		     c->c1.tuntap->adapter_index,
+#endif
 		     dev_type_string (c->options.dev, c->options.dev_type),
 		     TUN_MTU_SIZE (&c->c2.frame),
 		     EXPANDED_SIZE (&c->c2.frame),
@@ -1527,6 +1553,9 @@ do_close_tun (struct context *c, bool force)
   if (c->c1.tuntap && c->c1.tuntap_owned)
     {
       const char *tuntap_actual = string_alloc (c->c1.tuntap->actual_name, &gc);
+#ifdef WIN32
+      DWORD adapter_index = c->c1.tuntap->adapter_index;
+#endif
       const in_addr_t local = c->c1.tuntap->local;
       const in_addr_t remote_netmask = c->c1.tuntap->remote_netmask;
 
@@ -1550,6 +1579,9 @@ do_close_tun (struct context *c, bool force)
                            c->plugins,
                            OPENVPN_PLUGIN_ROUTE_PREDOWN,
                            tuntap_actual,
+#ifdef WIN32
+                           adapter_index,
+#endif
                            NULL,
                            TUN_MTU_SIZE (&c->c2.frame),
                            EXPANDED_SIZE (&c->c2.frame),
@@ -1575,6 +1607,9 @@ do_close_tun (struct context *c, bool force)
 		       c->plugins,
 		       OPENVPN_PLUGIN_DOWN,
 		       tuntap_actual,
+#ifdef WIN32
+		       adapter_index,
+#endif
 		       NULL,
 		       TUN_MTU_SIZE (&c->c2.frame),
 		       EXPANDED_SIZE (&c->c2.frame),
@@ -1585,6 +1620,14 @@ do_close_tun (struct context *c, bool force)
 					   c->sig->signal_text),
 		       "down",
 		       c->c2.es);
+
+#ifdef WIN32
+            if (c->options.block_outside_dns)
+            {
+                if (!win_wfp_uninit())
+                    msg (M_FATAL, "Uninitialising WFP failed!");
+            }
+#endif
 
 	  /* actually close tun/tap device based on --down-pre flag */
 	  if (c->options.down_pre)
@@ -1598,6 +1641,9 @@ do_close_tun (struct context *c, bool force)
 			 c->plugins,
 			 OPENVPN_PLUGIN_DOWN,
 			 tuntap_actual,
+#ifdef WIN32
+			 adapter_index,
+#endif
 			 NULL,
 			 TUN_MTU_SIZE (&c->c2.frame),
 			 EXPANDED_SIZE (&c->c2.frame),
@@ -1712,7 +1758,8 @@ pull_permission_mask (const struct context *c)
     | OPT_P_MESSAGES
     | OPT_P_EXPLICIT_NOTIFY
     | OPT_P_ECHO
-    | OPT_P_PULL_MODE;
+    | OPT_P_PULL_MODE
+    | OPT_P_PEER_ID;
 
   if (!c->options.route_nopull)
     flags |= (OPT_P_ROUTE | OPT_P_IPWIN32);
@@ -1791,21 +1838,39 @@ do_deferred_options (struct context *c, const unsigned int found)
     msg (D_PUSH, "OPTIONS IMPORT: --ip-win32 and/or --dhcp-option options modified");
   if (found & OPT_P_SETENV)
     msg (D_PUSH, "OPTIONS IMPORT: environment modified");
+
+#ifdef ENABLE_SSL
+  if (found & OPT_P_PEER_ID)
+    {
+      msg (D_PUSH, "OPTIONS IMPORT: peer-id set");
+      c->c2.tls_multi->use_peer_id = true;
+      c->c2.tls_multi->peer_id = c->options.peer_id;
+      frame_add_to_extra_frame(&c->c2.frame, +3);	/* peer-id overhead */
+      if ( !c->options.ce.link_mtu_defined )
+	{
+	  frame_add_to_link_mtu(&c->c2.frame, +3);
+	  msg (D_PUSH, "OPTIONS IMPORT: adjusting link_mtu to %d",
+				EXPANDED_SIZE(&c->c2.frame));
+	}
+      else
+	{
+	  msg (M_WARN, "OPTIONS IMPORT: WARNING: peer-id set, but link-mtu"
+                       " fixed by config - reducing tun-mtu to %d, expect"
+                       " MTU problems", TUN_MTU_SIZE(&c->c2.frame) );
+	}
+    }
+#endif
 }
 
 /*
  * Possible hold on initialization
  */
 static bool
-do_hold (struct context *c)
+do_hold (void)
 {
 #ifdef ENABLE_MANAGEMENT
   if (management)
     {
-      /* if c is defined, daemonize before hold */
-      if (c && c->options.daemon && management_should_daemonize (management))
-	do_init_first_time (c);
-
       /* block until management hold is released */
       if (management_hold (management))
 	return true;
@@ -1871,7 +1936,7 @@ socket_restart_pause (struct context *c)
   c->persist.restart_sleep_seconds = 0;
 
   /* do managment hold on context restart, i.e. second, third, fourth, etc. initialization */
-  if (do_hold (NULL))
+  if (do_hold ())
     sec = 0;
 
   if (sec)
@@ -1890,7 +1955,7 @@ do_startup_pause (struct context *c)
   if (!c->first_time)
     socket_restart_pause (c);
   else
-    do_hold (NULL); /* do management hold on first context initialization */
+    do_hold (); /* do management hold on first context initialization */
 }
 
 /*
@@ -2162,7 +2227,7 @@ do_init_crypto_tls (struct context *c, const unsigned int flags)
 			       options->use_iv);
 
   /* In short form, unique datagram identifier is 32 bits, in long form 64 bits */
-  packet_id_long_form = cfb_ofb_mode (&c->c1.ks.key_type);
+  packet_id_long_form = cipher_kt_mode_ofb_cfb (c->c1.ks.key_type.cipher);
 
   /* Compute MTU parameters */
   crypto_adjust_frame_parameters (&c->c2.frame,
@@ -2245,6 +2310,7 @@ do_init_crypto_tls (struct context *c, const unsigned int flags)
   to.tmp_dir = options->tmp_dir;
   if (options->ccd_exclusive)
     to.client_config_dir_exclusive = options->client_config_dir;
+  to.auth_user_pass_file = options->auth_user_pass_file;
 #endif
 
 #ifdef ENABLE_X509_TRACK
@@ -2390,6 +2456,17 @@ do_init_frame (struct context *c)
    * make sure values are rational, etc.
    */
   frame_finalize_options (c, NULL);
+
+  /* packets with peer-id (P_DATA_V2) need 3 extra bytes in frame (on client)
+   * and need link_mtu+3 bytes on socket reception (on server).
+   *
+   * accomodate receive path in f->extra_link
+   *            send path in f->extra_buffer (+leave room for alignment)
+   *
+   * f->extra_frame is adjusted when peer-id option is push-received
+   */
+  frame_add_to_extra_link(&c->c2.frame, 3);
+  frame_add_to_extra_buffer(&c->c2.frame, 8);
 
 #ifdef ENABLE_FRAGMENT
   /*
@@ -2727,7 +2804,7 @@ do_compute_occ_strings (struct context *c)
 static void
 do_init_first_time (struct context *c)
 {
-  if (c->first_time && !c->did_we_daemonize && !c->c0)
+  if (c->first_time && !c->c0)
     {
       struct context_0 *c0;
 
@@ -2739,18 +2816,9 @@ do_init_first_time (struct context *c)
 	platform_group_get (c->options.groupname, &c0->platform_state_group) |
 	platform_user_get (c->options.username, &c0->platform_state_user);
 
-      /* get --writepid file descriptor */
-      get_pid_file (c->options.writepid, &c0->pid_state);
-
-      /* become a daemon if --daemon */
-      c->did_we_daemonize = possibly_become_daemon (&c->options, c->first_time);
-
-      /* should we disable paging? */
-      if (c->options.mlock && c->did_we_daemonize)
-	platform_mlockall (true);	/* call again in case we daemonized */
-
-      /* save process ID in a file */
-      write_pid (&c0->pid_state);
+      /* perform postponed chdir if --daemon */
+      if (c->did_we_daemonize && c->options.cd_dir == NULL)
+	platform_chdir("/");
 
       /* should we change scheduling priority? */
       platform_nice (c->options.nice);
@@ -2976,7 +3044,7 @@ do_close_ifconfig_pool_persist (struct context *c)
 static void
 do_inherit_env (struct context *c, const struct env_set *src)
 {
-  c->c2.es = env_set_create (&c->c2.gc);
+  c->c2.es = env_set_create (NULL);
   c->c2.es_owned = true;
   env_set_inherit (c->c2.es, src);
 }
@@ -3188,7 +3256,7 @@ open_management (struct context *c)
 	    }
 
 	  /* initial management hold, called early, before first context initialization */
-	  do_hold (c);
+	  do_hold ();
 	  if (IS_SIG (c))
 	    {
 	      msg (M_WARN, "Signal received from management interface, exiting");

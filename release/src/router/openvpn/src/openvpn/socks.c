@@ -105,10 +105,13 @@ socks_username_password_auth (struct socks_proxy_info *p,
   ssize_t size;
 
   creds.defined = 0;
-  get_user_pass (&creds, p->authfile, UP_TYPE_SOCKS, GET_USER_PASS_MANAGEMENT);
+  if (!get_user_pass (&creds, p->authfile, UP_TYPE_SOCKS, GET_USER_PASS_MANAGEMENT))
+    {
+      msg (M_NONFATAL, "SOCKS failed to get username/password.");
+      return false;
+    }
 
-  if( !creds.username || (strlen(creds.username) > 255)
-      || !creds.password || (strlen(creds.password) > 255) ) {
+  if( (strlen(creds.username) > 255) || (strlen(creds.password) > 255) ) {
           msg (M_NONFATAL,
                "SOCKS username and/or password exceeds 255 characters.  "
                "Authentication not possible.");
@@ -133,7 +136,7 @@ socks_username_password_auth (struct socks_proxy_info *p,
       char c;
 
       FD_ZERO (&reads);
-      FD_SET (sd, &reads);
+      openvpn_fd_set (sd, &reads);
       tv.tv_sec = timeout_sec;
       tv.tv_usec = 0;
 
@@ -189,10 +192,15 @@ socks_handshake (struct socks_proxy_info *p,
   char buf[2];
   int len = 0;
   const int timeout_sec = 5;
+  ssize_t size;
 
-  /* VER = 5, NMETHODS = 2, METHODS = [0 (no auth), 2 (plain login)] */
-  const ssize_t size = send (sd, "\x05\x02\x00\x02", 4, MSG_NOSIGNAL);
-  if (size != 4)
+  /* VER = 5, NMETHODS = 1, METHODS = [0 (no auth)] */
+  char method_sel[3] = { 0x05, 0x01, 0x00 };
+  if (p->authfile[0])
+      method_sel[2] = 0x02; /* METHODS = [2 (plain login)] */
+
+  size = send (sd, method_sel, sizeof (method_sel), MSG_NOSIGNAL);
+  if (size != sizeof (method_sel))
     {
       msg (D_LINK_ERRORS | M_ERRNO, "socks_handshake: TCP port write failed on send()");
       return false;
@@ -207,7 +215,7 @@ socks_handshake (struct socks_proxy_info *p,
       char c;
 
       FD_ZERO (&reads);
-      FD_SET (sd, &reads);
+      openvpn_fd_set (sd, &reads);
       tv.tv_sec = timeout_sec;
       tv.tv_usec = 0;
 
@@ -249,6 +257,13 @@ socks_handshake (struct socks_proxy_info *p,
   if (buf[0] != '\x05')
     {
       msg (D_LINK_ERRORS, "socks_handshake: Socks proxy returned bad status");
+      return false;
+    }
+
+  /* validate that the auth method returned is the one sent */
+  if (buf[1] != method_sel[2])
+    {
+      msg (D_LINK_ERRORS, "socks_handshake: Socks proxy returned unexpected auth");
       return false;
     }
 
@@ -306,7 +321,7 @@ recv_socks_reply (socket_descriptor_t sd,
       char c;
 
       FD_ZERO (&reads);
-      FD_SET (sd, &reads);
+      openvpn_fd_set (sd, &reads);
       tv.tv_sec = timeout_sec;
       tv.tv_usec = 0;
 

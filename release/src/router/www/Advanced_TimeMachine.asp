@@ -2,13 +2,13 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
 <link rel="shortcut icon" href="images/favicon.png">
 <link rel="icon" href="images/favicon.png">
-<title><#Web_Title#> - Time Machine</title>
+<title><#Web_Title#> - <#TimeMach#></title>
 <link rel="stylesheet" type="text/css" href="index_style.css"> 
 <link rel="stylesheet" type="text/css" href="form_style.css">
 <link rel="stylesheet" type="text/css" href="other.css">
@@ -17,188 +17,128 @@
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script type="text/javascript" src="/disk_functions.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/switcherplugin/jquery.iphone-switch.js"></script>
+<script type="text/javascript" src="/form.js"></script>
 <script>
-
-<% login_state_hook(); %>
-var $j = jQuery.noConflict();
-var all_disks = "";
-var all_disk_interface;
-if(usb_support != -1){
-	all_disks = foreign_disks().concat(blank_disks());
-	all_disk_interface = foreign_disk_interface_names().concat(blank_disk_interface_names());
-}
+window.onresize = function() {
+	if(document.getElementById("folderTree_panel").style.display == "block") {
+		cal_panel_block("folderTree_panel", 0.25);
+	}
+} 
 
 function initial(){
 	show_menu();
-	$("option5").innerHTML = '<table><tbody><tr><td><div id="index_img5"></div></td><td><div style="width:120px;"><#menu5_4#></div></td></tr></tbody></table>';
-	$("option5").className = "m5_r";
-	detectUSBStatusApp();
+	document.getElementById("_APP_Installation").innerHTML = '<table><tbody><tr><td><div class="_APP_Installation"></div></td><td><div style="width:120px;"><#menu5_4#></div></td></tr></tbody></table>';
+	document.getElementById("_APP_Installation").className = "menu_clicked";
+
 	if('<% nvram_get("tm_device_name"); %>' != '')
-		$("tmPath").innerHTML = '/mnt/<% nvram_get("tm_device_name"); %>';
+		document.getElementById("tmPath").innerHTML = '/mnt/<% nvram_get("tm_device_name"); %>';
 	else
-		$("tmPath").innerHTML = '<div style="margin-left:5px;color:#FC0"><#DM_Install_partition#></div>';
+		document.getElementById("tmPath").innerHTML = '<div style="margin-left:5px;color:#FC0"><#DM_Install_partition#></div>';
 	
 	if(document.form.timemachine_enable.value == "0"){
-		$("backupPath_tr").style.display = "none";
-		$("volSize_tr").style.display = "none";
+		document.getElementById("backupPath_tr").style.display = "none";
+		document.getElementById("volSize_tr").style.display = "none";
 	}
 	else{
-		$("backupPath_tr").style.display = "";
-		$("volSize_tr").style.display = "";
+		document.getElementById("backupPath_tr").style.display = "";
+		document.getElementById("volSize_tr").style.display = "";
 	}
-	
-	document.form.tm_vol_size.value = parseInt(document.form.tm_vol_size.value/1024);
+
+	if(document.form.tm_vol_size.value != "")	
+		document.form.tm_vol_size.value = document.form.tm_vol_size.value/1024;
+
+	setInterval(show_partition, 2000);
 }
 
 function selPartition(){
 	show_partition();
-	cal_panel_block('folderTree_panel');
-	$j("#folderTree_panel").fadeIn(300);
+	cal_panel_block("folderTree_panel", 0.25);
+	$("#folderTree_panel").fadeIn(300);
 }
 
 function cancel_folderTree(){
-	$j("#folderTree_panel").fadeOut(300);
+	$("#folderTree_panel").fadeOut(300);
 }
 
-var partitions_array = "";
-var apps_dev = "<% nvram_get("tm_device_name"); %>";
 function show_partition(){
-	var htmlcode = "";
-	var mounted_partition = 0;
+ 	require(['/require/modules/diskList.js?hash=' + Math.random().toString()], function(diskList){
+		var htmlcode = "";
+		var mounted_partition = 0;
+		
+		htmlcode += '<table align="center" style="margin:auto;border-collapse:collapse;">';
 
-	if(pool_names() != "") // avoid no_disk error
-		partitions_array = pool_devices(); 
-	
-	htmlcode += '<table align="center" style="margin:auto;border-collapse:collapse;">';
+ 		var usbDevicesList = diskList.list();
+		for(var i=0; i < usbDevicesList.length; i++){
+			for(var j=0; j < usbDevicesList[i].partition.length; j++){
+				var all_accessable_size = simpleNum(usbDevicesList[i].partition[j].size-usbDevicesList[i].partition[j].used);
+				var all_total_size = simpleNum(usbDevicesList[i].partition[j].size);
 
-	for(var i = 0; i < partitions_array.length; i++){
-		var all_accessable_size = simpleNum(pool_kilobytes()[i]-pool_kilobytes_in_use()[i]);
-		var all_total_size = simpleNum(pool_kilobytes()[i]);
+				if(usbDevicesList[i].partition[j].status== "unmounted")
+					continue;
 
-		if(pool_status()[i] == "unmounted")
-			continue;
+				if(usbDevicesList[i].partition[j].isAppDev){
+					if(all_accessable_size > 1)
+						htmlcode += '<tr style="cursor:pointer;" onclick="setPart(\''+ usbDevicesList[i].partition[j].partName +'\', \''+ all_accessable_size +'\', \''+ all_total_size +'\');"><td class="app_table_radius_left"><div class="iconUSBdisk"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
+					else
+						htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
+					htmlcode += '<div class="app_desc"><b>'+ usbDevicesList[i].partition[j].partName + ' <span style="color:#FC0;">(active)</span></b></div>';
+				}
+				else{
+					if(all_accessable_size > 1)
+						htmlcode += '<tr style="cursor:pointer;" onclick="setPart(\''+ usbDevicesList[i].partition[j].partName +'\', \''+ all_accessable_size +'\', \''+ all_total_size +'\');"><td class="app_table_radius_left"><div class="iconUSBdisk"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
+					else
+						htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
+					htmlcode += '<div class="app_desc"><b>'+ usbDevicesList[i].partition[j].partName + '</b></div>'; 
+				}
 
-		if(apps_dev == pool_names()[i]){
-			curr_pool_name = pool_names()[i];
-			if(all_accessable_size > 1)
-				htmlcode += '<tr style="cursor:pointer;" onclick="setPart(\''+ pool_names()[i] +'\', \''+ all_accessable_size +'\', \''+ all_total_size +'\');"><td class="app_table_radius_left"><div class="iconUSBdisk"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
-			else
-				htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
-			htmlcode += '<div class="app_desc"><b>'+ pool_names()[i] + ' <span style="color:#FC0;">(active)</span></b></div>';
+				if(all_accessable_size > 1)
+					htmlcode += '<div class="app_desc"><#Availablespace#>: <b>'+ all_accessable_size+" GB" + '</b></div>'; 
+				else
+					htmlcode += '<div class="app_desc"><#Availablespace#>: <b>'+ all_accessable_size+" GB <span style=\'color:#FFCC00\'>(Disk quota can not less than 1GB)" + '</span></b></div>'; 
+
+				htmlcode += '<div class="app_desc"><#Totalspace#>: <b>'+ all_total_size+" GB" + '</b></div>'; 
+				htmlcode += '</div><br/><br/></td></tr>\n';
+				mounted_partition++;
+			}
 		}
-		else{
-			if(all_accessable_size > 1)
-				htmlcode += '<tr style="cursor:pointer;" onclick="setPart(\''+ pool_names()[i] +'\', \''+ all_accessable_size +'\', \''+ all_total_size +'\');"><td class="app_table_radius_left"><div class="iconUSBdisk"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
-			else
-				htmlcode += '<tr><td class="app_table_radius_left"><div class="iconUSBdisk_noquota"></div></td><td class="app_table_radius_right" style="width:250px;">\n';
-			htmlcode += '<div class="app_desc"><b>'+ pool_names()[i] + '</b></div>'; 
-		}
 
-		if(all_accessable_size > 1)
-			htmlcode += '<div class="app_desc"><#Availablespace#>: <b>'+ all_accessable_size+" GB" + '</b></div>'; 
-		else
-			htmlcode += '<div class="app_desc"><#Availablespace#>: <b>'+ all_accessable_size+" GB <span style=\'color:#FFCC00\'>(Disk quota can not less than 1GB)" + '</span></b></div>'; 
+		if(mounted_partition == 0)
+			htmlcode += '<tr height="300px"><td colspan="2"><span class="app_name" style="line-height:100%"><#no_usb_found#></span></td></tr>\n';
 
-		htmlcode += '<div class="app_desc"><#Totalspace#>: <b>'+ all_total_size+" GB" + '</b></div>'; 
-		htmlcode += '</div><br/><br/></td></tr>\n';
-		mounted_partition++;
-	}
-
-	if(mounted_partition == 0)
-		htmlcode += '<tr height="300px"><td colspan="2"><span class="app_name" style="line-height:100%"><#no_usb_found#></span></td></tr>\n';
-
-	$("partition_div").innerHTML = htmlcode;
+		document.getElementById("partition_div").innerHTML = htmlcode;
+	});	
 }
 
 var totalSpace;
 var availSpace;
 function setPart(_part, _avail, _total){
-	$("tmPath").innerHTML = "/mnt/" + _part;
+	document.getElementById("tmPath").innerHTML = "/mnt/" + _part;
 	document.form.tm_device_name.value = _part;
 	cancel_folderTree();
 	totalSpace = _total;
 	availSpace = _avail;
-	$("maxVolSize").innerHTML = "<#Availablespace#>: " + _avail + " GB";
+	document.getElementById("maxVolSize").innerHTML = "<#Availablespace#>: " + _avail + " GB";
 	document.form.tm_vol_size.value = "";
 }
 
-var mounted_partition_old = 0;
-function detectUSBStatusApp(){
-	var mounted_partition = 0;
-	$j.ajax({
-    		url: '/update_diskinfo.asp',
-    		dataType: 'script',
-    		error: function(xhr){
-    			detectUSBStatusApp();
-    		},
-    		success: function(){
-					for(i=0; i<foreign_disk_interface_names().length; i++){
-						if(foreign_disk_total_mounted_number()[i] != 0){
-							mounted_partition += foreign_disk_total_mounted_number()[i];
-						}
-					}
-					if(mounted_partition != mounted_partition_old){
-						show_partition();
-					}
-					mounted_partition_old = mounted_partition;
-					setTimeout("detectUSBStatusApp();", 2000);
-  			}
-  });
-}
-
 function applyRule(){
-	if(availSpace < document.form.tm_vol_size.value){
-		alert("Exceed max available space!");
-		document.form.tm_vol_size.focus();
-		return false;
-	}
-	else{
-		document.form.tm_vol_size.value = parseInt(document.form.tm_vol_size.value*1024);
-	}
-
 	if(document.form.tm_device_name.value == "" && document.form.timemachine_enable.value == "1"){
 		alert("Change the Backup Path button to \"Select\" and the text \"Select the USB storage device that you want to access.\"");
 		return false;
 	}
+
+	if(!validator.rangeAllowZero(document.form.tm_vol_size, 0, parseInt(availSpace), document.form.tm_vol_size.value))
+		return false;
+	else
+		document.form.tm_vol_size.value = document.form.tm_vol_size.value*1024;
+
 	document.form.tm_ui_setting.value = "1";
 	showLoading(); 
 	document.form.submit();
-}
-
-function all_foreign_disk_interface_names(){
-	var _foreign_disk_interface_names = new Array();
-	for(var i=0; i<foreign_disk_interface_names().length; i++){
-		for(var k=0; k<foreign_disk_total_mounted_number()[i]; k++){
-			_foreign_disk_interface_names.push(foreign_disk_interface_names()[i].charAt(0));
-		}
-	}
-	return _foreign_disk_interface_names;
-}
-
-function cal_panel_block(obj_id){
-	var blockmarginLeft;
-	if (window.innerWidth)
-		winWidth = window.innerWidth;
-	else if ((document.body) && (document.body.clientWidth))
-		winWidth = document.body.clientWidth;
-		
-	if (document.documentElement  && document.documentElement.clientHeight && document.documentElement.clientWidth){
-		winWidth = document.documentElement.clientWidth;
-	}
-
-	if(winWidth >1050){	
-		winPadding = (winWidth-1050)/2;	
-		winWidth = 1105;
-		blockmarginLeft= (winWidth*0.25)+winPadding;
-	}
-	else if(winWidth <=1050){
-		blockmarginLeft= (winWidth)*0.25+document.body.scrollLeft;	
-	}
-	$(obj_id).style.marginLeft = blockmarginLeft+"px";
 }
 </script>
 </head>
@@ -281,7 +221,7 @@ function cal_panel_block(obj_id){
 					<table width="730px">
 						<tr>
 							<td align="left">
-								<span class="formfonttitle">Time Machine</span>
+								<span class="formfonttitle"><#TimeMach#></span>
 							</td>
 							<td align="right">
 								<img onclick="go_setting('/APP_Installation.asp')" align="right" style="cursor:pointer;position:absolute;margin-left:-20px;margin-top:-30px;" title="Back to USB Extension" src="/images/backprev.png" onMouseOver="this.src='/images/backprevclick.png'" onMouseOut="this.src='/images/backprev.png'">
@@ -297,17 +237,15 @@ function cal_panel_block(obj_id){
 								<img src="/images/New_ui/USBExt/time_machine_banner.png">
 							</td>
 							<td>
-								1. Enable Time machine.<br>
-								2. Select a target disk partition. <br>
-								3. Set usage limitation if you want and click [Apply]. <br>
-								4. Start to backup (<a href="http://www.asus.com/support/Knowledge-Detail/11/2/RTAC68U/3FEED048-5AC2-4B97-ABAE-DE609DDBC151/" target="_blank" style="text-decoration:underline;">How to use APPLE Time Machine?</a>).<br>
-								5. <a href="https://www.youtube.com/watch?v=Bc3oYW1cmcQ" target="_blank" style="text-decoration:underline;">Time Machine tutorial</a>.<br>
-								6. <a href="http://www.asus.com/support/Knowledge-Detail/11/2/RTAC68U/25DFAE22-873C-4796-91C4-5CF1F08A2064/" target="_blank" style="text-decoration:underline;">Time Machine FAQ</a>.<br>
+								1. <#TimeMach_enable#><br>
+								2. <#TimeMach_target#> <br>
+								3. <#TimeMach_usage_limit#><br>
+								4. <#TimeMach_backup#> ( <a href="http://www.asus.com/support/Knowledge-Detail/11/2/RTAC68U/3FEED048-5AC2-4B97-ABAE-DE609DDBC151/" target="_blank" style="text-decoration:underline;"><#TimeMach_AppleURL#></a> )<br>								
+								5. <a href="http://www.asus.com/support/Knowledge-Detail/11/2/RTAC68U/25DFAE22-873C-4796-91C4-5CF1F08A2064/" target="_blank" style="text-decoration:underline;"><#TimeMach_FAQ#></a><br>
 								<span style="color:#FC0">
-									* We recommend you use an Ethernet connection for the initial backup. <br>
-									* Initial backup may take a while depending on the size of your OSX volume. Consider starting the first backup in
-        the evening so it will complete overnight. <br>
-									* Please use disk utility to repair the disk if your backup process hanged.				
+									* <#TimeMach_recommand1#> <br>
+									* <#TimeMach_recommand2#> <br>
+									* <#TimeMach_recommand3#>
 								</span>
 							</td>
 						</tr>
@@ -322,24 +260,21 @@ function cal_panel_block(obj_id){
 					</thead>							
 
 					<tr>
-						<th>Enable Time Machine</th>
+						<th><#TimeMach_enable#></th>
 						<td>
 							<div class="left" style="width:94px; float:left; cursor:pointer;" id="radio_timemachine_enable"></div>
 							<div class="iphone_switch_container" style="height:32px; width:74px; position: relative; overflow: hidden">
 							<script type="text/javascript">
-								$j('#radio_timemachine_enable').iphoneSwitch('<% nvram_get("timemachine_enable"); %>', 
+								$('#radio_timemachine_enable').iphoneSwitch('<% nvram_get("timemachine_enable"); %>', 
 									 function() {
 										document.form.timemachine_enable.value = "1";
-										$j("#backupPath_tr").fadeIn(500);
-										$j("#volSize_tr").fadeIn(500);
+										$("#backupPath_tr").fadeIn(500);
+										$("#volSize_tr").fadeIn(500);
 									 },
 									 function() {
 										document.form.timemachine_enable.value = "0";
-										$j("#backupPath_tr").fadeOut(300);
-										$j("#volSize_tr").fadeOut(300);
-									 },
-									 {
-										switch_on_container_path: '/switcherplugin/iphone_switch_container_off.png'
+										$("#backupPath_tr").fadeOut(300);
+										$("#volSize_tr").fadeOut(300);
 									 }
 								);
 							</script>			
@@ -349,16 +284,16 @@ function cal_panel_block(obj_id){
 					</tr>
 
 					<tr id="backupPath_tr">
-						<th>Backup Path</a></th>
+						<th><#TimeMach_backuppath#></a></th>
 						<td>
 							<input class="button_gen" onclick="selPartition()" type="button" value="<#Select_btn#>"/>
 							<span id="tmPath" style="font-family: Lucida Console;"></span>
 		   			</td>
 					</tr>
 					<tr id="volSize_tr">
-						<th>TimeMachine Volume Size</a></th>
+						<th><#TimeMach_vol_size#></a></th>
 						<td>
-							<input id="tm_vol_size" name="tm_vol_size" maxlength="3" class="input_6_table" type="text" maxLength="8" value="<% nvram_get("tm_vol_size"); %>"/> GB (0: <#Limitless#>)
+							<input id="tm_vol_size" name="tm_vol_size" maxlength="5" class="input_6_table" type="text" maxLength="8" value="<% nvram_get("tm_vol_size"); %>" onKeyPress="return validator.isNumber(this,event);" placeholder="0" autocorrect="off" autocapitalize="off"/> GB (0: <#Limitless#>)
 							&nbsp;<span id="maxVolSize"></span>
 						</td>
 					</tr>

@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -66,18 +66,14 @@
 }
 </style>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
 function initial(){
 	show_menu();
-	$("option5").innerHTML = '<table><tbody><tr><td><div id="index_img5"></div></td><td><div style="width:120px;"><#Menu_usb_application#></div></td></tr></tbody></table>';
-	$("option5").className = "m5_r";
+	document.getElementById("_APP_Installation").innerHTML = '<table><tbody><tr><td><div class="_APP_Installation"></div></td><td><div style="width:120px;"><#Menu_usb_application#></div></td></tr></tbody></table>';
+	document.getElementById("_APP_Installation").className = "menu_clicked";
 
-	addOnlineHelp($("faq1"), ["ASUSWRT", "ez","printer"]);
-	addOnlineHelp($("faq2"), ["ASUSWRT", "lpr"]);
-	addOnlineHelp($("faq3"), ["mac", "lpr"]);
+	addOnlineHelp(document.getElementById("faq1"), ["ASUSWRT", "ez","printer"]);
+	addOnlineHelp(document.getElementById("faq2"), ["ASUSWRT", "lpr"]);
+	addOnlineHelp(document.getElementById("faq3"), ["mac", "lpr"]);
 	//setTimeout("showMethod('','none');", 100);
 }
 
@@ -87,12 +83,12 @@ function showMethod(flag1, flag2){
 	document.getElementById("method2").style.display = flag2;
 	document.getElementById("method2Title").style.display = flag2;
 	if(flag1 == ""){
-		$("help1").style.color = "#FFF";
-		$("help2").style.color = "gray";
+		document.getElementById("help1").style.color = "#FFF";
+		document.getElementById("help2").style.color = "gray";
 	}
 	else{
-		$("help1").style.color = "gray";
-		$("help2").style.color = "#FFF";
+		document.getElementById("help1").style.color = "gray";
+		document.getElementById("help2").style.color = "#FFF";
 	}
 }
 </script>

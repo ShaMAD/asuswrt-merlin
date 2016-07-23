@@ -42,7 +42,9 @@ int char_to_ascii_safe(const char *output, const char *input, int outsize)
 		} else {
 			if (dst + 3 > end)
 				break;
-			dst += sprintf(dst, "%%%.02X", *src);
+			if( (unsigned char)*src >= 32 && (unsigned char)*src <= 127) {
+				dst += sprintf(dst, "%%%.02X", (unsigned char)*src);
+			}
 		}
 	}
 	if (dst <= end)
@@ -149,4 +151,31 @@ int remove_word(char *buffer, const char *word)
 	strcpy(q, p);
 
 	return 1;
+}
+
+/* Escape characters that could break a Javascript array */
+int str_escape_quotes(const char *output, const char *input, int outsize)
+{
+	char *src = (char *)input;
+	char *dst = (char *)output;
+	char *end = (char *)output + outsize - 1;
+	char *escape = "'\"\\";
+
+	if (src == NULL || dst == NULL || outsize <= 0)
+		return 0;
+
+	for ( ; *src && dst < end; src++) {
+		if (strchr(escape, *src)) {
+			if (dst + 2 > end)
+				break;
+			*dst++ = '\\';
+			*dst++ = *src;
+		} else {
+			*dst++ = *src;
+		}
+	}
+	if (dst <= end)
+		*dst = '\0';
+
+	return dst - output;
 }

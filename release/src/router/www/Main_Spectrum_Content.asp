@@ -4,25 +4,19 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7" />
+<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7, IE=EmulateIE10" />
 <meta name="svg.render.forceflash" content="false" />	
 <link rel="shortcut icon" href="images/favicon.png">
 <link rel="icon" href="images/favicon.png">
 <title><#Web_Title#> - Spectrum</title>
 <link rel="stylesheet" type="text/css" href="index_style.css"> 
 <link rel="stylesheet" type="text/css" href="form_style.css">
-<script src='svg.js' data-path="/svghtc/" data-debug="false"></script>	
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
-<script language="JavaScript" type="text/javascript" src="/detect.js"></script>
-<script type="text/javascript" src="/jquery.js"></script>
+<script type="text/javascript" src="/js/jquery.js"></script>
 <script type='text/javascript'>
-var $j = jQuery.noConflict();
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
 
 var bpc_us = new Array();
 var bpc_ds = new Array();
@@ -32,29 +26,35 @@ bpc_ds = [<% show_file_content("/var/tmp/spectrum-bpc-ds"); %>];
 snr = [<% show_file_content("/var/tmp/spectrum-snr"); %>];
 var spec_running = '<% nvram_get("spectrum_hook_is_running"); %>';
 
-var delay_time = 45;
+if(based_modelid == "DSL-AC68U" && "<% nvram_get("dslx_transmode"); %>" == "atm")
+	var delay_time = 15;
+else
+	var delay_time = 45;
+
+// disable auto log out
+AUTOLOGOUT_MAX_MINUTE = 0;
 
 function initial(){
 	show_menu();
 	if(wan_line_state != "up"){
-			$('btn_refresh').style.display="none";
-			$('signals_update').style.display="none";		
+			document.getElementById('btn_refresh').style.display="none";
+			document.getElementById('signals_update').style.display="none";		
 	}else if(bpc_us.length == 0 && bpc_ds.length == 0 && snr.length == 0 && spec_running == 0){
-			$('btn_refresh').style.display="";
+			document.getElementById('btn_refresh').style.display="";
 	}else if(bpc_us.length == 0 && bpc_ds.length == 0 && snr.length == 0 && spec_running == 1){
 			refresh_signals();
 	}
 	else{
-			$('btn_refresh').style.display="none";
-			$('signals_update').innerHTML = "<#Spectrum_refresh#> ";
-			$('signals_update').innerHTML += delay_time;
-			$('signals_update').style.display="";
+			document.getElementById('btn_refresh').style.display="none";
+			document.getElementById('signals_update').innerHTML = "<#Spectrum_refresh#> ";
+			document.getElementById('signals_update').innerHTML += delay_time;
+			document.getElementById('signals_update').style.display="";
 			update_spectrum();
 	}
 }
 
 function update_spectrum(){
-  $j.ajax({
+  $.ajax({
     url: '/ajax_signals.asp',
     dataType: 'script', 
 	
@@ -62,20 +62,20 @@ function update_spectrum(){
       setTimeout("update_spectrum();", 3000);
     },
     success: function(response){
-    	setTimeout("$('signals_collect_scan').style.display=\"none\";", delay_time*1000);
-    	setTimeout("$('signals_collect').style.display=\"none\";", delay_time*1000);
-    	setTimeout("$('signals_update').style.display=\"\";", delay_time*1000);
-			setTimeout("update_spectrum();", 3000);			
-		}		
+    	setTimeout("document.getElementById('signals_collect_scan').style.display=\"none\";", delay_time*1000);
+    	setTimeout("document.getElementById('signals_collect').style.display=\"none\";", delay_time*1000);
+    	setTimeout("document.getElementById('signals_update').style.display=\"\";", delay_time*1000);
+	setTimeout("update_spectrum();", 15000); //Keep refresh ajax shortly to avoid 2 times delay_time to update Spectrum image (especially for vdsl)
+    }		
   });
 }
 
 function refresh_signals(){
-		$('btn_refresh').style.display="none";
-		$('signals_collect_scan').style.display="";
-		$('signals_collect').innerHTML = "<#Spectrum_gathering#> ";
-		$('signals_collect').innerHTML += delay_time;
-		$('signals_collect').style.display="";		
+		document.getElementById('btn_refresh').style.display="none";
+		document.getElementById('signals_collect_scan').style.display="";
+		document.getElementById('signals_collect').innerHTML = "<#Spectrum_gathering#> ";
+		document.getElementById('signals_collect').innerHTML += delay_time;
+		document.getElementById('signals_collect').style.display="";		
 		update_spectrum();
 }
 
@@ -114,7 +114,7 @@ function refresh_signals(){
 								<tr>
 								  <td bgcolor="#4D595D" height="100px">
 									  <div>&nbsp;</div>
-									  <div class="formfonttitle"><#System_Log#> - Spectrum</div>
+									  <div class="formfonttitle"><#Menu_TrafficManager#> - Spectrum</div>
 									  <div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
 									  <div class="formfontdesc"><#Spectrum_desc#></div>
 										<span id="signals_update" style="margin-left:5px;margin-top:10px;color:#FFCC00;display:none;"></span>

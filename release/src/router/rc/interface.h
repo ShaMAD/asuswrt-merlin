@@ -36,6 +36,9 @@ enum {
 	SWPORT_LAN2,
 	SWPORT_LAN3,
 	SWPORT_LAN4,
+#ifdef RTCONFIG_EXT_RTL8365MB
+	SWPORT_LAN5,
+#endif
 	SWPORT_CPU,
 	SWPORT_COUNT,
 };
@@ -50,6 +53,7 @@ enum {
 	SWCFG_STB12,		/* 5 STB on LAN1&2 */
 	SWCFG_STB34,		/* 6 STB on LAN3&4 */
 	SWCFG_BRIDGE,		/* 7 Bridge */
+	SWCFG_PSTA,		/* 8 PSta */
 	WAN1PORT1,
 	WAN1PORT2,
 	WAN1PORT3,
@@ -64,6 +68,9 @@ enum {
 	SW_L2  = (1U << SWPORT_LAN2),
 	SW_L3  = (1U << SWPORT_LAN3),
 	SW_L4  = (1U << SWPORT_LAN4),
+#ifdef RTCONFIG_EXT_RTL8365MB
+	SW_L5  = (1U << SWPORT_LAN5),
+#endif
 	SW_CPU = (1U << SWPORT_CPU),
 };
 
@@ -77,7 +84,7 @@ enum {
  * char *cputag	- NULL: return config string excluding CPU port
  *		  PSTR: return config string including CPU port, tagged with PSTR, eg. 8|8t|8*
  */
-extern void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, char *cputag);
+extern void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, char *cputag, int wan);
 
 /* Generates switch ports config string
  * char *buf	- pointer to buffer[SWCFG_BUFSIZE] for result string

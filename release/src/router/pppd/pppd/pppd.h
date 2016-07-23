@@ -140,7 +140,7 @@ typedef struct {
 #define OPT_INITONLY	0x4000000 /* option can only be set in init phase */
 #define OPT_DEVEQUIV	0x8000000 /* equiv to device name */
 #define OPT_DEVNAM	(OPT_INITONLY | OPT_DEVEQUIV)
-#define OPT_A2PRINTER	0x10000000 /* *addr2 is a fn for printing option */
+#define OPT_A2PRINTER	0x10000000 /* *addr2 printer_func to print option */
 #define OPT_A2STRVAL	0x20000000 /* *addr2 points to current string value */
 #define OPT_NOPRINT	0x40000000 /* don't print this option at all */
 
@@ -200,6 +200,7 @@ struct epdisc {
 #define EPD_PHONENUM	5
 
 typedef void (*notify_func) __P((void *, int));
+typedef void (*printer_func) __P((void *, char *, ...));
 
 struct notifier {
     struct notifier *next;
@@ -259,8 +260,12 @@ extern struct notifier *pidchange;   /* for notifications of pid changing */
 extern struct notifier *phasechange; /* for notifications of phase changes */
 extern struct notifier *exitnotify;  /* for notification that we're exiting */
 extern struct notifier *sigreceived; /* notification of received signal */
-extern struct notifier *ip_up_notifier; /* IPCP has come up */
-extern struct notifier *ip_down_notifier; /* IPCP has gone down */
+extern struct notifier *ip_up_notifier;     /* IPCP has come up */
+extern struct notifier *ip_down_notifier;   /* IPCP has gone down */
+#ifdef INET6
+extern struct notifier *ipv6_up_notifier;   /* IPV6CP has come up */
+extern struct notifier *ipv6_down_notifier; /* IPV6CP has gone down */
+#endif
 extern struct notifier *auth_up_notifier; /* peer has authenticated */
 extern struct notifier *link_down_notifier; /* link has gone down */
 extern struct notifier *fork_notifier;	/* we are a new child process */
@@ -279,12 +284,14 @@ extern int	kdebugflag;	/* Tell kernel to print debug messages */
 extern int	default_device;	/* Using /dev/tty or equivalent */
 extern char	devnam[MAXPATHLEN];	/* Device name */
 extern int	crtscts;	/* Use hardware flow control */
+extern int	stop_bits;	/* Number of serial port stop bits */
 extern bool	modem;		/* Use modem control lines */
 extern int	inspeed;	/* Input/Output speed requested */
 extern u_int32_t netmask;	/* IP netmask to set on interface */
 extern bool	lockflag;	/* Create lock file to lock the serial dev */
 extern bool	nodetach;	/* Don't detach from controlling tty */
 extern bool	updetach;	/* Detach from controlling tty when link up */
+extern bool	master_detach;	/* Detach when multilink master without link */
 extern char	*initializer;	/* Script to initialize physical link */
 extern char	*connect_script; /* Script to establish physical link */
 extern char	*disconnect_script; /* Script to disestablish physical link */
@@ -316,6 +323,7 @@ extern int	connect_delay;	/* Time to delay after connect script */
 extern int	max_data_rate;	/* max bytes/sec through charshunt */
 extern int	req_unit;	/* interface unit number to use */
 extern int	req_minunit;	/* interface minimal unit number to use */
+extern char	req_ifname[];	/* interface name to use */
 extern bool	multilink;	/* enable multilink operation */
 extern bool	noendpoint;	/* don't send or accept endpt. discrim. */
 extern char	*bundle_name;	/* bundle name for multilink */
@@ -409,8 +417,7 @@ struct protent {
     /* Close the protocol */
     void (*close) __P((int unit, char *reason));
     /* Print a packet in readable form */
-    int  (*printpkt) __P((u_char *pkt, int len,
-			  void (*printer) __P((void *, char *, ...)),
+    int  (*printpkt) __P((u_char *pkt, int len, printer_func printer,
 			  void *arg));
     /* Process a received data packet */
     void (*datainput) __P((int unit, u_char *pkt, int len));
@@ -464,6 +471,21 @@ struct channel {
 extern struct channel *the_channel;
 
 /*
+ * This structure contains environment variables that are set or unset
+ * by the user.
+ */
+struct userenv {
+	struct userenv *ue_next;
+	char *ue_value;		/* value (set only) */
+	bool ue_isset;		/* 1 for set, 0 for unset */
+	bool ue_priv;		/* from privileged source */
+	const char *ue_source;	/* source name */
+	char ue_name[1];	/* variable name */
+};
+
+extern struct userenv *userenv_list;
+
+/*
  * Prototypes.
  */
 
@@ -507,8 +529,8 @@ void tty_init __P((void));
 /* Procedures exported from utils.c. */
 void log_packet __P((u_char *, int, char *, int));
 				/* Format a packet and log it with syslog */
-void print_string __P((char *, int,  void (*) (void *, char *, ...),
-		void *));	/* Format a string for output */
+void print_string __P((char *, int,  printer_func, void *));
+				/* Format a string for output */
 int slprintf __P((char *, int, char *, ...));		/* sprintf++ */
 int vslprintf __P((char *, int, char *, va_list));	/* vsprintf++ */
 size_t strlcpy __P((char *, const char *, size_t));	/* safe strcpy */
@@ -526,6 +548,8 @@ void dump_packet __P((const char *, u_char *, int));
 				/* dump packet to debug log if interesting */
 ssize_t complete_read __P((int, void *, size_t));
 				/* read a complete buffer */
+/* JYWeng 20031216: add to wanstatus.log */
+void save_wanstatus __P((char *));
 
 /* Procedures exported from auth.c */
 void link_required __P((int));	  /* we are starting to use the link */
@@ -632,6 +656,7 @@ void netif_set_mtu __P((int, int)); /* Set PPP interface MTU */
 int  netif_get_mtu __P((int));      /* Get PPP interface MTU */
 int  sifvjcomp __P((int, int, int, int));
 				/* Configure VJ TCP header compression */
+int  sifname __P((int, const char *));/* Configure i/f name */
 int  sifup __P((int));		/* Configure i/f up for one protocol */
 int  sifnpmode __P((int u, int proto, enum NPmode mode));
 				/* Set mode for handling packets for proto */
@@ -641,6 +666,9 @@ int  sifaddr __P((int, u_int32_t, u_int32_t, u_int32_t));
 int  cifaddr __P((int, u_int32_t, u_int32_t));
 				/* Reset i/f IP addresses */
 #ifdef INET6
+int  ether_to_eui64(eui64_t *p_eui64);	/* convert eth0 hw address to EUI64 */
+int  sif6up __P((int));		/* Configure i/f up for IPv6 */
+int  sif6down __P((int));	/* Configure i/f down for IPv6 */
 int  sif6addr __P((int, eui64_t, eui64_t));
 				/* Configure IPv6 addresses for i/f */
 int  cif6addr __P((int, eui64_t, eui64_t));
@@ -694,7 +722,7 @@ void add_options __P((option_t *)); /* Add extra options */
 void check_options __P((void));	/* check values after all options parsed */
 int  override_value __P((const char *, int, const char *));
 				/* override value if permitted by priority */
-void print_options __P((void (*) __P((void *, char *, ...)), void *));
+void print_options __P((printer_func, void *));
 				/* print out values of all options */
 
 int parse_dotted_ip __P((char *, u_int32_t *));
@@ -715,6 +743,10 @@ extern int (*allowed_address_hook) __P((u_int32_t addr));
 extern void (*ip_up_hook) __P((void));
 extern void (*ip_down_hook) __P((void));
 extern void (*ip_choose_hook) __P((u_int32_t *));
+#ifdef INET6
+extern void (*ipv6_up_hook) __P((void));
+extern void (*ipv6_down_hook) __P((void));
+#endif
 
 extern int (*chap_check_hook) __P((void));
 extern int (*chap_passwd_hook) __P((char *user, char *passwd));

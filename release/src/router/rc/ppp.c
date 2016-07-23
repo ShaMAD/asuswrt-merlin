@@ -33,14 +33,6 @@
 #include <shutils.h>
 #include <rc.h>
 
-#ifdef RTCONFIG_USB_MODEM
-#include <usb_info.h>
-#endif
-
-#ifdef RTCONFIG_IPV6
-static int wait_ppp_count = 0;
-#endif
-
 /*
 * parse ifname to retrieve unit #
 */
@@ -91,6 +83,17 @@ ipup_main(int argc, char **argv)
 	_dprintf("%s: unit=%d ifname=%s\n", __FUNCTION__, unit, wan_ifname);
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 
+#ifdef DEBUG_RCTEST // Left for UI debug
+	int max_count = nvram_get_int("ppp_delay_sec");
+	int count;
+	if(max_count > 0){
+		for(count = 1; count <= max_count; ++count){
+			_dprintf("%s: unit=%d ifname=%s sleep %d seconds...\n", __FUNCTION__, unit, wan_ifname, count);
+			sleep(1);
+		}
+	}
+#endif
+
 	/* Stop triggering demand connection */
 	if (nvram_get_int(strcat_r(prefix, "pppoe_demand", tmp)))
 		nvram_set_int(strcat_r(prefix, "pppoe_demand", tmp), 1);
@@ -98,8 +101,10 @@ ipup_main(int argc, char **argv)
 #ifdef RTCONFIG_USB_MODEM
 	// wanX_ifname is used for device for USB Modem
 	if ((value = getenv("DEVICE")) &&
-	    (isSerialNode(value) || isACMNode(value)))
+	    (isSerialNode(value) || isACMNode(value))){
 		nvram_set(strcat_r(prefix, "ifname", tmp), value);
+		nvram_set(strcat_r(prefix, "proto", tmp), "pppoe");
+	}
 #endif
 
 	/* Touch connection file */
@@ -112,7 +117,7 @@ ipup_main(int argc, char **argv)
 	if ((value = getenv("IPLOCAL"))) {
 		if (nvram_invmatch(strcat_r(prefix, "ipaddr", tmp), value))
 			ifconfig(wan_ifname, IFUP, "0.0.0.0", NULL);
-		_ifconfig(wan_ifname, IFUP, value, "255.255.255.255", getenv("IPREMOTE"));
+		_ifconfig(wan_ifname, IFUP, value, "255.255.255.255", getenv("IPREMOTE"), 0);
 		nvram_set(strcat_r(prefix, "ipaddr", tmp), value);
 		nvram_set(strcat_r(prefix, "netmask", tmp), "255.255.255.255");
 	}
@@ -127,17 +132,19 @@ ipup_main(int argc, char **argv)
 		sprintf(buf + strlen(buf), "%s%s", strlen(buf) ? " " : "", value);
 
 	/* empty DNS means they either were not requested or peer refused to send them.
-	 * lift up underlying xdns value instead, keeping "dns" filled */
-	if (strlen(buf) == 0)
-		sprintf(buf, "%s", nvram_safe_get(strcat_r(prefix, "xdns", tmp)));
+	 * for this case static DNS can be used, if they are configured */
+	if (strlen(buf) == 0 && !nvram_get_int(strcat_r(prefix, "dnsenable_x", tmp))) {
+		value = nvram_safe_get(strcat_r(prefix, "dns1_x", tmp));
+		if (*value && inet_addr_(value) != INADDR_ANY)
+			sprintf(buf, "%s", value);
+		value = nvram_safe_get(strcat_r(prefix, "dns2_x", tmp));
+		if (*value && inet_addr_(value) != INADDR_ANY)
+			sprintf(buf + strlen(buf), "%s%s", *buf ? " " : "", value);
+	}
 
 	nvram_set(strcat_r(prefix, "dns", tmp), buf);
 
 	wan_up(wan_ifname);
-
-#ifdef RTCONFIG_VPNC
-	start_vpnc();
-#endif
 
 	_dprintf("%s:: done\n", __FUNCTION__);
 	return 0;
@@ -163,14 +170,10 @@ ipdown_main(int argc, char **argv)
 	_dprintf("%s: unit=%d ifname=%s\n", __FUNCTION__, unit, wan_ifname);
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 
-#ifdef RTCONFIG_IPV6
-	wait_ppp_count = -2;
-#endif
-
 	wan_down(wan_ifname);
 
 	// override wan_state to get real reason
-	update_wan_state(prefix, WAN_STATE_STOPPED, pppstatus());
+	update_wan_state(prefix, WAN_STATE_STOPPED, pppstatus(unit));
 
 	unlink(strcat_r("/tmp/ppp/link.", wan_ifname, tmp));
 
@@ -215,28 +218,24 @@ ippreup_main(int argc, char **argv)
 int ip6up_main(int argc, char **argv)
 {
 	char *wan_ifname = safe_getenv("IFNAME");
+	char *wan_linkname = safe_getenv("LINKNAME");
+	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
+	int unit;
 
 	if (!wan_ifname || strlen(wan_ifname) <= 0)
 		return 0;
 
-        switch (get_ipv6_service()) {
-                case IPV6_NATIVE:
-                case IPV6_NATIVE_DHCP:
-			wait_ppp_count = 10;
-			while ((!is_intf_up(wan_ifname) || !getifaddr(wan_ifname, AF_INET6, 0))
-				&& (wait_ppp_count-- > 0))
-				sleep(1);
-			break;
-		default:
-			wait_ppp_count = 0;
-			break;
-	}
+	/* Get unit from LINKNAME: ppp[UNIT] */
+	if ((unit = ppp_linkunit(wan_linkname)) < 0)
+		return 0;
 
-	if (wait_ppp_count != -2)
-	{
-		wan6_up(wan_ifname);	
-		start_firewall(0, 0);
-	}
+	_dprintf("%s: unit=%d ifname=%s\n", __FUNCTION__, unit, wan_ifname);
+	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+
+	/* share the same interface with pppoe ipv4 connection */
+	nvram_set(strcat_r(prefix, "pppoe_ifname", tmp), wan_ifname);
+
+	wan6_up(wan_ifname);
 
 	return 0;
 }
@@ -245,13 +244,11 @@ int ip6down_main(int argc, char **argv)
 {
 	char *wan_ifname = safe_getenv("IFNAME");
 
-	wait_ppp_count = -2;
-
 	wan6_down(wan_ifname);
 
 	return 0;
 }
-#endif  // IPV6
+#endif	// IPV6
 
 /*
  * Called when link closing with auth fail

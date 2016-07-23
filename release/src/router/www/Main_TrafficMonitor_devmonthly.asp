@@ -1,6 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -18,28 +19,12 @@
 <script language="JavaScript" type="text/javascript" src="/tmhist.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/merlin.js"></script>
-<script language="JavaScript" type="text/javascript" src="/nameresolv.js"></script>
-
+<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
 <script type='text/javascript'>
-
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
+monthly_history = [];
 <% backup_nvram("cstats_enable,lan_ipaddr,lan_netmask"); %>;
-
-try {
-	<% ipt_bandwidth("monthly"); %>
-}
-catch (ex) {
-	monthly_history = [];
-}
-cstats_busy = 0;
-if (typeof(monthly_history) == 'undefined') {
-	monthly_history = [];
-	cstats_busy = 1;
-}
-
+<% ipt_bandwidth("monthly"); %>
 
 var filterip = [];
 var filteripe = [];
@@ -56,8 +41,13 @@ function redraw() {
 
 	var style_open;
 	var style_close;
+	var getYMD = function(n){
+		return [(((n >> 16) & 0xFF) + 1900), ((n >>> 8) & 0xFF), (n & 0xFF)];
+	}
 
 	rows = 0;
+
+	genClientList();
 
 	grid = '<table width="730px" class="FormTable_NWM">';
 	grid += "<tr><th style=\"height:30px;\"><#Date#></th>";
@@ -128,10 +118,15 @@ function redraw() {
 			}
 
 			var h = b[1];
+			var clientObj;
+			var clientName;
 
 			if (getRadioValue(document.form._f_show_hostnames) == 1) {
-				if(hostnamecache[b[1]] != null) {
-					h = "<b>" + hostnamecache[b[1]] + '</b>  <small>(' + b[1] + ')</small>';
+				clientObj = clientFromIP(b[1]);
+
+				if (clientObj) {
+					clientName = (clientObj.nickName == "") ? clientObj.hostname : clientObj.nickName;
+					h = "<b>" + clientName.shorter(24) + '</b> <small>(' + b[1] + ')</small>';
 				}
 			}
 
@@ -150,8 +145,6 @@ function redraw() {
 		grid +='<tr><td style="color:#FFCC00;" colspan="5"><#IPConnection_VSList_Norule#></td></tr>';
 
 	E('bwm-monthly-grid').innerHTML = grid + '</table>';
-
-	if (hostnamecache['ready'] == 0) setTimeout(redraw, 500);
 }
 
 
@@ -237,7 +230,7 @@ function addrow(rclass, rtitle, host, dl, ul, total, ip) {
 		link = "";
 
 	return '<tr class="' + rclass + '">' +
-                '<td>' + rtitle + '</td>' +
+		'<td class="rtitle">' + rtitle + '</td>' +
                 '<td ' + link + '>' + host + '</td>' +
                 '<td style="text-align: right; padding-right: 8px;">' + dl + '</td>' +
                 '<td style="text-align: right; padding-right: 8px;">' + ul + '</td>' +
@@ -253,7 +246,6 @@ function popupWindow(ip) {
 
 
 function init() {
-
 	if (nvram.cstats_enable == '1') {
 		selGroup = E('page_select');
 
@@ -314,11 +306,12 @@ function init() {
 		setRadioValue(document.form._f_show_hostnames , (c == 1))
 	}
 
+	show_menu();
 	update_visibility();
 	initDate('ymd');
 	monthly_history.sort(cmpDualFields);
 	init_filter_dates(2);
-	redraw();
+	updateClientList();
 }
 
 
@@ -394,11 +387,27 @@ function switchPage(page){
 		return false;
 }
 
+function updateClientList(e){
+	$.ajax({
+		url: '/update_clients.asp',
+		dataType: 'script',
+		error: function(xhr) {
+			setTimeout("updateClientList();", 1000);
+		},
+		success: function(response){
+			if(isJsonChanged(originData, originDataTmp)){
+				redraw();
+			}
+
+			setTimeout("updateClientList();", 3000);
+		}
+	});
+}
 
 </script>
 </head>
 
-<body onload="show_menu();init();" >
+<body onload="init();">
 
 <div id="TopBanner"></div>
 

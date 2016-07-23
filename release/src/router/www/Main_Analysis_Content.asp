@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -53,11 +53,21 @@
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.js"></script>
+<script language="JavaScript" type="text/javascript" src="/validator.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
 <script>
 function initial(){
 	show_menu();
 	showLANIPList();
+}
+
+function validForm(){
+	if(document.form.cmdMethod.value == "ping"){
+		if(!validator.range(document.form.pingCNT, 1, 99))
+			return false;
+	}
+
+	return true;
 }
 
 function onSubmitCtrl(o, s) {
@@ -67,7 +77,7 @@ function onSubmitCtrl(o, s) {
 
 function updateOptions(){
 	if(document.form.destIP.value == ""){
-		document.form.destIP.value = client_list_array[0][1];
+		document.form.destIP.value = AppListArray[0][1];
 	}
 
 	if(document.form.cmdMethod.value == "ping"){	
@@ -79,33 +89,35 @@ function updateOptions(){
 	else
 		document.form.SystemCmd.value = document.form.cmdMethod.value + " " + document.form.destIP.value;
 	
-	document.form.submit();
-	document.getElementById("cmdBtn").disabled = true;
-	document.getElementById("cmdBtn").style.color = "#666";
-	document.getElementById("loadingIcon").style.display = "";
-	setTimeout("checkCmdRet();", 500);
+	if(validForm()){
+		document.form.submit();
+		document.getElementById("cmdBtn").disabled = true;
+		document.getElementById("cmdBtn").style.color = "#666";
+		document.getElementById("loadingIcon").style.display = "";
+		setTimeout("checkCmdRet();", 500);
+	}
 }
 
 function hideCNT(_val){
 	if(_val == "ping"){
-		$("pingCNT_tr").style.display = "";
-		$("cmdDesc").innerHTML = "<#NetworkTools_Ping#>";
+		document.getElementById("pingCNT_tr").style.display = "";
+		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_Ping#>";
 	}
 	else if(_val == "traceroute"){
-		$("pingCNT_tr").style.display = "none";
-		$("cmdDesc").innerHTML = "Trace the route to host.";
+		document.getElementById("pingCNT_tr").style.display = "none";
+		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_tr#>";
 	}
 	else{
-		$("pingCNT_tr").style.display = "none";
-		$("cmdDesc").innerHTML = "Query the nameserver for the IP address of the given host optionally using a specified DNS server.";
+		document.getElementById("pingCNT_tr").style.display = "none";
+		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_nslookup#>";
 	}
 }
 
-var $j = jQuery.noConflict();
+
 var _responseLen;
 var noChange = 0;
 function checkCmdRet(){
-	$j.ajax({
+	$.ajax({
 		url: '/cmdRet_check.htm',
 		dataType: 'html',
 		
@@ -150,18 +162,21 @@ function checkCmdRet(){
 	});
 }
 
-var client_list_array = [["Google ", "www.google.com"], ["Facebook", "www.facebook.com"], ["Youtube", "www.youtube.com"], ["Yahoo", "www.yahoo.com"],
-												 ["Baidu", "www.baidu.com"], ["Wikipedia", "www.wikipedia.org"], ["Windows Live", "www.live.com"], ["QQ", "www.qq.com"],
-												 ["Amazon", "www.amazon.com"], ["Twitter", "www.twitter.com"], ["Taobao", "www.taobao.com"], ["Blogspot", "www.blogspot.com"], 
-												 ["Linkedin", "www.linkedin.com"], ["Sina", "www.sina.com"], ["eBay", "www.ebay.com"], ["MSN", "msn.com"], ["Bing", "www.bing.com"], 
-												 ["Яндекс", "www.yandex.ru"], ["WordPress", "www.wordpress.com"], ["ВКонтакте", "www.vk.com"]];
+var AppListArray = [
+		["Google ", "www.google.com"], ["Facebook", "www.facebook.com"], ["Youtube", "www.youtube.com"], ["Yahoo", "www.yahoo.com"],
+		["Baidu", "www.baidu.com"], ["Wikipedia", "www.wikipedia.org"], ["Windows Live", "www.live.com"], ["QQ", "www.qq.com"],
+		["Amazon", "www.amazon.com"], ["Twitter", "www.twitter.com"], ["Taobao", "www.taobao.com"], ["Blogspot", "www.blogspot.com"], 
+		["Linkedin", "www.linkedin.com"], ["Sina", "www.sina.com"], ["eBay", "www.ebay.com"], ["MSN", "msn.com"], ["Bing", "www.bing.com"], 
+		["Яндекс", "www.yandex.ru"], ["WordPress", "www.wordpress.com"], ["ВКонтакте", "www.vk.com"]
+	];
+
 function showLANIPList(){
 	var code = "";
-	for(var i = 0; i < client_list_array.length; i++){
-		code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP(\''+client_list_array[i][1]+'\');"><strong>'+client_list_array[i][0]+'</strong></div></a>';
+	for(var i = 0; i < AppListArray.length; i++){
+		code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP(\''+AppListArray[i][1]+'\');"><strong>'+AppListArray[i][0]+'</strong></div></a>';
 	}
 	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
-	$("ClientList_Block_PC").innerHTML = code;
+	document.getElementById("ClientList_Block_PC").innerHTML = code;
 }
 
 function setClientIP(ipaddr){
@@ -173,15 +188,15 @@ function setClientIP(ipaddr){
 var over_var = 0;
 var isMenuopen = 0;
 function hideClients_Block(){
-	$("pull_arrow").src = "/images/arrow-down.gif";
-	$('ClientList_Block_PC').style.display='none';
+	document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
+	document.getElementById('ClientList_Block_PC').style.display='none';
 	isMenuopen = 0;
 }
 
 function pullLANIPList(obj){
 	if(isMenuopen == 0){		
 		obj.src = "/images/arrow-top.gif"
-		$("ClientList_Block_PC").style.display = 'block';		
+		document.getElementById("ClientList_Block_PC").style.display = 'block';		
 		document.form.destIP.focus();		
 		isMenuopen = 1;
 	}
@@ -240,7 +255,7 @@ function pullLANIPList(obj){
 										<tr>
 											<th width="20%"><#NetworkTools_target#></th>
 											<td>
-												<input type="text" class="input_32_table" name="destIP" maxlength="100" value="" placeholder="ex: www.google.com">
+												<input type="text" class="input_32_table" name="destIP" maxlength="100" value="" placeholder="ex: www.google.com" autocorrect="off" autocapitalize="off">
 												<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_network_host#>" onmouseover="over_var=1;" onmouseout="over_var=0;">
 												<div id="ClientList_Block_PC" class="ClientList_Block_PC"></div>
 											</td>
@@ -248,7 +263,7 @@ function pullLANIPList(obj){
 										<tr id="pingCNT_tr">
 											<th width="20%"><#NetworkTools_Count#></th>
 											<td>
-		              			<input type="text" name="pingCNT" class="input_3_table" maxlength="1" value="" onblur="" onKeyPress="return is_number(this, event);" placeholder="5">
+												<input type="text" name="pingCNT" class="input_3_table" maxlength="2" value="" onKeyPress="return validator.isNumber(this, event);" placeholder="5" autocorrect="off" autocapitalize="off">
 											</td>
 										</tr>
 									</table>
@@ -280,7 +295,6 @@ function pullLANIPList(obj){
 </body>
 <script type="text/javascript">
 <!--[if !IE]>-->
-	jQuery.noConflict();
 	(function($){
 		var textArea = document.getElementById('textarea');
 		textArea.scrollTop = textArea.scrollHeight;

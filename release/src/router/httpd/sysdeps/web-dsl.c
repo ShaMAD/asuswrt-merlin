@@ -51,10 +51,12 @@
 #include <bcmnvram.h>
 #include <bcmutils.h>
 #include <shutils.h>
+#ifdef RTCONFIG_RALINK
 #include <ralink.h>
 #include <iwlib.h>
 #include <stapriv.h>
 #include <ethutils.h>
+#endif
 #include <shared.h>
 #include <sys/mman.h>
 #ifndef O_BINARY
@@ -119,12 +121,13 @@ static int dump_file(webs_t wp, char *filename)
  */
 int ej_dsl_get_parameter(int eid, webs_t wp, int argc, char_t **argv)
 {
-	int unit;
+	int unit, subunit;
 
 	unit = nvram_get_int("dsl_unit");
+	subunit = nvram_get_int("dsl_subunit");
 
 	// handle generate cases first
-	(void)copy_index_to_unindex("dsl_", unit, -1);
+	(void)copy_index_to_unindex("dsl_", unit, subunit);
 
 	return (websWrite(wp,""));
 }
@@ -175,16 +178,9 @@ int wanlink_hook_dsl(int eid, webs_t wp, int argc, char_t **argv){
 //	    strcmp(wan_proto, "pptp") == 0 ||
 //	    strcmp(wan_proto, "l2tp") == 0) {
 //		int dhcpenable = nvram_get_int(strcat_r(prefix, "dhcpenable_x", tmp));
-//#if 1 /* TODO: tmporary change! remove after WEB UI support */
-//		if (strcmp(wan_proto, "pppoe") == 0 &&
-//		    dhcpenable && nvram_match(strcat_r(prefix, "vpndhcp", tmp), "0"))
-//			dhcpenable = 2;
-//#endif /* TODO: tmporary change! remove after WEB UI support */
-//
-//		if (dhcpenable == 0)
-//			xtype = "static";
-//		else if (dhcpenable != 2 || strcmp(wan_proto, "pppoe") != 0)
-//			xtype = "dhcp";
+//		xtype = (dhcpenable == 0) ? "static" :
+//			(strcmp(wan_proto, "pppoe") == 0 && nvram_match(strcat_r(prefix, "vpndhcp", tmp), "0")) ? "" : /* zeroconf */
+//			"dhcp";
 //		xip = nvram_safe_get(strcat_r(prefix, "xipaddr", tmp));
 //		xnetmask = nvram_safe_get(strcat_r(prefix, "xnetmask", tmp));
 //		xgateway = nvram_safe_get(strcat_r(prefix, "xgateway", tmp));
@@ -243,27 +239,68 @@ int ej_get_isp_list(int eid, webs_t wp, int argc, char_t **argv){
 	return 0;
 }
 
-int ej_get_DSL_WAN_list(int eid, webs_t wp, int argc, char_t **argv){
-        char buf[MAX_LINE_SIZE];
-        char buf2[MAX_LINE_SIZE];
-		char prefix[]="dslXXXXXX_", tmp[100];
-        int unit;
-        int j;        
-        int firstItem;
+/*******************************************************************
+* NAME: ej_get_isp_dhcp_opt_list
+* AUTHOR: Andy Chiu
+* CREATE DATE: 2016/01/20
+* DESCRIPTION: return the ISP_DHCP_opt_List.txt
+* INPUT:
+* OUTPUT:
+* RETURN:
+* NOTE:
+*******************************************************************/
+int ej_get_isp_dhcp_opt_list(int eid, webs_t wp, int argc, char_t **argv){
+	char *name;
+	FILE* fpIsp;
+	char bufIsp[512];
 
+	fpIsp = fopen("/www/ISP_DHCP_Opt_List.txt","r");
+	if (fpIsp != NULL)
+	{
+	  // read out UTF-8 3 bytes header
+	        //fread(bufIsp,3,1,fpIsp);
+		while(!feof(fpIsp))
+		{
+			char* ret_fgets;
+			ret_fgets = fgets(bufIsp,sizeof(bufIsp),fpIsp);
+			if (ret_fgets != NULL)
+			{
+				websWrite(wp, bufIsp);
+				websWrite(wp, "\n");
+			}
+		}
+		fclose(fpIsp);
+	}
+	return 0;
+}
+
+int ej_get_DSL_WAN_list(int eid, webs_t wp, int argc, char_t **argv){
+	char buf[MAX_LINE_SIZE];
+	char buf2[MAX_LINE_SIZE];
+	char prefix[]="dslXXXXXX_", tmp[100];
+	int unit;
+	int j;
+	int firstItem;
+
+	if(nvram_match("dsltmp_transmode", "atm")) {
 		char *display_items[] = {"dsl_enable", "dsl_vpi", "dsl_vci","dsl_proto", "dsl_encap", 
-			"dsl_svc_cat", "dsl_pcr","dsl_scr","dsl_mbs",NULL};
+			"dsl_svc_cat", "dsl_pcr","dsl_scr","dsl_mbs",
+#ifdef RTCONFIG_DSL_TCLINUX
+			"dsl_dot1q", "dsl_vid", "dsl_dot1p",
+#endif
+			NULL};
 
 		for ( unit = 0; unit<8; unit++ ) {
 			snprintf(prefix, sizeof(prefix), "dsl%d_", unit);
+
 			firstItem = 1;
-			websWrite(wp, "[");			
+			websWrite(wp, "[");
 			for ( j = 0; display_items[j] != NULL; j++ ) {
-                if(firstItem == 1) {
-                        firstItem = 0;
+				if(firstItem == 1) {
+					firstItem = 0;
 				}
-                else {
-                        websWrite(wp, ", ");
+				else {
+					websWrite(wp, ", ");
 				}
 				strcpy(buf,nvram_safe_get(strcat_r(prefix, &display_items[j][4], tmp)));
 				if (strcmp(buf,"")==0) {
@@ -272,16 +309,153 @@ int ej_get_DSL_WAN_list(int eid, webs_t wp, int argc, char_t **argv){
 				else {
 					sprintf(buf2,"\"%s\"",buf);
 				}
-                websWrite(wp, "%s", buf2);
-	        }
-	        if (unit != 7) {
+				websWrite(wp, "%s", buf2);
+			}
+			if (unit != 7) {
 				websWrite(wp, "], ");
 			}
 			else {
-				websWrite(wp, "]");			
+				websWrite(wp, "]");
 			}
 		}
+	}
+	else {	//ptm
+		char *display_items[] = {"dsl_enable", "dsl_proto", "dsl_dot1q", "dsl_vid", "dsl_dot1p", NULL};
 
-        return 0;
+		for ( unit = 0; unit<8; unit++ ) {
+			if(unit)
+				snprintf(prefix, sizeof(prefix), "dsl8.%d_", unit);
+			else
+				snprintf(prefix, sizeof(prefix), "dsl8_");
+
+			firstItem = 1;
+			websWrite(wp, "[");
+			for ( j = 0; display_items[j] != NULL; j++ ) {
+				if(firstItem == 1) {
+					firstItem = 0;
+				}
+				else {
+					websWrite(wp, ", ");
+				}
+				strcpy(buf,nvram_safe_get(strcat_r(prefix, &display_items[j][4], tmp)));
+				if (strcmp(buf,"")==0) {
+					strcpy(buf2,"\"0\"");
+				}
+				else {
+					sprintf(buf2,"\"%s\"",buf);
+				}
+				websWrite(wp, "%s", buf2);
+			}
+			if (unit != 7) {
+				websWrite(wp, "], ");
+			}
+			else {
+				websWrite(wp, "]");
+			}
+		}
+	}
+
+	return 0;
 }
 
+int update_dsl_iptv_variables()
+{
+	char *nv, *nvp, *b;
+	char *vpi, *vci, *proto, *encap, *vid;
+	int unit = 0;
+	char prefix[] = "dslxxx_xxxxxxxx";
+	char tmp[64];
+
+	_dprintf("dsltmp_cfg_iptv_pvclist=%s\n", nvram_safe_get("dsltmp_cfg_iptv_pvclist"));
+
+	nvp = nv = strdup(nvram_safe_get("dsltmp_cfg_iptv_pvclist"));
+	while(nv && (b = strsep(&nvp, "<")) != NULL){
+		if((vstrsep(b, ">", &vpi, &vci, &proto, &encap, &vid) != 5))
+			continue;
+
+		unit++;
+
+		_dprintf("vpi=[%s], vci=[%s], proto=[%s], encap=[%s], vid=[%s]\n", vpi, vci, proto, encap, vid);
+
+		if(nvram_match("dsltmp_transmode", "atm")) {
+			snprintf(prefix, sizeof(prefix), "dsl%d_", unit);
+
+			nvram_set(strcat_r(prefix, "vpi", tmp), vpi);
+			nvram_set(strcat_r(prefix, "vci", tmp), vci);
+			nvram_set(strcat_r(prefix, "encap", tmp), encap);
+		}
+		else {	//ptm
+			snprintf(prefix, sizeof(prefix), "dsl8.%d_", unit);
+
+			nvram_set("dslx_transmode", "ptm");
+			notify_rc("restart_dsl_setting");
+		}
+
+		nvram_set(strcat_r(prefix, "enable", tmp), "1");
+
+		if(!strcmp(proto, "0")) {
+			nvram_set(strcat_r(prefix, "proto", tmp), "pppoe");
+		}
+		else if(!strcmp(proto, "1")) {
+			nvram_set(strcat_r(prefix, "proto", tmp), "pppoa");
+		}
+		else if(!strcmp(proto, "2")) {
+			nvram_set(strcat_r(prefix, "proto", tmp), "dhcp");
+		}
+		else if(!strcmp(proto, "3")) {
+			nvram_set(strcat_r(prefix, "proto", tmp), "bridge");
+		}
+		else if(!strcmp(proto, "4")) {
+			nvram_set(strcat_r(prefix, "proto", tmp), "ipoa");
+		}
+		else {
+			nvram_set(strcat_r(prefix, "proto", tmp), "bridge");
+		}
+
+		if(strlen(vid)) {
+			nvram_set(strcat_r(prefix, "dot1q", tmp), "1");
+			nvram_set(strcat_r(prefix, "vid", tmp), vid);
+		}
+	}
+	free(nv);
+
+	if(unit) {
+		if(nvram_match("switch_stb_x", "1")
+			&& (nvram_get_int("dslx_config_num") > 1)
+		) {
+			nvram_set("dsltmp_qis_reboot", "0");
+		}
+		else {
+			nvram_set("switch_stb_x", "1");
+			nvram_set("wans_lanport", "4");
+			nvram_set("dsltmp_qis_reboot", "1");
+		}
+	}
+	else {
+		if(nvram_match("switch_stb_x", "0"))  {
+			nvram_set("dsltmp_qis_reboot", "0");
+		}
+		else {
+			nvram_set("switch_stb_x", "0");
+			nvram_set("dsl1_enable", "0");
+			nvram_set("dsl2_enable", "0");
+			nvram_set("dsl3_enable", "0");
+			nvram_set("dsl4_enable", "0");
+			nvram_set("dsl5_enable", "0");
+			nvram_set("dsl6_enable", "0");
+			nvram_set("dsl7_enable", "0");
+#ifdef RTCONFIG_VDSL
+			nvram_set("dsl8.1_enable", "0");
+			nvram_set("dsl8.2_enable", "0");
+			nvram_set("dsl8.3_enable", "0");
+			nvram_set("dsl8.4_enable", "0");
+			nvram_set("dsl8.5_enable", "0");
+			nvram_set("dsl8.6_enable", "0");
+			nvram_set("dsl8.7_enable", "0");
+#endif
+			nvram_set("dsltmp_qis_reboot", "1");
+		}
+	}
+
+	return 0;
+}

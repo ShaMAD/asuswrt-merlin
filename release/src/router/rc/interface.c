@@ -12,6 +12,8 @@
  * $Id: interface.c,v 1.13 2005/03/07 08:35:32 kanki Exp $
  */
 
+#include <rc.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
@@ -34,12 +36,11 @@
 #include <bcmparams.h>
 #include <bcmdevs.h>
 #include <shared.h>
-#ifdef RTCONFIG_BCMFA
+#ifdef RTCONFIG_BCMARM
 #include <linux/ethtool.h>
 #include <linux/sockios.h>
 #endif
 
-#include "rc.h"
 #include "interface.h"
 
 /* Default switch configs */
@@ -47,6 +48,21 @@ static struct switch_config {
 	int lanmask;
 	int wanmask;
 } sw_config[] = {
+#ifdef RTCONFIG_EXT_RTL8365MB
+	SWCFG_INIT(SWCFG_DEFAULT, SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4|SW_L5,	 SW_CPU|SW_WAN),
+	SWCFG_INIT(SWCFG_STB1,    SW_CPU|      SW_L2|SW_L3|SW_L4|SW_L5,  SW_CPU|SW_WAN|SW_L1),
+	SWCFG_INIT(SWCFG_STB2,    SW_CPU|SW_L1|      SW_L3|SW_L4|SW_L5,  SW_CPU|SW_WAN|SW_L2),
+	SWCFG_INIT(SWCFG_STB3,    SW_CPU|SW_L1|SW_L2|      SW_L4|SW_L5,  SW_CPU|SW_WAN|SW_L3),
+	SWCFG_INIT(SWCFG_STB4,    SW_CPU|SW_L1|SW_L2|SW_L3      |SW_L5,  SW_CPU|SW_WAN|SW_L4),
+	SWCFG_INIT(SWCFG_STB12,   SW_CPU|            SW_L3|SW_L4|SW_L5,  SW_CPU|SW_WAN|SW_L1|SW_L2),
+	SWCFG_INIT(SWCFG_STB34,   SW_CPU|SW_L1|SW_L2            |SW_L5,  SW_CPU|SW_WAN|SW_L3|SW_L4),
+	SWCFG_INIT(SWCFG_BRIDGE,  SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4|SW_L5|SW_WAN, SW_CPU),
+	SWCFG_INIT(SWCFG_PSTA,	  SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4|SW_L5,  SW_CPU),
+	SWCFG_INIT(WAN1PORT1, SW_CPU|SW_L2|SW_L3|SW_L4|SW_L5, SW_CPU|SW_L1),
+	SWCFG_INIT(WAN1PORT2, SW_CPU|SW_L1|SW_L3|SW_L4|SW_L5, SW_CPU|SW_L2),
+	SWCFG_INIT(WAN1PORT3, SW_CPU|SW_L1|SW_L2|SW_L4|SW_L5, SW_CPU|SW_L3),
+	SWCFG_INIT(WAN1PORT4, SW_CPU|SW_L1|SW_L2|SW_L3|SW_L5, SW_CPU|SW_L4)
+#else
 	SWCFG_INIT(SWCFG_DEFAULT, SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4,        SW_CPU|SW_WAN),
 	SWCFG_INIT(SWCFG_STB1,    SW_CPU|      SW_L2|SW_L3|SW_L4,        SW_CPU|SW_WAN|SW_L1),
 	SWCFG_INIT(SWCFG_STB2,    SW_CPU|SW_L1|      SW_L3|SW_L4,        SW_CPU|SW_WAN|SW_L2),
@@ -55,10 +71,12 @@ static struct switch_config {
 	SWCFG_INIT(SWCFG_STB12,   SW_CPU|            SW_L3|SW_L4,        SW_CPU|SW_WAN|SW_L1|SW_L2),
 	SWCFG_INIT(SWCFG_STB34,   SW_CPU|SW_L1|SW_L2,                    SW_CPU|SW_WAN|SW_L3|SW_L4),
 	SWCFG_INIT(SWCFG_BRIDGE,  SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4|SW_WAN, SW_CPU),
+	SWCFG_INIT(SWCFG_PSTA,	  SW_CPU|SW_L1|SW_L2|SW_L3|SW_L4, 	 SW_CPU),
 	SWCFG_INIT(WAN1PORT1, SW_CPU|SW_L2|SW_L3|SW_L4, SW_CPU|SW_L1),
 	SWCFG_INIT(WAN1PORT2, SW_CPU|SW_L1|SW_L3|SW_L4, SW_CPU|SW_L2),
 	SWCFG_INIT(WAN1PORT3, SW_CPU|SW_L1|SW_L2|SW_L4, SW_CPU|SW_L3),
 	SWCFG_INIT(WAN1PORT4, SW_CPU|SW_L1|SW_L2|SW_L3, SW_CPU|SW_L4)
+#endif
 };
 
 /* Generates switch ports config string
@@ -67,8 +85,9 @@ static struct switch_config {
  * int swmask	- mask of logical ports to return
  * char *cputag	- NULL: return config string excluding CPU port
  *		  PSTR: return config string including CPU port, tagged with PSTR, eg. 8|8t|8*
+ * int wan	- config wan port or not
  */
-void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, char *cputag)
+void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, char *cputag, int wan)
 {
 	struct {
 		int port;
@@ -80,7 +99,18 @@ void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, ch
 	if (!cputag)
 		mask &= ~SW_CPU;
 
-	for (i = count = 0; i < SWPORT_COUNT && mask; mask >>= 1, i++) {
+	if (wan && !cputag) {
+            for (n = i = count = 0; i < SWPORT_COUNT && mask; mask >>= 1, i++) {
+                if ((mask & 1U) == 0)
+                        continue;
+                res[n].port = ports[i];
+                res[n].tag = (i == SWPORT_CPU) ? cputag : "";
+                count++;
+                n++; 
+            }
+	}
+	else {
+	    for (i = count = 0; i < SWPORT_COUNT && mask; mask >>= 1, i++) {
 		if ((mask & 1U) == 0)
 			continue;
 		for (n = count; n > 0 && ports[i] < res[n - 1].port; n--)
@@ -88,8 +118,8 @@ void _switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int swmask, ch
 		res[n].port = ports[i];
 		res[n].tag = (i == SWPORT_CPU) ? cputag : "";
 		count++;
+	    }
 	}
-
 	for (i = 0, ptr = buf; ptr && i < count; i++)
 		ptr += sprintf(ptr, i ? " %d%s" : "%d%s", res[i].port, res[i].tag);
 }
@@ -111,7 +141,7 @@ void switch_gen_config(char *buf, const int ports[SWPORT_COUNT], int index, int 
 		return;
 
 	mask = wan ? sw_config[index].wanmask : sw_config[index].lanmask;
-	_switch_gen_config(buf, ports, mask, cputag);
+	_switch_gen_config(buf, ports, mask, cputag, wan);
 }
 
 void gen_lan_ports(char *buf, const int sample[SWPORT_COUNT], int index, int index1, char *cputag){
@@ -148,7 +178,7 @@ void gen_lan_ports(char *buf, const int sample[SWPORT_COUNT], int index, int ind
 
 #define sin_addr(s) (((struct sockaddr_in *)(s))->sin_addr)
 
-int _ifconfig(const char *name, int flags, const char *addr, const char *netmask, const char *dstaddr)
+int _ifconfig(const char *name, int flags, const char *addr, const char *netmask, const char *dstaddr, int mtu)
 {
 	int s;
 	struct ifreq ifr;
@@ -201,6 +231,13 @@ int _ifconfig(const char *name, int flags, const char *addr, const char *netmask
 			goto ERROR;
 	}
 
+	/* Set MTU */
+	if (mtu > 0) {
+		ifr.ifr_mtu = mtu;
+		if (ioctl(s, SIOCSIFMTU, &ifr) < 0)
+			goto ERROR;
+	}
+
 	close(s);
 	return 0;
 
@@ -208,6 +245,78 @@ int _ifconfig(const char *name, int flags, const char *addr, const char *netmask
 	close(s);
 	perror(name);
 	return errno;
+}
+
+int _ifconfig_get(const char *name, int *flags, char *addr, char *netmask, char *dstaddr, int *mtu)
+{
+	int s;
+	struct ifreq ifr;
+
+	_dprintf("%s: name=%s\n", __FUNCTION__, name);
+
+	/* Open a raw socket to the kernel */
+	if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0)
+		return errno;
+
+	/* Set interface name */
+	strlcpy(ifr.ifr_name, name, IFNAMSIZ);
+
+	/* Get interface flags */
+	if (flags) {
+		if (ioctl(s, SIOCGIFFLAGS, &ifr) < 0)
+			goto ERROR;
+		*flags = ifr.ifr_flags;
+	}
+
+	/* Get IP address */
+	if (addr) {
+		ifr.ifr_addr.sa_family = AF_INET;
+		if (ioctl(s, SIOCGIFADDR, &ifr) < 0)
+			goto ERROR;
+		inet_ntop(AF_INET, &sin_addr(&ifr.ifr_addr), addr, sizeof("255.255.255.255"));
+	}
+
+	/* Get IP netmask and broadcast */
+	if (netmask) {
+		ifr.ifr_addr.sa_family = AF_INET;
+		if (ioctl(s, SIOCGIFNETMASK, &ifr) < 0)
+			goto ERROR;
+		inet_ntop(AF_INET, &sin_addr(&ifr.ifr_netmask), netmask, sizeof("255.255.255.255"));
+	}
+
+	/* Get IP dst or P-to-P peer address */
+	if (dstaddr) {
+		ifr.ifr_dstaddr.sa_family = AF_INET;
+		if (ioctl(s, SIOCGIFDSTADDR, &ifr) < 0)
+			goto ERROR;
+		inet_ntop(AF_INET, &sin_addr(&ifr.ifr_dstaddr), dstaddr, sizeof("255.255.255.255"));
+	}
+
+	/* Get MTU */
+	if (mtu) {
+		if (ioctl(s, SIOCGIFMTU, &ifr) < 0)
+			goto ERROR;
+		*mtu = ifr.ifr_mtu;
+	}
+
+	close(s);
+	return 0;
+
+ ERROR:
+	close(s);
+	perror(name);
+	return errno;
+}
+
+int ifconfig_mtu(const char *name, int mtu)
+{
+	int ret, flags, old_mtu;
+
+	ret = _ifconfig_get(name, &flags, NULL, NULL, NULL, &old_mtu);
+	if (ret == 0 && mtu > 0 && mtu != old_mtu)
+		ret = _ifconfig(name, flags, NULL, NULL, NULL, mtu);
+
+	return ret ? -1 : old_mtu;
 }
 
 static int route_manip(int cmd, char *name, int metric, char *dst, char *gateway, char *genmask)
@@ -341,7 +450,7 @@ int start_vlan(void)
 		char vlan_id[16];
 		char *hwname, *hwaddr;
 		char prio[8];
-#ifdef RTCONFIG_BCMFA
+#ifdef RTCONFIG_BCMARM
 		struct ethtool_drvinfo info;
 #endif
 		/* get the address of the EMAC on which the VLAN sits */
@@ -353,7 +462,7 @@ int start_vlan(void)
 		if (!(hwaddr = nvram_get(nvvar_name)))
 			continue;
 
-		ether_atoe(hwaddr, ea);
+		ether_atoe(hwaddr, (unsigned char *) ea);
 		/* find the interface name to which the address is assigned */
 		for (j = 1; j <= DEV_NUMIFS; j ++) {
 			ifr.ifr_ifindex = j;
@@ -363,7 +472,7 @@ int start_vlan(void)
 				continue;
 			if (ifr.ifr_hwaddr.sa_family != ARPHRD_ETHER)
 				continue;
-#ifdef RTCONFIG_BCMFA
+#ifdef RTCONFIG_BCMARM
 			if (bcmp(ifr.ifr_hwaddr.sa_data, ea, ETHER_ADDR_LEN))
 				continue;
 
@@ -398,15 +507,50 @@ int start_vlan(void)
 			eval("vconfig", "set_ingress_map", vlan_id, prio, prio);
 		}
 	}
-#if defined(RTN14U) || defined(RTAC52U) || defined(RTAC51U)
-	eval("vconfig", "set_egress_map", "vlan2", "0", nvram_safe_get("switch_wan0prio"));
-#endif
 	close(s);
 
-#ifdef CONFIG_BCMWL5
-	if(!nvram_match("switch_wantag", "none")&&!nvram_match("switch_wantag", ""))
-		set_wan_tag(&ifr.ifr_name);
+#if (defined(RTCONFIG_QCA) || (defined(RTCONFIG_RALINK) && (defined(RTCONFIG_RALINK_MT7620) || defined(RTCONFIG_RALINK_MT7621))))
+	if(!nvram_match("switch_wantag", "none")&&!nvram_match("switch_wantag", "")&&!nvram_match("switch_wantag", "hinet"))
+	{
+#if defined(RTCONFIG_QCA)
+		char *wan_base_if = "eth0";
+#elif defined(RTCONFIG_RALINK)
+#if defined(RTCONFIG_RALINK_MT7620) /* RT-N14U, RT-AC52U, RT-AC51U, RT-N11P, RT-N54U, RT-AC1200HP, RT-AC54U */
+		char *wan_base_if = "eth2";
+#elif defined(RTCONFIG_RALINK_MT7621) /* RT-N56UB1, RT-N56UB2 */
+		char *wan_base_if = "eth3";
 #endif
+#endif
+		set_wan_tag(wan_base_if);
+	}
+#endif
+#ifdef CONFIG_BCMWL5
+	if(!nvram_match("switch_wantag", "none")&&!nvram_match("switch_wantag", "")&&!nvram_match("switch_wantag", "hinet"))
+		set_wan_tag((char *) &ifr.ifr_name);
+#endif
+#if defined(RTCONFIG_RGMII_BRCM5301X) || defined(RTAC3100) || defined(RTAC5300R)
+	switch (get_model()) {
+		case MODEL_RTAC88U:
+		case MODEL_RTAC3100:
+		case MODEL_RTAC5300:
+			break;
+		case MODEL_RTAC5300R:
+			logmessage("trunk", "enable BCM port1 and port2 trunking");
+			eval("et", "-i", "eth0", "robowr", "0x32", "0x00", "0x0A");
+			eval("et", "-i", "eth0", "robowr", "0x32", "0x12", "0x06");
+			break;
+		default:
+			// port 5 ??
+			eval("et", "robowr", "0x0", "0x5d", "0xfb", "1");
+			// port 4 link down
+			eval("et", "robowr", "0x0", "0x5c", "0x4a", "1");
+	}
+#endif
+
+#ifdef RTCONFIG_PORT_BASED_VLAN
+	set_port_based_vlan_config(&ifr.ifr_name);
+#endif
+
 	return 0;
 }
 

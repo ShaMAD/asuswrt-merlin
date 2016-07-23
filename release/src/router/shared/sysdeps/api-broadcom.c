@@ -21,11 +21,17 @@
 #include <bcmutils.h>
 #include <bcmendian.h>
 
+#ifdef RTCONFIG_QTN
+#include "web-qtn.h"
+#endif
+
 uint32_t gpio_dir(uint32_t gpio, int dir)
 {
 	/* FIXME
 	return bcmgpio_connect(gpio, dir);
 	 */
+
+	return 0;
 }
 
 #define swapportstatus(x) \
@@ -38,6 +44,9 @@ uint32_t gpio_dir(uint32_t gpio, int dir)
 	   ((data & 0x00000c00) >>  2);     \
     *(unsigned int*)&(x) = data;            \
 }
+
+extern uint32_t gpio_read(void);
+extern void gpio_write(uint32_t bitvalue, int en);
 
 uint32_t get_gpio(uint32_t gpio)
 {
@@ -69,7 +78,8 @@ uint32_t set_gpio(uint32_t gpio, uint32_t value)
 #ifdef RTCONFIG_BCMFA
 int get_fa_rev(void)
 {
-	int fd, rev, ret;
+	int fd, ret;
+	unsigned int rev;
 	struct ifreq ifr;
 	et_var_t var;
 
@@ -96,6 +106,37 @@ int get_fa_rev(void)
 skip:
 	return 0;
 }
+
+int get_fa_dump(void)
+{
+	int fd, rev, ret;
+	struct ifreq ifr;
+	et_var_t var;
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) goto skip;
+
+	rev = 0;
+	var.set = 0;
+	var.cmd = IOV_FA_DUMP;
+	var.buf = &rev;
+	var.len = sizeof(rev);
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "eth0");
+	ifr.ifr_data = (caddr_t) &var;
+
+	ret = ioctl(fd, SIOCSETGETVAR, (caddr_t)&ifr);
+	close(fd);
+	if (ret < 0)
+		goto skip;
+
+	return rev;
+
+skip:
+	return 0;
+}
+
 #endif
 
 int get_switch_model(void)
@@ -121,7 +162,6 @@ int get_switch_model(void)
 	close(fd);
 	if (ret < 0)
 		goto skip;
-
 	if (devid == 0x25)
 		return SWITCH_BCM5325;
 	else if (devid == 0x3115)
@@ -135,6 +175,80 @@ skip:
 	return SWITCH_UNKNOWN;
 }
 
+#ifdef MISSING_PRIVATE
+#ifdef RTCONFIG_BCM5301X_TRAFFIC_MONITOR
+
+uint32_t robo_ioctl_len(int fd, int write, int page, int reg, uint32_t *value, uint32_t len)
+{
+	static int __ioctl_args[2] = { SIOCGETCROBORD, SIOCSETCROBOWR };
+	struct ifreq ifr;
+	int ret, vecarg[4];
+	int i;
+
+	memset(&ifr, 0, sizeof(ifr));
+	strcpy(ifr.ifr_name, "eth0");
+	ifr.ifr_data = (caddr_t) vecarg;
+
+	vecarg[0] = (page << 16) | reg;
+	vecarg[1] = len;
+
+	ret = ioctl(fd, __ioctl_args[write], (caddr_t)&ifr);
+
+	*value = vecarg[2];
+
+	return ret;
+}
+
+void traffic_wanlan(char *ifname, uint32_t *rx, uint32_t *tx)
+{
+	int fd, model;
+	uint32_t value;
+	char port_name[30] = {0};
+	char port[30], *next;
+
+	*rx = 0;
+	*tx = 0;
+
+	strcat_r(ifname, "ports", port_name);
+
+	fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (fd < 0) return;
+
+	/* RX */
+	foreach (port, nvram_safe_get(port_name), next) {
+		if(strncmp(port, CPU_PORT, 1) != 0
+#ifdef RTAC87U
+			&& strncmp(port, RGMII_PORT, 1) != 0
+#endif
+		){
+			if (robo_ioctl_len(fd, 0 /* robord */, MIB_P0_PAGE + atoi(port), MIB_RX_REG, &value, 8) < 0)
+				_dprintf("et ioctl SIOCGETCROBORD failed!\n");
+			else{
+				*rx = *rx + value;
+			}
+		}
+	}
+
+	/* TX */
+	foreach (port, nvram_safe_get(port_name), next) {
+		if(strncmp(port, CPU_PORT, 1) != 0
+#ifdef RTAC87U
+			&& strncmp(port, RGMII_PORT, 1) != 0
+#endif
+		){
+			if (robo_ioctl_len(fd, 0 /* robord */, MIB_P0_PAGE + atoi(port), MIB_TX_REG, &value, 8) < 0)
+				_dprintf("et ioctl SIOCGETCROBORD failed!\n");
+			else{
+				*tx = *tx  + value;
+			}
+		}
+	}
+	close(fd);
+	return;
+}
+#endif	/* RTCONFIG_BCM5301X_TRAFFIC_MONITOR */
+#endif /* MISSING_PRIVATE */
+
 int robo_ioctl(int fd, int write, int page, int reg, uint32_t *value)
 {
 	static int __ioctl_args[2] = { SIOCGETCROBORD, SIOCSETCROBOWR };
@@ -146,7 +260,7 @@ int robo_ioctl(int fd, int write, int page, int reg, uint32_t *value)
 	ifr.ifr_data = (caddr_t) vecarg;
 
 	vecarg[0] = (page << 16) | reg;
-#ifdef BCM5301X
+#if defined(BCM5301X) || defined(RTAC1200G) || defined(RTAC1200GP)
 	vecarg[1] = 0;
 	vecarg[2] = *value;
 #else
@@ -154,7 +268,7 @@ int robo_ioctl(int fd, int write, int page, int reg, uint32_t *value)
 #endif
 	ret = ioctl(fd, __ioctl_args[write], (caddr_t)&ifr);
 
-#ifdef BCM5301X
+#if defined(BCM5301X) || defined(RTAC1200G) || defined(RTAC1200GP)
 	*value = vecarg[2];
 #else
 	*value = vecarg[1];
@@ -190,9 +304,11 @@ int phy_ioctl(int fd, int write, int phy, int reg, uint32_t *value)
 //  0: disconnected
 uint32_t get_phy_status(uint32_t portmask)
 {
-#undef RTN15U_WORKAROUND
-	int fd, i, model;
+	int fd, model;
 	uint32_t value, mask = 0;
+#ifndef BCM5301X
+	int i;
+#endif
 
 	model = get_switch();
 	if (model == SWITCH_UNKNOWN) return 0;
@@ -203,7 +319,7 @@ uint32_t get_phy_status(uint32_t portmask)
 	switch (model) {
 #ifndef BCM5301X
 	case SWITCH_BCM53125:
-#ifdef RTN15U_WORKAROUND
+#ifdef RTCONFIG_LANWAN_LED
 		/* N15U can't read link status from phy sometimes */
 		if (get_model() == MODEL_RTN15U)
 			goto case_SWITCH_ROBORD;
@@ -226,7 +342,7 @@ uint32_t get_phy_status(uint32_t portmask)
 				mask |= (1U << i);
 		}
 		break;
-#ifdef RTN15U_WORKAROUND
+#ifdef RTCONFIG_LANWAN_LED
 	case_SWITCH_ROBORD:
 		/* fall through */
 #endif
@@ -346,65 +462,64 @@ uint32_t set_phy_ctrl(uint32_t portmask, int ctrl)
 int
 check_crc(char *fname)
 {
-        FILE *fp;
-        int ret = 1;
-        int first_read = 1;
-        unsigned int len, count;
+	FILE *fp;
+	int ret = 1;
+	int first_read = 1;
+	unsigned int len, count;
 
-        void *ref;
-        struct trx_header trx;
-        uint32 crc;
-        static uint32 buf[16*1024];
+	struct trx_header trx;
+	uint32 crc;
+	static uint32 buf[16*1024];
 
-        fp = fopen(fname, "r");
-        if (fp == NULL)
-        {
-                _dprintf("Open trx fail!!!\n");
-                return 0;
-        }
+	fp = fopen(fname, "r");
+	if (fp == NULL)
+	{
+		_dprintf("Open trx fail!!!\n");
+		return 0;
+	}
 
-        /* Read header */
-        ret = fread((unsigned char *) &trx, 1, sizeof(struct trx_header), fp);
-        if (ret != sizeof(struct trx_header)) {
-                ret = 0;
-                _dprintf("read header error!!!\n");
-                goto done;
-        }
+	/* Read header */
+	ret = fread((unsigned char *) &trx, 1, sizeof(struct trx_header), fp);
+	if (ret != sizeof(struct trx_header)) {
+		ret = 0;
+		_dprintf("read header error!!!\n");
+		goto done;
+	}
 
-        /* Checksum over header */
-        crc = hndcrc32((uint8 *) &trx.flag_version,
-                       sizeof(struct trx_header) - OFFSETOF(struct trx_header, flag_version),
-                       CRC32_INIT_VALUE);
+	/* Checksum over header */
+	crc = hndcrc32((uint8 *) &trx.flag_version,
+		       sizeof(struct trx_header) - OFFSETOF(struct trx_header, flag_version),
+		       CRC32_INIT_VALUE);
 
-        for (len = ltoh32(trx.len) - sizeof(struct trx_header); len; len -= count) {
-                if (first_read) {
-                        count = MIN(len, sizeof(buf) - sizeof(struct trx_header));
-                        first_read = 0;
-                } else
-                        count = MIN(len, sizeof(buf));
+	for (len = ltoh32(trx.len) - sizeof(struct trx_header); len; len -= count) {
+		if (first_read) {
+			count = MIN(len, sizeof(buf) - sizeof(struct trx_header));
+			first_read = 0;
+		} else
+			count = MIN(len, sizeof(buf));
 
-                /* Read data */
-                ret = fread((unsigned char *) &buf, 1, count, fp);
-                if (ret != count) {
-                        ret = 0;
-                        _dprintf("read error!\n");
-                        goto done;
-                }
+		/* Read data */
+		ret = fread((unsigned char *) &buf, 1, count, fp);
+		if (ret != count) {
+			ret = 0;
+			_dprintf("read error!\n");
+			goto done;
+		}
 
-                /* Checksum over data */
-                crc = hndcrc32((uint8 *) &buf, count, crc);
-        }
-        /* Verify checksum */
-        //_dprintf("checksum: %u ? %u\n", ltoh32(trx.crc32), crc);
-        if (ltoh32(trx.crc32) != crc) {
-                ret = 0;
-                goto done;
-        }
+		/* Checksum over data */
+		crc = hndcrc32((uint8 *) &buf, count, crc);
+	}
+	/* Verify checksum */
+	//_dprintf("checksum: %u ? %u\n", ltoh32(trx.crc32), crc);
+	if (ltoh32(trx.crc32) != crc) {
+		ret = 0;
+		goto done;
+	}
 
 done:
-        fclose(fp);
+	fclose(fp);
 
-        return ret;
+	return ret;
 }
 
 /*
@@ -416,80 +531,68 @@ int check_imageheader(char *buf, long *filelen)
 {
 	long aligned;
 
-	if(strncmp(buf, IMAGE_HEADER, sizeof(IMAGE_HEADER) - 1) == 0)
+	if (strncmp(buf, IMAGE_HEADER, sizeof(IMAGE_HEADER) - 1) == 0)
 	{
 		memcpy(&aligned, buf + sizeof(IMAGE_HEADER) - 1, sizeof(aligned));
 		*filelen = aligned;
+#ifdef RTCONFIG_DSL_TCLINUX
+		*filelen+=0x790000;
+#endif
 		_dprintf("image len: %x\n", aligned);
 		return 1;
 	}
 	else return 0;
 }
 
-/*
- * 0: illegal image
- * 1: legal image
- *
- * check product id, crc ..
- */
-
-int check_imagefile(char *fname)
+#ifdef RTCONFIG_QTN
+char *wl_vifname_qtn(int unit, int subunit)
 {
-	FILE *fp;
-	struct version_t {
-		uint8_t ver[4];			/* Firmware version */
-		uint8_t pid[MAX_PID_LEN];	/* Product Id */
-		uint8_t hw[MAX_HW_COUNT][4];	/* Compatible hw list lo maj.min, hi maj.min */
-		uint8_t	pad[0];			/* Padding up to MAX_VERSION_LEN */
-	} version;
-	int i, model;
+	static char tmp[128];
 
-	fp = fopen(fname, "r");
-	if (fp == NULL)
-		return 0;
-
-	fseek(fp, -MAX_VERSION_LEN, SEEK_END);
-	fread(&version, 1, sizeof(version), fp);
-	fclose(fp);
-
-	_dprintf("productid field in image: %.12s\n", version.pid);
-
-	for (i = 0; i < sizeof(version); i++)
-		_dprintf("%02x ", ((uint8_t *)&version)[i]);
-	_dprintf("\n");
-
-	/* safe strip trailing spaces */
-	for (i = 0; i < MAX_PID_LEN && version.pid[i] != '\0'; i++);
-	for (i--; i >= 0 && version.pid[i] == '\x20'; i--)
-		version.pid[i] = '\0';
-
-        if(!check_crc(fname)) {
-                _dprintf("check crc error!!!\n");
-                return 0;
-        }
-
-	model = get_model();
-
-	/* compare up to the first \0 or MAX_PID_LEN
-	 * nvram productid or hw model's original productid */
-	if (strncmp(nvram_safe_get("productid"), version.pid, MAX_PID_LEN) == 0 ||
-	    strncmp(get_modelid(model), version.pid, MAX_PID_LEN) == 0)
-		return 1;
-
-	/* common RT-N12 productid FW image */
-	if ((model == MODEL_RTN12B1 || model == MODEL_RTN12C1 ||
-	     model == MODEL_RTN12D1 || model == MODEL_RTN12VP || model == MODEL_RTN12HP || model == MODEL_RTN12HP_B1 ||model == MODEL_APN12HP) &&
-	     strncmp(get_modelid(MODEL_RTN12), version.pid, MAX_PID_LEN) == 0)
-		return 1;
-
-	return 0;
+	if ((subunit > 0) && (subunit < 4))
+	{
+		sprintf(tmp, "wifi%d", subunit);
+		return strdup(tmp);
+	}
+	else
+		return strdup("");
 }
+#endif
 
 int get_radio(int unit, int subunit)
 {
 	int n = 0;
 
 	//_dprintf("get radio %x %x %s\n", unit, subunit, nvram_safe_get(wl_nvname("ifname", unit, subunit)));
+
+#ifdef RTCONFIG_QTN
+	int ret;
+	char interface_status = 0;
+
+	if (unit)
+	{
+		if(!rpc_qtn_ready())
+			return -1;
+
+		if (subunit > 0)
+		{
+			ret = qcsapi_interface_get_status(wl_vifname_qtn(unit, subunit), &interface_status);
+//			if (ret < 0)
+//				dbG("Qcsapi qcsapi_interface_get_status %s error, return: %d\n", wl_vifname_qtn(unit, subunit), ret);
+
+			return interface_status;
+		}
+		else
+		{
+			ret = qcsapi_wifi_rfstatus((qcsapi_unsigned_int *) &n);
+//			if (ret < 0)
+//				dbG("Qcsapi qcsapi_wifi_rfstatus %s error, return: %d\n", wl_vifname_qtn(unit, subunit), ret);
+
+			return n;
+		}
+	}
+	else
+#endif
 
 	return (wl_ioctl(nvram_safe_get(wl_nvname("ifname", unit, subunit)), WLC_GET_RADIO, &n, sizeof(n)) == 0) &&
 		!(n & (WL_RADIO_SW_DISABLE | WL_RADIO_HW_DISABLE));
@@ -498,9 +601,18 @@ int get_radio(int unit, int subunit)
 void set_radio(int on, int unit, int subunit)
 {
 	uint32 n;
-	char tmpstr[32];
 	char tmp[100], prefix[] = "wlXXXXXXXXXXXXXX";
 
+#ifdef RTCONFIG_QTN
+	if (unit) {
+		if (!rpc_qtn_ready())
+			return;
+
+		rpc_set_radio(unit, subunit, on);
+
+		return;
+	}
+#endif
 	//_dprintf("set radio %x %x %x %s\n", on, unit, subunit, nvram_safe_get(wl_nvname("ifname", unit, subunit)));
 
 	if (subunit > 0)
@@ -511,26 +623,30 @@ void set_radio(int on, int unit, int subunit)
 	//if (nvram_match(strcat_r(prefix, "radio", tmp), "0")) return;
 
 #if defined(RTAC66U) || defined(BCM4352)
-	snprintf(tmp, sizeof(tmp), "%sradio", prefix);
-	if(!strcmp(tmp, "wl1_radio")){
-		if(on){
+	if ((unit == 1) & (subunit < 1)) {
+		if (on) {
+#ifndef RTCONFIG_LED_BTN
+			if (!(nvram_get_int("sw_mode")==SW_MODE_AP && nvram_get_int("wlc_psta")==1 && nvram_get_int("wlc_band")==0)) {
+				nvram_set("led_5g", "1");
+				led_control(LED_5G, LED_ON);
+			}
+#else
 			nvram_set("led_5g", "1");
-#ifdef RTCONFIG_LED_BTN
 			if (nvram_get_int("AllLED"))
+				led_control(LED_5G, LED_ON);
 #endif
-			led_control(LED_5G, LED_ON);
 		}
-		else{
+		else {
 			nvram_set("led_5g", "0");
 			led_control(LED_5G, LED_OFF);
 		}
 	}
 #endif
 
-	if(subunit>0) {
-		sprintf(tmpstr, "%d", subunit);
-		if(on) eval("wl", "-i", nvram_safe_get(wl_nvname("ifname", unit, 0)), "bss", "-C", tmpstr, "up");
-		else eval("wl", "-i", nvram_safe_get(wl_nvname("ifname", unit, 0)), "bss", "-C", tmpstr, "down");
+	if (subunit > 0) {
+		sprintf(tmp, "%d", subunit);
+		if (on) eval("wl", "-i", nvram_safe_get(wl_nvname("ifname", unit, 0)), "bss", "-C", tmp, "up");
+		else eval("wl", "-i", nvram_safe_get(wl_nvname("ifname", unit, 0)), "bss", "-C", tmp, "down");
 
 		if (nvram_get_int("led_disable")==1) {
 			led_control(LED_2G, LED_OFF);
@@ -564,3 +680,55 @@ void set_radio(int on, int unit, int subunit)
 	}
 }
 
+/* Return nvram variable name, e.g. et0macaddr, which is used to repented as LAN MAC.
+ * @return:
+ */
+char *get_lan_mac_name(void)
+{
+#ifdef RTCONFIG_BCMARM
+	switch(get_model()) {
+		case MODEL_RTAC87U:
+		case MODEL_RTAC5300:
+		case MODEL_RTAC5300R:
+		case MODEL_RTAC88U:
+			return "et1macaddr";
+		default:
+			return "et0macaddr";
+	}
+#endif
+	return "et0macaddr";
+}
+
+/* Return nvram variable name, e.g. et1macaddr, which is used to repented as WAN MAC.
+ * @return:
+ */
+char *get_wan_mac_name(void)
+{
+#ifdef RTCONFIG_BCMARM
+	switch(get_model()) {
+		case MODEL_RTAC87U:
+		case MODEL_RTAC5300:
+		case MODEL_RTAC5300R:
+		case MODEL_RTAC88U:
+			return "et1macaddr";
+		default:
+			return "et0macaddr";
+	}
+#endif
+	return "et0macaddr";
+}
+
+char *get_lan_hwaddr(void)
+{
+	return nvram_safe_get(get_lan_mac_name());
+}
+
+char *get_2g_hwaddr(void)
+{
+	return nvram_safe_get(get_lan_mac_name());
+}
+
+char *get_wan_hwaddr(void)
+{
+	return nvram_safe_get(get_wan_mac_name());
+}

@@ -28,7 +28,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <signal.h>
 #include <dirent.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -78,6 +77,8 @@
 #define D2C			4
 #define PHY_RECONN	5
 #define SET_ETH_MODEM	6
+#define SET_PIN	7
+#define SET_USBSCAN	8
 
 #define CASE_NONE          0
 #define CASE_DISWAN        1
@@ -88,6 +89,8 @@
 #define CASE_THESAMESUBNET 6
 #define CASE_PPPNOIP       7
 #define CASE_AP_DISCONN    8
+#define CASE_DATALIMIT     9
+#define CASE_DYN_MODEM     10
 
 #pragma pack(1) // let struct be neat by byte.
 
@@ -152,19 +155,31 @@ typedef struct REQCLIENT{
 #pragma pack() // End.
 
 // var
+int test_log = 0;
 char router_name[PATHLEN];
 int sw_mode, isFirstUse;
+int boot_end;
 #ifdef RTCONFIG_DUALWAN
 char dualwan_mode[8];
-
-char wandog_target[PATH_MAX];
+char dualwan_wans[16];
+char wandog_target[256];
 int wandog_delay, delay_detect;
+int WAN_FB_UNIT;
+#endif
+#ifdef RTCONFIG_USB_MODEM
+char modem_type[32];
+int sim_lock = 0;
+#ifdef RTCONFIG_INTERNAL_GOBI
+char usb_if[16];
+#endif
 #endif
 
 int scan_interval;
 int wandog_enable, wandog_maxfail;
-int max_disconn_count;
-int max_wait_time;
+int max_disconn_count[WAN_UNIT_MAX];
+int max_wait_time[WAN_UNIT_MAX];
+int max_fb_count;
+int max_fb_wait_time;
 
 int http_sock, dns_sock, maxfd;
 clients client[MAX_USER];
@@ -175,6 +190,7 @@ char dst_url[256];
 #define S_IDLE -1
 #define S_COUNT 0
 int conn_changed_state[WAN_UNIT_MAX], changed_count[WAN_UNIT_MAX];
+unsigned int loop_sec;
 
 int conn_state_old[WAN_UNIT_MAX], conn_state[WAN_UNIT_MAX];
 int cross_state = 0;
@@ -183,6 +199,8 @@ int ppp_fail_state;
 int rule_setup;
 int link_setup[WAN_UNIT_MAX], link_wan[WAN_UNIT_MAX];
 int got_notify;
+int modem_act_reset;
+int nat_state;
 
 char prefix_lan[8];
 int current_lan_unit = 0;
@@ -199,6 +217,9 @@ int other_wan_unit = WAN_UNIT_SECOND;
 int current_state[WAN_UNIT_MAX];
 
 char nvram_state[WAN_UNIT_MAX][16], nvram_sbstate[WAN_UNIT_MAX][16], nvram_auxstate[WAN_UNIT_MAX][16];
+
+static int nat_redirect_enable;
+static int nat_redirect_enable_old;
 
 #ifdef RTCONFIG_WIRELESSREPEATER
 int setAP, wlc_state = 0;

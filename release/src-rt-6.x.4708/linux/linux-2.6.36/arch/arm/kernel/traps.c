@@ -286,7 +286,6 @@ void die(const char *str, struct pt_regs *regs, int err)
 	add_taint(TAINT_DIE);
 	spin_unlock_irq(&die_lock);
 	oops_exit();
-
 	if (in_interrupt())
 		panic("Fatal exception in interrupt");
 	if (panic_on_oops)

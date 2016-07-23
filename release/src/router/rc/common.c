@@ -31,7 +31,6 @@
 #include <stdio.h>
 #include <net/if_arp.h>
 #include <time.h>
-#include <signal.h>
 #include <bcmnvram.h>
 #include <shutils.h>
 #include <sys/time.h>
@@ -50,19 +49,13 @@
 #include <ralink.h>
 #endif
 
+#ifdef RTCONFIG_QCA
+#include <qca.h>
+#endif
+
 #include <mtd.h>
 
 void update_lan_status(int);
-
-in_addr_t inet_addr_(const char *cp)
-{
-	struct in_addr a;
-
-	if (!inet_aton(cp, &a))
-		return INADDR_ANY;
-	else
-		return a.s_addr;
-}
 
 /* remove space in the end of string */
 char *trim_r(char *str)
@@ -248,103 +241,6 @@ void wan_netmask_check(void)
 	}
 }
 
-void init_switch_mode()
-{
-//	ra_gpio_init();						// init for switch mode retrieval
-//	sw_mode_check();					// save switch mode into nvram name sw_mode
-//	nvram_set("sw_mode_ex", nvram_safe_get("sw_mode"));	// save working switch mode into nvram name sw_mode_ex
-
-	if (!nvram_get("sw_mode"))
-		nvram_set("sw_mode", "1");
-	nvram_set("sw_mode_ex", nvram_safe_get("sw_mode"));
-
-	if (nvram_match("sw_mode_ex", "1"))			// Gateway mode
-	{
-		nvram_set("wan_nat_x", "1");
-		nvram_set("wan_route_x", "IP_Routed");
-#ifdef RTCONFIG_BCMWL6
-#ifdef RTCONFIG_PROXYSTA
-		nvram_set("wlc_psta", "0");
-		nvram_set("wl0_bss_enabled", "1");
-		nvram_set("wl1_bss_enabled", "1");
-#endif
-#endif
-		nvram_set("ure_disable", "1");
-	}
-	else if (nvram_match("sw_mode_ex", "4"))		// Router mode
-	{
-		nvram_set("wan_nat_x", "0");
-		nvram_set("wan_route_x", "IP_Routed");
-#ifdef RTCONFIG_BCMWL6
-#ifdef RTCONFIG_PROXYSTA
-		nvram_set("wlc_psta", "0");
-		nvram_set("wl0_bss_enabled", "1");
-		nvram_set("wl1_bss_enabled", "1");
-#endif
-#endif
-		nvram_set("ure_disable", "1");
-	}
-#ifdef RTCONFIG_WIRELESSREPEATER
-	else if (nvram_match("sw_mode_ex", "2"))		// Repeater mode
-	{
-		nvram_set("wan_nat_x", "0");
-		nvram_set("wan_route_x", "IP_Bridged");
-		
-		nvram_set("wl0_vifs", "wl0.1");
-		
-		nvram_set("wl0.1_hwaddr", nvram_safe_get("et0macaddr"));
-#ifdef RTCONFIG_BCMWL6
-		if (nvram_match("wl0_phytype", "v"))
-			nvram_set("wl0_bw_cap", "7");
-		else
-			nvram_set("wl0_bw_cap", "3");
-#else
-		nvram_set("wl0_nbw_cap", "1");
-		nvram_set("wl0_nbw", "40");
-#endif
-		
-		nvram_set("wl_mode", "wet");
-		nvram_set("wl0_mode", "wet");
-		nvram_set("wl_ure", "1");
-		nvram_set("wl0_ure", "1");
-		nvram_set("ure_disable", "0");
-		
-		nvram_set("wl0.1_bss_enabled", "1");
-		
-		nvram_set("wl0.1_auth_mode", "none");
-		nvram_set("wl0.1_wme", nvram_safe_get("wl_wme"));
-		nvram_set("wl0.1_wme_bss_disable", nvram_safe_get("wl_wme_bss_disable"));
-		nvram_set("wl0.1_wmf_bss_enable", nvram_safe_get("wl_wmf_bss_enable"));
-#ifdef RTCONFIG_BCMWL6
-#ifdef RTCONFIG_PROXYSTA
-		nvram_set("wlc_psta", "0");
-#endif
-#endif
-	}
-#endif	/* RTCONFIG_WIRELESSREPEATER */
-	else if (nvram_match("sw_mode_ex", "3"))		// AP mode
-	{
-		nvram_set("wan_nat_x", "0");
-		nvram_set("wan_route_x", "IP_Bridged");
-		nvram_set("ure_disable", "1");
-	}
-	else
-	{
-		nvram_set("sw_mode", "1");
-		nvram_set("sw_mode_ex", "1");
-		nvram_set("wan_nat_x", "1");
-		nvram_set("wan_route_x", "IP_Routed");
-#ifdef RTCONFIG_BCMWL6
-#ifdef RTCONFIG_PROXYSTA
-		nvram_set("wlc_psta", "0");
-		nvram_set("wl0_bss_enabled", "1");
-		nvram_set("wl1_bss_enabled", "1");
-#endif
-#endif
-		nvram_set("ure_disable", "1");
-	}
-}
-
 /*
  * wanmessage
  *
@@ -360,27 +256,32 @@ void wanmessage(char *fmt, ...)
 	va_end(args);
 }
 
-int pppstatus(void)
+int _pppstatus(const char *statusfile)
 {
-	FILE *fp;
-	char sline[128], buf[128], *p;
+	char status[128];
 
-	if ((fp=fopen("/tmp/wanstatus.log", "r")) && fgets(sline, sizeof(sline), fp))
-	{
-		p = strstr(sline, ",");
-		strcpy(buf, p+1);
-	}
-	else
-	{
-		strcpy(buf, "unknown reason");
-	}
+	if (!statusfile || f_read_string(statusfile, status, sizeof(status)) <= 0)
+		return WAN_STOPPED_REASON_NONE;
 
-	if(fp) fclose(fp);
+	if (strstr(status, "No response from ISP") != NULL)
+		return WAN_STOPPED_REASON_PPP_NO_RESPONSE;
+	else if (strstr(status, "Peer not responding") != NULL)
+		return WAN_STOPPED_REASON_NONE; /* Connection appears to be disconnected */
+	else if (strstr(status, "Failed to authenticate ourselves to peer") != NULL ||
+		 strstr(status, "Authentication failed") != NULL)
+		return WAN_STOPPED_REASON_PPP_AUTH_FAIL;
+	else if (strstr(status, "Link inactive") != NULL)
+		return WAN_STOPPED_REASON_PPP_LACK_ACTIVITY;
 
-	if(strstr(buf, "No response from ISP.")) return WAN_STOPPED_REASON_PPP_NO_ACTIVITY;
-	else if(strstr(buf, "Failed to authenticate ourselves to peer")) return WAN_STOPPED_REASON_PPP_AUTH_FAIL;
-	else if(strstr(buf, "Terminating connection due to lack of activity")) return WAN_STOPPED_REASON_PPP_LACK_ACTIVITY;
-	else return WAN_STOPPED_REASON_NONE;
+	return WAN_STOPPED_REASON_NONE;
+}
+
+int pppstatus(int unit)
+{
+	char statusfile[sizeof("/var/run/ppp-wanXXXXXXXXXX.status")];
+
+	snprintf(statusfile, sizeof(statusfile), "/var/run/ppp-wan%d.status", unit);
+	return _pppstatus(statusfile);
 }
 
 void usage_exit(const char *cmd, const char *help)
@@ -518,7 +419,7 @@ static int endswith_filter(const struct dirent *entry)
 void run_userfile(char *folder, char *extension, const char *arg1, int wtime)
 {
 	unsigned char buf[PATH_MAX + 1];
-	char *argv[] = { buf, (char *)arg1, NULL };
+	char *argv[] = { (char *)buf, (char *)arg1, NULL };
 	struct dirent **namelist;
 	int i, n;
 
@@ -527,7 +428,7 @@ void run_userfile(char *folder, char *extension, const char *arg1, int wtime)
 	n = scandir(folder, &namelist, endswith_filter, alphasort);
 	if (n >= 0) {
 		for (i = 0; i < n; ++i) {
-			sprintf(buf, "%s/%s", folder, namelist[i]->d_name);
+			sprintf((char *) buf, "%s/%s", folder, namelist[i]->d_name);
 			execute_with_maxwait(argv,
 				strchr(namelist[i]->d_name, '&') ? 0 : wtime);
 			free(namelist[i]);
@@ -644,11 +545,11 @@ static void write_ct_timeout(const char *type, const char *name, unsigned int va
 	unsigned char buf[128];
 	char v[16];
 
-	sprintf(buf, "/proc/sys/net/ipv4/netfilter/ip_conntrack_%s_timeout%s%s",
+	sprintf((char *) buf, "/proc/sys/net/ipv4/netfilter/ip_conntrack_%s_timeout%s%s",
 		type, (name && name[0]) ? "_" : "", name ? name : "");
 	sprintf(v, "%u", val);
 
-	f_write_string(buf, v, 0, 0);
+	f_write_string((const char *) buf, v, 0, 0);
 }
 
 #ifndef write_tcp_timeout
@@ -665,9 +566,9 @@ static unsigned int read_ct_timeout(const char *type, const char *name)
 	unsigned int val = 0;
 	char v[16];
 
-	sprintf(buf, "/proc/sys/net/ipv4/netfilter/ip_conntrack_%s_timeout%s%s",
+	sprintf((char *) buf, "/proc/sys/net/ipv4/netfilter/ip_conntrack_%s_timeout%s%s",
 		type, (name && name[0]) ? "_" : "", name ? name : "");
-	if (f_read_string(buf, v, sizeof(v)) > 0)
+	if (f_read_string((const char *) buf, v, sizeof(v)) > 0)
 		val = atoi(v);
 
 	return val;
@@ -932,14 +833,14 @@ void setup_conntrack(void)
 
 void setup_pt_conntrack(void)
 {
-	if (!nvram_match("fw_pt_rtsp", "0")) {
+	if (nvram_match("fw_pt_rtsp", "1")) {
 		ct_modprobe("rtsp", "ports=554,8554");
 	}
 	else {
 		ct_modprobe_r("rtsp");
 	}
 
-	if (!nvram_match("fw_pt_h323", "0")) {
+	if (nvram_match("fw_pt_h323", "1")) {
 		ct_modprobe("h323");
 	}
 	else {
@@ -947,7 +848,7 @@ void setup_pt_conntrack(void)
 	}
 
 #ifdef LINUX26
-	if (!nvram_match("fw_pt_sip", "0")) {
+	if (nvram_match("fw_pt_sip", "1")) {
 		ct_modprobe("sip");
 	}
 	else {
@@ -991,6 +892,7 @@ void set_mac(const char *ifname, const char *nvname, int plus)
 	struct ifreq ifr;
 	int up;
 	int j;
+	char *et_hwaddr = NULL;
 
 	if ((sfd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) < 0) {
 		_dprintf("%s: %s %d\n", ifname, __FUNCTION__, __LINE__);
@@ -1011,12 +913,31 @@ void set_mac(const char *ifname, const char *nvname, int plus)
 	else {
 		_dprintf("%s: %s %d\n", ifname, __FUNCTION__, __LINE__);
 	}
+#ifdef RTCONFIG_RGMII_BRCM5301X
+	et_hwaddr = nvram_safe_get("lan_hwaddr");
+#elif defined(RTCONFIG_GMAC3)
+	if (nvram_match("gmac3_enable", "1"))
+		et_hwaddr = nvram_safe_get("et2macaddr");
+	else
+		et_hwaddr = nvram_safe_get("et0macaddr");
+#else
+	et_hwaddr = nvram_safe_get("et0macaddr");
+#endif
 
 	if (!ether_atoe(nvram_safe_get(nvname), (unsigned char *)&ifr.ifr_hwaddr.sa_data)) {
-		if (!ether_atoe(nvram_safe_get("et0macaddr"), (unsigned char *)&ifr.ifr_hwaddr.sa_data)) {
+		if (!ether_atoe(et_hwaddr, (unsigned char *)&ifr.ifr_hwaddr.sa_data)) {
 
 			// goofy et0macaddr, make something up
+#ifdef RTCONFIG_RGMII_BRCM5301X 
+			nvram_set("lan_hwaddr", "00:01:23:45:67:89");
+#elif defined(RTCONFIG_GMAC3)
+			if (nvram_match("gmac3_enable", "1"))
+				nvram_set("et2macaddr", "00:01:23:45:67:89");
+			else
+				nvram_set("et0macaddr", "00:01:23:45:67:89");
+#else
 			nvram_set("et0macaddr", "00:01:23:45:67:89");
+#endif
 			ifr.ifr_hwaddr.sa_data[0] = 0;
 			ifr.ifr_hwaddr.sa_data[1] = 0x01;
 			ifr.ifr_hwaddr.sa_data[2] = 0x23;
@@ -1224,6 +1145,26 @@ void time_zone_x_mapping(void)
 		nvram_set("time_zone", "UCT-9_1");
 	else if (nvram_match("time_zone", "RFT-9RFTDST"))
 		nvram_set("time_zone", "UCT-9_2");
+	else if (nvram_match("time_zone", "UTC-2DST_1"))	/*Minsk*/
+		nvram_set("time_zone", "UTC-3_3");
+	else if (nvram_match("time_zone", "UTC-4_2"))		/*Moscow, St. Petersburg*/
+		nvram_set("time_zone", "UTC-3_4");
+	else if (nvram_match("time_zone", "UTC-4_3"))		/*Volgograd*/
+		nvram_set("time_zone", "UTC-3_5");
+	else if (nvram_match("time_zone", "UTC-6_1"))		/*Yekaterinburg*/
+		nvram_set("time_zone", "UTC-5_1");
+	else if (nvram_match("time_zone", "UTC-7_1"))		/*Novosibirsk*/
+		nvram_set("time_zone", "UTC-6_2");
+	else if (nvram_match("time_zone", "CST-8_2"))		/*Krasnoyarsk*/
+		nvram_set("time_zone", "CST-7_2");
+	else if (nvram_match("time_zone", "UTC-9_2"))		/*Irkutsk*/
+		nvram_set("time_zone", "UTC-8_1");
+	else if (nvram_match("time_zone", "UTC-10_3"))		/*Yakutsk*/
+		nvram_set("time_zone", "UTC-9_3");
+	else if (nvram_match("time_zone", "UTC-11_2"))		/*Vladivostok*/
+		nvram_set("time_zone", "UTC-10_4");
+	else if (nvram_match("time_zone", "UTC-12_1"))          /*Magadan*/
+		nvram_set("time_zone", "UTC-10_5");
 
 	snprintf(tmpstr, sizeof(tmpstr), "%s", nvram_safe_get("time_zone"));
 	/* replace . with : */
@@ -1263,7 +1204,7 @@ void
 setup_timezone(void)
 {
 #ifndef RC_BUILDTIME
-#define RC_BUILDTIME	1293840000	// Jan 1 00:00:00 GMT 2011
+#define RC_BUILDTIME	1438387200	// Aug 1 00:00:00 GMT 2015
 #endif
 	time_t now;
 	struct tm gm, local;
@@ -1345,9 +1286,33 @@ is_valid_hostname(const char *name)
 	return len;
 }
 
+int
+is_valid_domainname(const char *name)
+{
+	int len, i;
+	unsigned char c;
+
+	if (!name)
+		return 0;
+
+	len = strlen(name);
+	for (i = 0; i < len; i++) {
+		c = name[i];
+		if (((c | 0x20) < 'a' || (c | 0x20) > 'z') &&
+		    ((c < '0' || c > '9')) &&
+		    (c != '.' && c != '-' && c != '_')) {
+			len = 0;
+			break;
+		}
+	}
+#if 0
+	printf("%s is %svalid for domainname\n", name, len ? "" : "in");
+#endif
+	return len;
+}
+
 int get_meminfo_item(const char *name)
 {
-	int ret = 0;
 	FILE *fp;
 	char memdata[256] = {0};
 	int mem = 0;
@@ -1359,7 +1324,7 @@ int get_meminfo_item(const char *name)
 		/* get one memory parameter specified by the name */
 		while (fgets(memdata, 255, fp) != NULL) {
 			if (strstr(memdata, name) != NULL) {
-				ret = sscanf(memdata, "%*s %d kB", &mem);
+				sscanf(memdata, "%*s %d kB", &mem);
 				break;
 			}
 		}
@@ -1368,29 +1333,6 @@ int get_meminfo_item(const char *name)
 
 	return mem;
 }
-
-#ifdef RTCONFIG_OLD_PARENTALCTRL
-int nvram_set_by_seq(char *name, unsigned int seq, char *value)
-{
-	char tmp_name_local[255];
-
-	snprintf(tmp_name_local, sizeof(tmp_name_local), "%s%d", name, seq);
-	nvram_set(tmp_name_local, value);
-
-	return 1;
-}
-
-char * nvram_get_by_seq(char *name, unsigned int seq)
-{
-	char tmp_name_local[255];
-
-	snprintf(tmp_name_local, sizeof(tmp_name_local), "%s%d", name, seq);
-
-	return nvram_safe_get(tmp_name_local);
-
-}
-
-#endif	/* RTCONFIG_OLD_PARENTALCTRL */
 
 #ifdef RTCONFIG_SHP
 void restart_lfp()
@@ -1407,8 +1349,8 @@ void restart_lfp()
 }
 #endif
 
-#ifdef RTCONFIG_WIRELESSREPEATER
-void setup_dnsmq(int mode)
+#ifdef CONFIG_BCMWL5
+int setup_dnsmq(int mode)
 {
 	char v[32];
 	char tmp[32];
@@ -1417,19 +1359,27 @@ void setup_dnsmq(int mode)
 		// setup ebtables
 		eval("ebtables", "-F");
 		eval("ebtables", "-t", "broute", "-F");
-		eval("ebtables", "-t", "broute", "-I", "BROUTING", "-p", "ipv4", "-d", "00:E0:11:22:33:44", "-j", "redirect", "--redirect-target", "DROP");
+		eval("ebtables", "-t", "broute", "-I", "BROUTING", "-d", "00:E0:11:22:33:44", "-j", "redirect", "--redirect-target", "DROP");
 	}
 	else {
 		eval("ebtables", "-F");
 		eval("ebtables", "-t", "broute", "-F");
-		eval("ebtables", "-I", "FORWARD", "-i", "eth1", "-j", "DROP");
+		eval("ebtables", "-I", "FORWARD", "-i", nvram_safe_get(wlc_nvname("ifname")), "-j", "DROP");
 	}	
 	
 	eval("iptables", "-t", "nat", "-F", "PREROUTING");
-	eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "udp", "--dport", "53", "-j", "DNAT", "--to-destination", strcat_r(nvram_safe_get("lan_ipaddr"), ":18018", tmp));
+	eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "udp", "--dport", "53",
+		"-j", "DNAT", "--to-destination", strcat_r(nvram_safe_get("lan_ipaddr"), ":18018", tmp));
 
 	if(mode) {
-		eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "tcp", "-d", "10.0.0.1", "--dport", "80", "-j", "DNAT", "--to-destination", strcat_r(nvram_safe_get("lan_ipaddr"), ":80", tmp));
+#if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
+		if (!is_psta(nvram_get_int("wlc_band")) && !is_psr(nvram_get_int("wlc_band")))
+#endif
+		{
+			snprintf(tmp, sizeof(tmp), "%s:%d", nvram_safe_get("lan_ipaddr"), /*nvram_get_int("http_lanport") ? :*/ 80);
+			eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "tcp", "-d", "10.0.0.1", "--dport", "80",
+				"-j", "DNAT", "--to-destination", tmp);
+		}
 	
 		//sprintf(v, "%x my.%s", inet_addr("10.0.0.1"), get_productid());
 		sprintf(v, "%x %s", inet_addr(nvram_safe_get("lan_ipaddr")), DUT_DOMAIN_NAME);
@@ -1437,62 +1387,19 @@ void setup_dnsmq(int mode)
 	}
 	else {
 		// setup ebtables and iptables
-		eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "tcp", "-d", "10.0.0.1", "--dport", "80", "-j", "DNAT", "--to-destination", strcat_r(nvram_safe_get("lan_ipaddr"), ":18017", tmp));
+#if defined(RTCONFIG_BCMWL6) && defined(RTCONFIG_PROXYSTA)
+		if (!is_psta(nvram_get_int("wlc_band")) && !is_psr(nvram_get_int("wlc_band")))
+#endif
+		eval("iptables", "-t", "nat", "-I", "PREROUTING", "-p", "tcp", "-d", "10.0.0.1", "--dport", "80",
+			"-j", "DNAT", "--to-destination", strcat_r(nvram_safe_get("lan_ipaddr"), ":18017", tmp));
 	
 		f_write_string("/proc/net/dnsmqctrl", "", 0, 0);
 	}
+
+	return 0;
 }
 #endif
 
-void run_custom_script(char *name, char *args)
-{
-	char script[120];
-
-	sprintf(script, "/jffs/scripts/%s", name);
-
-	if(f_exists(script)) {
-		_dprintf("Script: running %s (args: %s)\n", script, args);
-		xstart(script, args);
-	}
-}
-
-void run_custom_script_blocking(char *name, char *args)
-{
-	char script[120];
-
-	sprintf(script, "/jffs/scripts/%s", name);
-
-	if(f_exists(script)) {
-		_dprintf("Script: running %s\n", script);
-		eval(script, args);
-	}
-
-}
-
-void run_postconf(char *name, char *config)
-{
-	run_custom_script_blocking(name, config);
-}
-
-
-void use_custom_config(char *config, char *target)
-{
-        char filename[256];
-        sprintf(filename,"/jffs/configs/%s", config);
-
-	if (check_if_file_exist(filename)) {
-		eval("cp", filename, target, NULL);
-	}
-}
-
-
-void append_custom_config(char *config, FILE *fp)
-{
-	char filename[256];
-
-	sprintf(filename,"/jffs/configs/%s.add", config);
-	fappend(fp, filename);
-}
 
 int
 is_invalid_char_for_volname(char c)
@@ -1501,8 +1408,15 @@ is_invalid_char_for_volname(char c)
 
 	if (c < 0x20)
 		ret = 1;
+#if 0
 	else if (c >= 0x21 && c <= 0x2c)
 		ret = 1;
+#else	/* allow '+' */
+	else if (c >= 0x21 && c <= 0x2a)	/* !"#$%&'()* */
+		ret = 1;
+	else if (c == 0x2c)			/* , */
+		ret = 1;
+#endif
 	else if (c >= 0x2e && c <= 0x2f)
 		ret = 1;
 	else if (c >= 0x3a && c <= 0x40)
@@ -1534,26 +1448,6 @@ is_valid_volname(const char *name)
 	return len;
 }
 
-char *get_parsed_crt(const char *name, char *buf)
-{
-	char *value;
-	int len, i;
-
-	value = nvram_safe_get(name);
-
-	len = strlen(value);
-
-	for (i=0; (i < len); i++) {
-		if (value[i] == '>') 
-			buf[i] = '\n';
-		else
-			buf[i] = value[i];
-	}
-
-	buf[i] = '\0';
-
-	return buf;
-}
 
 void stop_if_misc(void)
 {

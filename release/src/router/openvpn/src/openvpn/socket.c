@@ -137,10 +137,6 @@ openvpn_getaddrinfo (unsigned int flags,
 
   ASSERT(res);
 
-#if defined(HAVE_RES_INIT)
-  res_init ();
-#endif
-
   if (!hostname)
     hostname = "::";
 
@@ -197,6 +193,9 @@ openvpn_getaddrinfo (unsigned int flags,
        */
       while (true)
         {
+#ifndef WIN32
+	  res_init ();
+#endif
           /* try hostname lookup */
           hints.ai_flags = 0;
           dmsg (D_SOCKET_DEBUG, "GETADDRINFO flags=0x%04x ai_family=%d ai_socktype=%d",
@@ -208,18 +207,23 @@ openvpn_getaddrinfo (unsigned int flags,
               get_signal (signal_received);
               if (*signal_received) /* were we interrupted by a signal? */
                 {
-                  if (0 == status) {
-                    ASSERT(res);
-                    freeaddrinfo(*res);
-                    res = NULL;
-                  }
                   if (*signal_received == SIGUSR1) /* ignore SIGUSR1 */
                     {
                       msg (level, "RESOLVE: Ignored SIGUSR1 signal received during DNS resolution attempt");
                       *signal_received = 0;
                     }
                   else
-                    goto done;
+                    {
+		      /* turn success into failure (interrupted syscall) */
+                      if (0 == status) {
+                          ASSERT(res);
+                          freeaddrinfo(*res);
+                          *res = NULL;
+                          status = EAI_AGAIN;	/* = temporary failure */
+                          errno = EINTR;
+                      }
+                      goto done;
+                    }
                 }
             }
 
@@ -490,12 +494,9 @@ static void
 socket_set_sndbuf (int sd, int size)
 {
 #if defined(HAVE_SETSOCKOPT) && defined(SOL_SOCKET) && defined(SO_SNDBUF)
-  if (size > 0 && size < SOCKET_SND_RCV_BUF_MAX)
+  if (setsockopt (sd, SOL_SOCKET, SO_SNDBUF, (void *) &size, sizeof (size)) != 0)
     {
-      if (setsockopt (sd, SOL_SOCKET, SO_SNDBUF, (void *) &size, sizeof (size)) != 0)
-	{
-	  msg (M_WARN, "NOTE: setsockopt SO_SNDBUF=%d failed", size);
-	}
+      msg (M_WARN, "NOTE: setsockopt SO_SNDBUF=%d failed", size);
     }
 #endif
 }
@@ -519,13 +520,10 @@ static bool
 socket_set_rcvbuf (int sd, int size)
 {
 #if defined(HAVE_SETSOCKOPT) && defined(SOL_SOCKET) && defined(SO_RCVBUF)
-  if (size > 0 && size < SOCKET_SND_RCV_BUF_MAX)
+  if (setsockopt (sd, SOL_SOCKET, SO_RCVBUF, (void *) &size, sizeof (size)) != 0)
     {
-      if (setsockopt (sd, SOL_SOCKET, SO_RCVBUF, (void *) &size, sizeof (size)) != 0)
-	{
-	  msg (M_WARN, "NOTE: setsockopt SO_RCVBUF=%d failed", size);
-	  return false;
-	}
+      msg (M_WARN, "NOTE: setsockopt SO_RCVBUF=%d failed", size);
+      return false;
     }
   return true;
 #endif
@@ -844,7 +842,7 @@ socket_listen_accept (socket_descriptor_t sd,
       struct timeval tv;
 
       FD_ZERO (&reads);
-      FD_SET (sd, &reads);
+      openvpn_fd_set (sd, &reads);
       tv.tv_sec = 0;
       tv.tv_usec = 0;
 
@@ -936,16 +934,22 @@ openvpn_connect (socket_descriptor_t sd,
     {
       while (true)
 	{
+#if POLL
+	  struct pollfd fds[1];
+	  fds[0].fd = sd;
+	  fds[0].events = POLLOUT;
+	  status = poll(fds, 1, 0);
+#else
 	  fd_set writes;
 	  struct timeval tv;
 
 	  FD_ZERO (&writes);
-	  FD_SET (sd, &writes);
+	  openvpn_fd_set (sd, &writes);
 	  tv.tv_sec = 0;
 	  tv.tv_usec = 0;
 
 	  status = select (sd + 1, NULL, &writes, NULL, &tv);
-
+#endif
 	  if (signal_received)
 	    {
 	      get_signal (signal_received);
@@ -964,7 +968,11 @@ openvpn_connect (socket_descriptor_t sd,
 	    {
 	      if (--connect_timeout < 0)
 		{
+#ifdef WIN32
+		  status = WSAETIMEDOUT;
+#else
 		  status = ETIMEDOUT;
+#endif
 		  break;
 		}
 	      openvpn_sleep (1);
@@ -1148,7 +1156,6 @@ resolve_bind_local (struct link_socket *sock)
 	case AF_INET6:
 	    {
 	      int status;
-	      int err;
 	      CLEAR(sock->info.lsa->local.addr.in6);
 	      if (sock->local_host)
 		{
@@ -1171,7 +1178,7 @@ resolve_bind_local (struct link_socket *sock)
 		{
 		  msg (M_FATAL, "getaddr6() failed for local \"%s\": %s",
 		       sock->local_host,
-		       gai_strerror(err));
+		       gai_strerror(status));
 		}
 	      sock->info.lsa->local.addr.in6.sin6_port = htons (sock->local_port);
 	    }
@@ -1225,6 +1232,7 @@ resolve_remote (struct link_socket *sock,
 	      unsigned int flags = sf2gaf(GETADDR_RESOLVE|GETADDR_UPDATE_MANAGEMENT_STATE, sock->sockflags);
 	      int retry = 0;
 	      int status = -1;
+	      struct addrinfo* ai;
 
 	      if (sock->connection_profiles_defined && sock->resolve_retry_seconds == RESOLV_RETRY_INFINITE)
 		{
@@ -1261,21 +1269,24 @@ resolve_remote (struct link_socket *sock,
 		  ASSERT (0);
 		}
 
-		  struct addrinfo* ai;
-		  /* Temporary fix, this need to be changed for dual stack */
-		  status = openvpn_getaddrinfo(flags, sock->remote_host, retry,
-											  signal_received, af, &ai);
-		  if(status == 0) {
-			  sock->info.lsa->remote.addr.in6 = *((struct sockaddr_in6*)(ai->ai_addr));
-			  freeaddrinfo(ai);
+	      /* Temporary fix, this need to be changed for dual stack */
+	      status = openvpn_getaddrinfo(flags, sock->remote_host, retry,
+					    signal_received, af, &ai);
+	      if(status == 0)
+		{
+		  if ( ai->ai_family == AF_INET6 )
+		    sock->info.lsa->remote.addr.in6 = *((struct sockaddr_in6*)(ai->ai_addr));
+		  else
+		    sock->info.lsa->remote.addr.in4 = *((struct sockaddr_in*)(ai->ai_addr));
+		  freeaddrinfo(ai);
 
-			  dmsg (D_SOCKET_DEBUG, "RESOLVE_REMOTE flags=0x%04x phase=%d rrs=%d sig=%d status=%d",
+		  dmsg (D_SOCKET_DEBUG, "RESOLVE_REMOTE flags=0x%04x phase=%d rrs=%d sig=%d status=%d",
 					flags,
 					phase,
 					retry,
 					signal_received ? *signal_received : -1,
 					status);
-		  }
+		}
 	      if (signal_received)
 		{
 		  if (*signal_received)
@@ -2409,6 +2420,22 @@ setenv_in_addr_t (struct env_set *es, const char *name_prefix, in_addr_t addr, c
 }
 
 void
+setenv_in6_addr (struct env_set *es,
+                 const char *name_prefix,
+                 const struct in6_addr *addr,
+                 const unsigned int flags)
+{
+  if (!IN6_IS_ADDR_UNSPECIFIED (addr) || !(flags & SA_SET_IF_NONZERO))
+    {
+      struct openvpn_sockaddr si;
+      CLEAR (si);
+      si.addr.in6.sin6_family = AF_INET6;
+      si.addr.in6.sin6_addr = *addr;
+      setenv_sockaddr (es, name_prefix, &si, flags);
+    }
+}
+
+void
 setenv_link_socket_actual (struct env_set *es,
 			   const char *name_prefix,
 			   const struct link_socket_actual *act,
@@ -2799,11 +2826,11 @@ link_socket_write_udp_posix_sendmsg (struct link_socket *sock,
         mesg.msg_name = &to->dest.addr.sa;
         mesg.msg_namelen = sizeof (struct sockaddr_in);
         mesg.msg_control = &opi;
-        mesg.msg_controllen = sizeof (struct openvpn_in4_pktinfo);
         mesg.msg_flags = 0;
+#ifdef HAVE_IN_PKTINFO
+        mesg.msg_controllen = sizeof (struct openvpn_in4_pktinfo);
         cmsg = CMSG_FIRSTHDR (&mesg);
         cmsg->cmsg_len = sizeof (struct openvpn_in4_pktinfo);
-#ifdef HAVE_IN_PKTINFO
         cmsg->cmsg_level = SOL_IP;
         cmsg->cmsg_type = IP_PKTINFO;
 	{
@@ -2814,6 +2841,10 @@ link_socket_write_udp_posix_sendmsg (struct link_socket *sock,
         pkti->ipi_addr.s_addr = 0;
 	}
 #elif defined(IP_RECVDSTADDR)
+	ASSERT( CMSG_SPACE(sizeof (struct in_addr)) <= sizeof(opi) );
+        mesg.msg_controllen = CMSG_SPACE(sizeof (struct in_addr));
+        cmsg = CMSG_FIRSTHDR (&mesg);
+        cmsg->cmsg_len = CMSG_LEN(sizeof(struct in_addr));
         cmsg->cmsg_level = IPPROTO_IP;
         cmsg->cmsg_type = IP_RECVDSTADDR;
         *(struct in_addr *) CMSG_DATA (cmsg) = to->pi.in4;

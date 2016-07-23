@@ -7,10 +7,7 @@
  *
  *  Copyright (C) 2002-2010 OpenVPN Technologies, Inc. <sales@openvpn.net>
  *  Copyright (C) 2010 Fox Crypto B.V. <openvpn@fox-it.com>
- *
- *  Additions for eurephia plugin done by:
- *         David Sommerseth <dazo@users.sourceforge.net> Copyright (C) 2008-2009
- *
+ *  Copyright (C) 2008-2013 David Sommerseth <dazo@users.sourceforge.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -46,6 +43,7 @@
 #endif
 
 #include "syshead.h"
+#include "win32.h"
 
 #if defined(ENABLE_CRYPTO) && defined(ENABLE_SSL)
 
@@ -141,8 +139,6 @@ static const tls_cipher_name_pair tls_cipher_name_translation_table[] = {
     {"DHE-DSS-CAMELLIA128-SHA", "TLS-DHE-DSS-WITH-CAMELLIA-128-CBC-SHA"},
     {"DHE-DSS-CAMELLIA256-SHA256", "TLS-DHE-DSS-WITH-CAMELLIA-256-CBC-SHA256"},
     {"DHE-DSS-CAMELLIA256-SHA", "TLS-DHE-DSS-WITH-CAMELLIA-256-CBC-SHA"},
-    {"DHE-DSS-DES-CBC3-SHA", "TLS-DHE-DSS-WITH-3DES-EDE-CBC-SHA"},
-    {"DHE-DSS-DES-CBC-SHA", "TLS-DHE-DSS-WITH-DES-CBC-SHA"},
     {"DHE-DSS-SEED-SHA", "TLS-DHE-DSS-WITH-SEED-CBC-SHA"},
     {"DHE-RSA-AES128-GCM-SHA256", "TLS-DHE-RSA-WITH-AES-128-GCM-SHA256"},
     {"DHE-RSA-AES128-SHA256", "TLS-DHE-RSA-WITH-AES-128-CBC-SHA256"},
@@ -154,8 +150,6 @@ static const tls_cipher_name_pair tls_cipher_name_translation_table[] = {
     {"DHE-RSA-CAMELLIA128-SHA", "TLS-DHE-RSA-WITH-CAMELLIA-128-CBC-SHA"},
     {"DHE-RSA-CAMELLIA256-SHA256", "TLS-DHE-RSA-WITH-CAMELLIA-256-CBC-SHA256"},
     {"DHE-RSA-CAMELLIA256-SHA", "TLS-DHE-RSA-WITH-CAMELLIA-256-CBC-SHA"},
-    {"DHE-RSA-DES-CBC3-SHA", "TLS-DHE-RSA-WITH-3DES-EDE-CBC-SHA"},
-    {"DHE-RSA-DES-CBC-SHA", "TLS-DHE-RSA-WITH-DES-CBC-SHA"},
     {"DHE-RSA-SEED-SHA", "TLS-DHE-RSA-WITH-SEED-CBC-SHA"},
     {"DH-RSA-SEED-SHA", "TLS-DH-RSA-WITH-SEED-CBC-SHA"},
     {"ECDH-ECDSA-AES128-GCM-SHA256", "TLS-ECDH-ECDSA-WITH-AES-128-GCM-SHA256"},
@@ -242,6 +236,19 @@ static const tls_cipher_name_pair tls_cipher_name_translation_table[] = {
     {"SRP-RSA-3DES-EDE-CBC-SHA", "TLS-SRP-SHA-RSA-WITH-3DES-EDE-CBC-SHA"},
     {"SRP-RSA-AES-128-CBC-SHA", "TLS-SRP-SHA-RSA-WITH-AES-128-CBC-SHA"},
     {"SRP-RSA-AES-256-CBC-SHA", "TLS-SRP-SHA-RSA-WITH-AES-256-CBC-SHA"},
+#ifdef ENABLE_CRYPTO_OPENSSL
+    {"DEFAULT", "DEFAULT"},
+    {"ALL", "ALL"},
+    {"HIGH", "HIGH"},
+    {"MEDIUM", "MEDIUM"},
+    {"LOW", "LOW"},
+    {"ECDH", "ECDH"},
+    {"ECDSA", "ECDSA"},
+    {"EDH", "EDH"},
+    {"EXP", "EXP"},
+    {"RSA", "RSA"},
+    {"SRP", "SRP"},
+#endif
     {NULL, NULL}
 };
 
@@ -265,7 +272,7 @@ tls_get_cipher_name_pair (const char * cipher_name, size_t len) {
  * Max number of bytes we will add
  * for data structures common to both
  * data and control channel packets.
- * (opcode only). 
+ * (opcode only).
  */
 void
 tls_adjust_frame_parameters(struct frame *frame)
@@ -295,8 +302,9 @@ tls_init_control_channel_frame_parameters(const struct frame *data_channel_frame
   reliable_ack_adjust_frame_parameters (frame, CONTROL_SEND_ACK_MAX);
   frame_add_to_extra_frame (frame, SID_SIZE + sizeof (packet_id_type));
 
-  /* set dynamic link MTU to minimum value */
-  frame_set_mtu_dynamic (frame, 0, SET_MTU_TUN);
+  /* set dynamic link MTU to cap control channel packets at 1250 bytes */
+  ASSERT (TUN_LINK_DELTA (frame) < min_int (frame->link_mtu, 1250));
+  frame->link_mtu_dynamic = min_int (frame->link_mtu, 1250) - TUN_LINK_DELTA (frame);
 }
 
 void
@@ -327,7 +335,7 @@ void
 pem_password_setup (const char *auth_file)
 {
   if (!strlen (passbuf.password))
-    get_user_pass (&passbuf, auth_file, UP_TYPE_PRIVATE_KEY, GET_USER_PASS_MANAGEMENT|GET_USER_PASS_SENSITIVE|GET_USER_PASS_PASSWORD_ONLY);
+    get_user_pass (&passbuf, auth_file, UP_TYPE_PRIVATE_KEY, GET_USER_PASS_MANAGEMENT|GET_USER_PASS_PASSWORD_ONLY);
 }
 
 int
@@ -370,11 +378,11 @@ auth_user_pass_setup (const char *auth_file, const struct static_challenge_info 
        get_user_pass_cr (&auth_user_pass,
                          auth_file,
                          UP_TYPE_AUTH,
-                         GET_USER_PASS_MANAGEMENT|GET_USER_PASS_SENSITIVE|GET_USER_PASS_DYNAMIC_CHALLENGE,
+                         GET_USER_PASS_MANAGEMENT|GET_USER_PASS_DYNAMIC_CHALLENGE,
                          auth_challenge);
       else if (sci) /* static challenge response */
        {
-         int flags = GET_USER_PASS_MANAGEMENT|GET_USER_PASS_SENSITIVE|GET_USER_PASS_STATIC_CHALLENGE;
+         int flags = GET_USER_PASS_MANAGEMENT|GET_USER_PASS_STATIC_CHALLENGE;
          if (sci->flags & SC_ECHO)
            flags |= GET_USER_PASS_STATIC_CHALLENGE_ECHO;
          get_user_pass_cr (&auth_user_pass,
@@ -385,7 +393,7 @@ auth_user_pass_setup (const char *auth_file, const struct static_challenge_info 
        }
       else
 # endif
-       get_user_pass (&auth_user_pass, auth_file, UP_TYPE_AUTH, GET_USER_PASS_MANAGEMENT|GET_USER_PASS_SENSITIVE);
+       get_user_pass (&auth_user_pass, auth_file, UP_TYPE_AUTH, GET_USER_PASS_MANAGEMENT);
 #endif
     }
 }
@@ -447,6 +455,27 @@ ssl_put_auth_challenge (const char *cr_str)
 #endif
 
 /*
+ * Parse a TLS version string, returning a TLS_VER_x constant.
+ * If version string is not recognized and extra == "or-highest",
+ * return tls_version_max().
+ */
+int
+tls_version_parse(const char *vstr, const char *extra)
+{
+  const int max_version = tls_version_max();
+  if (!strcmp(vstr, "1.0") && TLS_VER_1_0 <= max_version)
+    return TLS_VER_1_0;
+  else if (!strcmp(vstr, "1.1") && TLS_VER_1_1 <= max_version)
+    return TLS_VER_1_1;
+  else if (!strcmp(vstr, "1.2") && TLS_VER_1_2 <= max_version)
+    return TLS_VER_1_2;
+  else if (extra && !strcmp(extra, "or-highest"))
+    return max_version;
+  else
+    return TLS_VER_BAD;
+}
+
+/*
  * Initialize SSL context.
  * All files are in PEM format.
  */
@@ -459,12 +488,12 @@ init_ssl (const struct options *options, struct tls_root_ctx *new_ctx)
 
   if (options->tls_server)
     {
-      tls_ctx_server_new(new_ctx);
+      tls_ctx_server_new(new_ctx, options->ssl_flags);
       tls_ctx_load_dh_params(new_ctx, options->dh_file, options->dh_file_inline);
     }
   else				/* if client */
     {
-      tls_ctx_client_new(new_ctx);
+      tls_ctx_client_new(new_ctx, options->ssl_flags);
     }
 
   tls_ctx_set_options(new_ctx, options->ssl_flags);
@@ -495,12 +524,8 @@ init_ssl (const struct options *options, struct tls_root_ctx *new_ctx)
 #ifdef MANAGMENT_EXTERNAL_KEY
   else if ((options->management_flags & MF_EXTERNAL_KEY) && options->cert_file)
     {
-      openvpn_x509_cert_t *my_cert = NULL;
-      tls_ctx_load_cert_file(new_ctx, options->cert_file, options->cert_file_inline,
-	  &my_cert);
-      tls_ctx_use_external_private_key(new_ctx, my_cert);
-
-      tls_ctx_free_cert_file(my_cert);
+      tls_ctx_use_external_private_key(new_ctx, options->cert_file,
+	  options->cert_file_inline);
     }
 #endif
   else
@@ -508,7 +533,7 @@ init_ssl (const struct options *options, struct tls_root_ctx *new_ctx)
       /* Load Certificate */
       if (options->cert_file)
 	{
-          tls_ctx_load_cert_file(new_ctx, options->cert_file, options->cert_file_inline, NULL);
+          tls_ctx_load_cert_file(new_ctx, options->cert_file, options->cert_file_inline);
 	}
 
       /* Load Private Key */
@@ -532,11 +557,11 @@ init_ssl (const struct options *options, struct tls_root_ctx *new_ctx)
       tls_ctx_load_extra_certs(new_ctx, options->extra_certs_file, options->extra_certs_file_inline);
     }
 
+  /* Check certificate notBefore and notAfter */
+  tls_ctx_check_cert_time(new_ctx);
+
   /* Allowable ciphers */
-  if (options->cipher_list)
-    {
-      tls_ctx_restrict_ciphers(new_ctx, options->cipher_list);
-    }
+  tls_ctx_restrict_ciphers(new_ctx, options->cipher_list);
 
 #ifdef ENABLE_CRYPTO_POLARSSL
   /* Personalise the random by mixing in the certificate */
@@ -604,6 +629,8 @@ packet_opcode_name (int op)
       return "P_ACK_V1";
     case P_DATA_V1:
       return "P_DATA_V1";
+    case P_DATA_V2:
+      return "P_DATA_V2";
     default:
       return "P_???";
     }
@@ -1029,6 +1056,9 @@ tls_multi_init (struct tls_options *tls_options)
   ret->key_scan[0] = &ret->session[TM_ACTIVE].key[KS_PRIMARY];
   ret->key_scan[1] = &ret->session[TM_ACTIVE].key[KS_LAME_DUCK];
   ret->key_scan[2] = &ret->session[TM_LAME_DUCK].key[KS_LAME_DUCK];
+
+  /* By default not use P_DATA_V2 */
+  ret->use_peer_id = false;
 
   return ret;
 }
@@ -1805,6 +1835,8 @@ push_peer_info(struct buffer *buf, struct tls_session *session)
 #ifdef ENABLE_LZO_STUB
       buf_printf (&out, "IV_LZO_STUB=1\n");
 #endif
+      /* support for P_DATA_V2 */
+      buf_printf(&out, "IV_PROTO=2\n");
 
       if (session->opt->push_peer_info_detail >= 2)
         {
@@ -1813,15 +1845,21 @@ push_peer_info(struct buffer *buf, struct tls_session *session)
 	  get_default_gateway (&rgi);
 	  if (rgi.flags & RGI_HWADDR_DEFINED)
 	    buf_printf (&out, "IV_HWADDR=%s\n", format_hex_ex (rgi.hwaddr, 6, 0, 1, ":", &gc));
+	  buf_printf (&out, "IV_SSL=%s\n", get_ssl_library_version() );
+#if defined(WIN32)
+	  buf_printf (&out, "IV_PLAT_VER=%s\n", win32_version_string (&gc, false));
+#endif
+        }
 
-	  /* push env vars that begin with UV_ */
-	  for (e=es->list; e != NULL; e=e->next)
+      /* push env vars that begin with UV_ and IV_GUI_VER */
+      for (e=es->list; e != NULL; e=e->next)
+	{
+	  if (e->string)
 	    {
-	      if (e->string)
-		{
-		  if (!strncmp(e->string, "UV_", 3) && buf_safe(&out, strlen(e->string)+1))
-		    buf_printf (&out, "%s\n", e->string);
-		}
+	      if (((strncmp(e->string, "UV_", 3)==0 && session->opt->push_peer_info_detail >= 2)
+		   || (strncmp(e->string,"IV_GUI_VER=",sizeof("IV_GUI_VER=")-1)==0))
+		  && buf_safe(&out, strlen(e->string)+1))
+		buf_printf (&out, "%s\n", e->string);
 	    }
 	}
 
@@ -1872,9 +1910,9 @@ key_method_2_write (struct buffer *buf, struct tls_session *session)
   if (auth_user_pass_enabled)
     {
 #ifdef ENABLE_CLIENT_CR
-      auth_user_pass_setup (NULL, session->opt->sci);
+      auth_user_pass_setup (session->opt->auth_user_pass_file, session->opt->sci);
 #else
-      auth_user_pass_setup (NULL, NULL);
+      auth_user_pass_setup (session->opt->auth_user_pass_file, NULL);
 #endif
       if (!write_string (buf, auth_user_pass.username, -1))
 	goto error;
@@ -2002,7 +2040,11 @@ key_method_2_read (struct buffer *buf, struct tls_multi *multi, struct tls_sessi
   ASSERT (session->opt->key_method == 2);
 
   /* discard leading uint32 */
-  ASSERT (buf_advance (buf, 4));
+  if (!buf_advance (buf, 4)) {
+    msg (D_TLS_ERRORS, "TLS ERROR: Plaintext buffer too short (%d bytes).",
+	buf->len);
+    goto error;
+  }
 
   /* get key method */
   key_method_flags = buf_read_u8 (buf);
@@ -2751,8 +2793,9 @@ tls_pre_decrypt (struct tls_multi *multi,
 	key_id = c & P_KEY_ID_MASK;
       }
 
-      if (op == P_DATA_V1)
-	{			/* data channel packet */
+      if ((op == P_DATA_V1) || (op == P_DATA_V2))
+	{
+	  /* data channel packet */
 	  for (i = 0; i < KEY_SCAN_SIZE; ++i)
 	    {
 	      struct key_state *ks = multi->key_scan[i];
@@ -2784,7 +2827,19 @@ tls_pre_decrypt (struct tls_multi *multi,
 		  opt->pid_persist = NULL;
 		  opt->flags &= multi->opt.crypto_flags_and;
 		  opt->flags |= multi->opt.crypto_flags_or;
+
 		  ASSERT (buf_advance (buf, 1));
+		  if (op == P_DATA_V2)
+		    {
+		      if (buf->len < 4)
+			{
+			  msg (D_TLS_ERRORS, "Protocol error: received P_DATA_V2 from %s but length is < 4",
+				print_link_socket_actual (from, &gc));
+			  goto error;
+			}
+		      ASSERT (buf_advance (buf, 3));
+		    }
+
 		  ++ks->n_packets;
 		  ks->n_bytes += buf->len;
 		  dmsg (D_TLS_KEYSELECT,
@@ -3349,14 +3404,24 @@ tls_post_encrypt (struct tls_multi *multi, struct buffer *buf)
 {
   struct key_state *ks;
   uint8_t *op;
+  uint32_t peer;
 
   ks = multi->save_ks;
   multi->save_ks = NULL;
   if (buf->len > 0)
     {
       ASSERT (ks);
-      ASSERT (op = buf_prepend (buf, 1));
-      *op = (P_DATA_V1 << P_OPCODE_SHIFT) | ks->key_id;
+
+      if (!multi->opt.server && multi->use_peer_id)
+	{
+	  peer = htonl(((P_DATA_V2 << P_OPCODE_SHIFT) | ks->key_id) << 24 | (multi->peer_id & 0xFFFFFF));
+	  ASSERT (buf_write_prepend (buf, &peer, 4));
+	}
+      else
+	{
+	  ASSERT (op = buf_prepend (buf, 1));
+	  *op = (P_DATA_V1 << P_OPCODE_SHIFT) | ks->key_id;
+	}
       ++ks->n_packets;
       ks->n_bytes += buf->len;
     }
@@ -3463,7 +3528,7 @@ protocol_dump (struct buffer *buffer, unsigned int flags, struct gc_arena *gc)
   key_id = c & P_KEY_ID_MASK;
   buf_printf (&out, "%s kid=%d", packet_opcode_name (op), key_id);
 
-  if (op == P_DATA_V1)
+  if ((op == P_DATA_V1) || (op == P_DATA_V2))
     goto print_data;
 
   /*

@@ -33,6 +33,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include <disk_io_tools.h>
+
 #define TIMEMACHINE_BACKUP_NAME	"Backups.backupdb"
 #define CNID_DIR_NAME		"CNID"
 #define AFP_CONFIG_PATH		"/tmp/netatalk"
@@ -54,7 +56,16 @@ int generate_afp_config(char *mpname)
 
 	sprintf(afp_config, "%s/%s", AFP_CONFIG_PATH, AFP_CONFIG_FN);
 
+#if defined(RTCONFIG_RGMII_BRCM5301X) || defined(RTCONFIG_QCA)
+	strcpy(et0macaddr, nvram_safe_get("lan_hwaddr"));
+#elif defined(RTCONFIG_GMAC3)
+	if (nvram_match("gmac3_enable", "1"))
+		strcpy(et0macaddr, nvram_safe_get("et2macaddr"));
+	else
+		strcpy(et0macaddr, nvram_safe_get("et0macaddr"));
+#else
 	strcpy(et0macaddr, nvram_safe_get("et0macaddr"));
+#endif
 
 	/* Generate afp configuration file */
 	if (!(fp = fopen(afp_config, "w"))) {
@@ -443,8 +454,6 @@ void find_backup_mac_date(char *mpname)
 
 void write_timemachine_tokeninfo(char *mpname)
 {
-	char test_log[100];
-
 	FILE *fp;
 	fp = fopen("/tmp/timemachine_info", "a");
 	char *tmp = " ";
@@ -460,7 +469,7 @@ void clear_timemachine_tokeninfo()
 	FILE *fp;
 
 	if (!(fp = fopen("/tmp/timemachine_info", "w"))) {
-		return -1;
+		return;
 	}
 	
 	fclose(fp);
@@ -471,7 +480,7 @@ int start_timemachine()
 	int ret = 0;
 	char cnid_path[80];
 	char backup_path[80];
-	char token_path[80];
+	//char token_path[80];
 	char test_log[100];
 	char *mount_point_name;
 
@@ -499,6 +508,9 @@ int start_timemachine()
 	//find_tokenfile_partition();
 
 	if(!nvram_match("timemachine_enable", "1"))
+		return -1;
+
+	if(!sd_partition_num() && !nvram_match("usb_debug", "1"))
 		return -1;
 
 	if(nvram_safe_get("tm_device_name") == NULL)
@@ -593,7 +605,7 @@ void stop_timemachine()
 	stop_afpd();
 	stop_cnid_metad();
 	restart_mdns();
-	logmessage("Timemachine", "daemon is stoped");
+	logmessage("Timemachine", "daemon is stopped");
 }
 
 

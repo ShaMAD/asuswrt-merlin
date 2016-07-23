@@ -15,6 +15,7 @@ PATH=$APPS_PATH/usr/bin:$APPS_PATH/bin:$APPS_PATH/usr/sbin:$APPS_PATH/sbin:/usr/
 unset LD_LIBRARY_PATH
 unset LD_PRELOAD
 
+
 if [ -n "$1" ] && [ -n "$2" ];then
 	APPS_DEV=$1
 	APPS_MOUNTED_PATH=$2
@@ -40,7 +41,7 @@ while [ $i -le 20 ]; do
 		break
 	fi
 
-	i=$(($i+1))
+	i=$((i+1))
 	echo "autorun APP: wait $i seconds..."
 	sleep 1
 done
@@ -48,11 +49,11 @@ done
 
 nvram set apps_state_autorun=1 # CHECKING_POOL
 APPS_MOUNTED_TYPE=`mount |grep "/dev/$APPS_DEV on " |awk '{print $5}'`
-if [ "$APPS_MOUNTED_TYPE" == "vfat" ]; then
-	link_ready=`app_check_pool.sh $APPS_DEV`
+if [ "$APPS_MOUNTED_TYPE" == "vfat" ] || [ "$APPS_MOUNTED_TYPE" == "tfat" ]; then
+	link_ready=`/usr/sbin/app_check_pool.sh $APPS_DEV`
 	if [ "$link_ready" == "Non-linked" ]; then
 		echo "Building the link of $APPS_MOUNTED_PATH."
-		app_base_link.sh
+		/usr/sbin/app_base_link.sh
 		if [ "$?" != "0" ]; then
 			# apps_state_error was already set by app_base_link.sh.
 			exit 1
@@ -70,7 +71,7 @@ if [ "$APPS_MOUNTED_TYPE" == "vfat" ]; then
 	fi
 else
 	echo "Building the link of $APPS_MOUNTED_PATH."
-	app_base_link.sh
+	/usr/sbin/app_base_link.sh
 	if [ "$?" != "0" ]; then
 		# apps_state_error was already set by app_base_link.sh.
 		exit 1
@@ -109,12 +110,12 @@ fi
 
 nvram set apps_state_autorun=3 # EXECUTING
 link_internet=`nvram get link_internet`
-if [ "$link_internet" == "1" ]; then
-	app_update.sh &
+if [ "$link_internet" == "2" ]; then
+	/usr/sbin/app_update.sh &
 fi
 
 # run all APPs by order.
-app_init_run.sh allpkg start
+/usr/sbin/app_init_run.sh allpkg start
 
 
 nvram set apps_state_autorun=4 # FINISHED

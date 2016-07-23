@@ -1,7 +1,8 @@
-/* $Id: pfpinhole.c,v 1.19 2012/05/21 15:47:57 nanard Exp $ */
-/* MiniUPnP project
+/* $Id: pfpinhole.c,v 1.24 2014/12/05 09:54:55 nanard Exp $ */
+/* vim: tabstop=4 shiftwidth=4 noexpandtab
+ * MiniUPnP project
  * http://miniupnp.free.fr/ or http://miniupnp.tuxfamily.org/
- * (c) 2012 Thomas Bernard
+ * (c) 2012-2016 Thomas Bernard
  * This software is subject to the conditions detailed
  * in the LICENCE file provided within the distribution */
 
@@ -15,6 +16,9 @@
 #ifdef __DragonFly__
 #include <net/pf/pfvar.h>
 #else
+#ifdef __APPLE__
+#define PRIVATE 1
+#endif
 #include <net/pfvar.h>
 #endif
 #include <fcntl.h>
@@ -28,6 +32,7 @@
 #include "../config.h"
 #include "pfpinhole.h"
 #include "../upnpglobalvars.h"
+#include "../macros.h"
 
 /* the pass rules created by add_pinhole() are as follow :
  *
@@ -36,21 +41,23 @@
  *   flags S/SA keep state
  *   label "pinhole-2 ts-4321000"
  *
- * with the label "pinhole-$uid ts-$timestamp"
+ * with the label "pinhole-$uid ts-$timestamp: $description"
  */
 
-#ifdef ENABLE_6FC_SERVICE
+#ifdef ENABLE_UPNPPINHOLE
+
 /* /dev/pf when opened */
 extern int dev;
 
 static int next_uid = 1;
 
-#define PINEHOLE_LABEL_FORMAT "pinhole-%d ts-%u"
+#define PINEHOLE_LABEL_FORMAT "pinhole-%d ts-%u: %s"
+#define PINEHOLE_LABEL_FORMAT_SKIPDESC "pinhole-%d ts-%u: %*s"
 
 int add_pinhole(const char * ifname,
                 const char * rem_host, unsigned short rem_port,
                 const char * int_client, unsigned short int_port,
-                int proto, unsigned int timestamp)
+                int proto, const char * desc, unsigned int timestamp)
 {
 	int uid;
 	struct pfioc_rule pcr;
@@ -104,7 +111,7 @@ int add_pinhole(const char * ifname,
 		pcr.rule.keep_state = 1;
 		uid = next_uid;
 		snprintf(pcr.rule.label, PF_RULE_LABEL_SIZE,
-		         PINEHOLE_LABEL_FORMAT, uid, timestamp);
+		         PINEHOLE_LABEL_FORMAT, uid, timestamp, desc);
 		if(queue)
 			strlcpy(pcr.rule.qname, queue, PF_QNAME_SIZE);
 		if(tag)
@@ -150,6 +157,68 @@ int add_pinhole(const char * ifname,
 		next_uid = 1;
 	}
 	return uid;
+}
+
+int find_pinhole(const char * ifname,
+                 const char * rem_host, unsigned short rem_port,
+                 const char * int_client, unsigned short int_port,
+                 int proto,
+                 char *desc, int desc_len, unsigned int * timestamp)
+{
+	int uid;
+	unsigned int ts;
+	int i, n;
+	struct pfioc_rule pr;
+	struct in6_addr saddr;
+	struct in6_addr daddr;
+	UNUSED(ifname);
+
+	if(dev<0) {
+		syslog(LOG_ERR, "pf device is not open");
+		return -1;
+	}
+	if(rem_host && (rem_host[0] != '\0')) {
+		inet_pton(AF_INET6, rem_host, &saddr);
+	} else {
+		memset(&saddr, 0, sizeof(struct in6_addr));
+	}
+	inet_pton(AF_INET6, int_client, &daddr);
+	memset(&pr, 0, sizeof(pr));
+	strlcpy(pr.anchor, anchor_name, MAXPATHLEN);
+#ifndef PF_NEWSTYLE
+	pr.rule.action = PF_PASS;
+#endif
+	if(ioctl(dev, DIOCGETRULES, &pr) < 0) {
+		syslog(LOG_ERR, "ioctl(dev, DIOCGETRULES, ...): %m");
+		return -1;
+	}
+	n = pr.nr;
+	for(i=0; i<n; i++) {
+		pr.nr = i;
+		if(ioctl(dev, DIOCGETRULE, &pr) < 0) {
+			syslog(LOG_ERR, "ioctl(dev, DIOCGETRULE): %m");
+			return -1;
+		}
+		if((proto == pr.rule.proto) && (rem_port == ntohs(pr.rule.src.port[0]))
+		   && (0 == memcmp(&saddr, &pr.rule.src.addr.v.a.addr.v6, sizeof(struct in6_addr)))
+		   && (int_port == ntohs(pr.rule.dst.port[0])) &&
+		   (0 == memcmp(&daddr, &pr.rule.dst.addr.v.a.addr.v6, sizeof(struct in6_addr)))) {
+			if(sscanf(pr.rule.label, PINEHOLE_LABEL_FORMAT_SKIPDESC, &uid, &ts) != 2) {
+				syslog(LOG_DEBUG, "rule with label '%s' is not a IGD pinhole", pr.rule.label);
+				continue;
+			}
+			if(timestamp) *timestamp = ts;
+			if(desc) {
+				char * p = strchr(pr.rule.label, ':');
+				if(p) {
+					p += 2;
+					strlcpy(desc, p, desc_len);
+				}
+			}
+			return uid;
+		}
+	}
+	return -2;
 }
 
 int delete_pinhole(unsigned short uid)
@@ -206,7 +275,8 @@ int
 get_pinhole_info(unsigned short uid,
                  char * rem_host, int rem_hostlen, unsigned short * rem_port,
                  char * int_client, int int_clientlen, unsigned short * int_port,
-                 int * proto, unsigned int * timestamp,
+                 int * proto, char * desc, int desclen,
+                 unsigned int * timestamp,
                  u_int64_t * packets, u_int64_t * bytes)
 {
 	int i, n;
@@ -255,6 +325,14 @@ get_pinhole_info(unsigned short uid,
 				*proto = pr.rule.proto;
 			if(timestamp)
 				sscanf(p, "ts-%u", timestamp);
+			if(desc) {
+				strsep(&p, " ");
+				if(p) {
+					strlcpy(desc, p, desclen);
+				} else {
+					desc[0] = '\0';
+				}
+			}
 #ifdef PFRULE_INOUT_COUNTS
 			if(packets)
 				*packets = pr.rule.packets[0] + pr.rule.packets[1];
@@ -280,6 +358,7 @@ int update_pinhole(unsigned short uid, unsigned int timestamp)
 	 * 1 - delete
 	 * 2 - Add new
 	 * the stats of the rule will then be reset :( */
+	UNUSED(uid); UNUSED(timestamp);
 	return -42; /* not implemented */
 }
 
@@ -316,8 +395,8 @@ int clean_pinhole_list(unsigned int * next_timestamp)
 			syslog(LOG_ERR, "ioctl(dev, DIOCGETRULE): %m");
 			return -1;
 		}
-		if(sscanf(pr.rule.label, PINEHOLE_LABEL_FORMAT, &uid, &ts) != 2) {
-			syslog(LOG_INFO, "rule with label '%s' is not a IGD pinhole", pr.rule.label);
+		if(sscanf(pr.rule.label, PINEHOLE_LABEL_FORMAT_SKIPDESC, &uid, &ts) != 2) {
+			syslog(LOG_DEBUG, "rule with label '%s' is not a IGD pinhole", pr.rule.label);
 			continue;
 		}
 		if(ts <= (unsigned int)current_time) {
@@ -363,5 +442,4 @@ int clean_pinhole_list(unsigned int * next_timestamp)
 	return n;	/* number of rules removed */
 }
 
-#endif /* ENABLE_IPV6 */
-
+#endif /* ENABLE_UPNPPINHOLE */

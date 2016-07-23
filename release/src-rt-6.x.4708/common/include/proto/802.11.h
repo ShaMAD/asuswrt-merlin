@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2014, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,7 @@
  *
  * Fundamental types and constants relating to 802.11
  *
- * $Id: 802.11.h 401759 2013-05-13 16:08:08Z $
+ * $Id: 802.11.h 460918 2014-03-10 15:05:05Z $
  */
 
 #ifndef _802_11_H_
@@ -3131,7 +3131,15 @@ typedef struct ht_prop_cap_ie ht_prop_cap_ie_t;
 #define AMPDU_RX_FACTOR_16K     1       /* max rcv ampdu len (16kb) */
 #define AMPDU_RX_FACTOR_32K     2       /* max rcv ampdu len (32kb) */
 #define AMPDU_RX_FACTOR_64K     3       /* max rcv ampdu len (64kb) */
+
+/* AMPDU RX factors for VHT rates */
+#define AMPDU_RX_FACTOR_128K    4       /* max rcv ampdu len (128kb) */
+#define AMPDU_RX_FACTOR_256K    5       /* max rcv ampdu len (256kb) */
+#define AMPDU_RX_FACTOR_512K    6       /* max rcv ampdu len (512kb) */
+#define AMPDU_RX_FACTOR_1024K   7       /* max rcv ampdu len (1024kb) */
+
 #define AMPDU_RX_FACTOR_BASE    8*1024  /* ampdu factor base for rx len */
+#define AMPDU_RX_FACTOR_BASE_PWR        13      /* ampdu factor base for rx len in power of 2 */
 
 #define AMPDU_DELIMITER_LEN	4	/* length of ampdu delimiter */
 #define AMPDU_DELIMITER_LEN_MAX	63	/* max length of ampdu delimiter(enforced in HW) */

@@ -40,6 +40,7 @@
 #define USB_DEVICE_PATH "/sys/bus/usb/devices"
 #define SYS_RNDIS_PATH "/sys/module/rndis_host/drivers/usb:rndis_host"
 #define SYS_CDCETH_PATH "/sys/module/cdc_ether/drivers/usb:cdc_ether"
+#define SYS_NCM_PATH "/sys/module/cdc_ncm/drivers/usb:cdc_ncm"
 
 #include <rtstate.h>
 
@@ -51,6 +52,10 @@
 #define USB_OHCI_PORT_2 get_usb_ohci_port(1)
 #define USB_EHCI_PORT_3 get_usb_ehci_port(2)
 #define USB_OHCI_PORT_3 get_usb_ohci_port(2)
+
+#ifdef BCM_MMC
+#define SDCARD_PORT USB_EHCI_PORT_3
+#endif
 
 enum {
 	DEVICE_TYPE_UNKNOWN=0,
@@ -75,8 +80,8 @@ extern char *get_interface_by_string(const char *target_string, char *ret, const
 extern char *get_interface_by_device(const char *device_name, char *buf, const int buf_size);
 extern char *get_path_by_node(const char *usb_node, char *buf, const int buf_size);
 
-extern char *get_usb_vid(const char *usb_node, char *buf, const int buf_size);
-extern char *get_usb_pid(const char *usb_node, char *buf, const int buf_size);
+extern unsigned int get_usb_vid(const char *usb_node);
+extern unsigned int get_usb_pid(const char *usb_node);
 extern char *get_usb_manufacturer(const char *usb_node, char *buf, const int buf_size);
 extern char *get_usb_product(const char *usb_node, char *buf, const int buf_size);
 extern char *get_usb_serial(const char *usb_node, char *buf, const int buf_size);
@@ -95,12 +100,14 @@ extern int hadOptionModule(void);
 extern int hadSerialModule(void);
 extern int hadACMModule(void);
 extern int hadRNDISModule(void);
+extern int isTTYNode(const char *device_name);
 extern int isSerialNode(const char *device_name);
 extern int isACMNode(const char *device_name);
-extern int isSerialInterface(const char *interface_name);
-extern int isACMInterface(const char *interface_name);
-extern int isRNDISInterface(const char *interface_name, const char *vid, const char *pid);
+extern int isSerialInterface(const char *interface_name, const int specifics, const unsigned int vid, const unsigned int pid);
+extern int isACMInterface(const char *interface_name, const int specifics, const unsigned int vid, const unsigned int pid);
+extern int isRNDISInterface(const char *interface_name, const unsigned int vid, const unsigned int pid);
 extern int isCDCETHInterface(const char *interface_name);
+extern int isNCMInterface(const char *interface_name);
 #ifdef RTCONFIG_USB_BECEEM
 extern int isGCTInterface(const char *interface_name);
 extern int hadBeceemModule();
@@ -115,9 +122,12 @@ extern int hadPrinterModule();
 extern int hadPrinterInterface(const char *usb_node);
 extern int isPrinterInterface(const char *interface_name);
 #endif
-
-#ifdef RTCONFIG_USB
 extern int isStorageInterface(const char *interface_name);
+extern int isStorageDevice(const char *device_name);
+#ifdef BCM_MMC
+extern int isMMCDevice(const char *device_name);
 #endif
 
 extern char *find_sg_of_device(const char *device_name, char *buf, const int buf_size);
+
+extern char *get_gobi_portpath();

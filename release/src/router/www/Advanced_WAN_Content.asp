@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -31,22 +31,23 @@
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
+
 var wans_dualwan = '<% nvram_get("wans_dualwan"); %>';
 var nowWAN = '<% get_parameter("flag"); %>';
 
-if(dualWAN_support){
+if(dualWAN_support && ( wans_dualwan.search("wan") >= 0 || wans_dualwan.search("lan") >= 0)){
 	var wan_type_name = wans_dualwan.split(" ")[<% nvram_get("wan_unit"); %>].toUpperCase();
 	switch(wan_type_name){
 		case "DSL":
 			location.href = "Advanced_DSL_Content.asp";
 			break;
 		case "USB":
-			location.href = "Advanced_Modem_Content.asp";
+			if(based_modelid == "4G-AC55U")
+				location.href = "Advanced_MobileBroadband_Content.asp";
+			else
+				location.href = "Advanced_Modem_Content.asp";
 			break;
 		default:
 			break;	
@@ -55,11 +56,20 @@ if(dualWAN_support){
 <% login_state_hook(); %>
 <% wan_get_parameter(); %>
 
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
-var original_wan_type = wan_proto;
+var wan_proto_orig = '<% nvram_get("wan_proto"); %>';
+var original_wan_type = wan_proto_orig;
 var original_wan_dhcpenable = parseInt('<% nvram_get("wan_dhcpenable_x"); %>');
 var original_dnsenable = parseInt('<% nvram_get("wan_dnsenable_x"); %>');
+var original_ppp_echo = parseInt('<% nvram_get("wan_ppp_echo"); %>');
 var wan_unit_flag = '<% nvram_get("wan_unit"); %>';
+
+if(yadns_support){
+	var yadns_enable = '<% nvram_get("yadns_enable_x"); %>';
+	var yadns_mode = '<% nvram_get("yadns_mode"); %>';
+}
+
+var pppoe_username = decodeURIComponent('<% nvram_char_to_ascii("", "wan_pppoe_username"); %>');
+var pppoe_password = decodeURIComponent('<% nvram_char_to_ascii("", "wan_pppoe_passwd"); %>');
 
 function initial(){
 	if(!dualWAN_support){
@@ -74,34 +84,80 @@ function initial(){
 	change_wan_type(document.form.wan_proto.value, 0);	
 	fixed_change_wan_type(document.form.wan_proto.value);
 	genWANSoption();
-	addOnlineHelp($("faq"), ["UPnP"]);
-	change_wan_type(document.form.wan_proto.value, 0);	
-	
-	if(document.form.wan_proto.value == "pppoe"
-			|| document.form.wan_proto.value == "pptp"
-			|| document.form.wan_proto.value == "l2tp"
-			){
-			document.form.wan_pppoe_username.value = decodeURIComponent('<% nvram_char_to_ascii("", "wan_pppoe_username"); %>');
-			document.form.wan_pppoe_passwd.value = decodeURIComponent('<% nvram_char_to_ascii("", "wan_pppoe_passwd"); %>');
+
+	var wan_type = document.form.wan_proto.value;
+	if(wan_type == "pppoe" || wan_type == "pptp" || wan_type == "l2tp" ||
+	   document.form.wan_auth_x.value != ""){
+		document.form.wan_pppoe_username.value = pppoe_username;
+		document.form.wan_pppoe_passwd.value = pppoe_password;
 	}
 
-	display_upnp_range();
-}
+	if(yadns_support){
+		if(yadns_enable != 0 && yadns_mode != -1){
+			document.getElementById("yadns_hint").style.display = "";
+			document.getElementById("yadns_hint").innerHTML = "<span><#YandexDNS_settings_hint#></span>";
+		}
+	}
+	display_upnp_options();
 
-function display_upnp_range(){
-	$("upnp_range_int").style.display = (document.form.wan_upnp_enable[0].checked) ? "" : "none";
-	$("upnp_range_ext").style.display = (document.form.wan_upnp_enable[0].checked) ? "" : "none";
-}
+	addOnlineHelp(document.getElementById("faq"), ["UPnP"]);
 
-function change_wan_unit(){
-	if(document.form.wan_unit.options[document.form.wan_unit.selectedIndex].text == "DSL")
-		document.form.current_page.value = "Advanced_DSL_Content.asp";
-	else if(document.form.wan_unit.options[document.form.wan_unit.selectedIndex].text == "USB")
-		document.form.current_page.value = "Advanced_Modem_Content.asp";
-	else if(document.form.wan_unit.options[document.form.wan_unit.selectedIndex].text == "WAN" || document.form.wan_unit.options[document.form.wan_unit.selectedIndex].text == "LAN")
-		document.form.current_page.value = "Advanced_WAN_Content.asp";
+	if(gobi_support){
+		document.getElementById("page_title").innerHTML = "<#WAN_page_desc#>";
+		document.getElementById("wan_inf_th").innerHTML = "<#WAN_Interface_Title#>";
+	}
+
+	if(productid == "DSL-AC68U" || productid == "DSL-AC68R")      //MODELDEP: DSL-AC68U,DSL-AC68R
+		showhide("dot1q_setting",1);
 	else
-		return false;
+		showhide("dot1q_setting",0);
+}
+
+function display_upnp_options(){
+	document.getElementById("upnp_range_int").style.display = (document.form.wan_upnp_enable[0].checked) ? "" : "none";
+	document.getElementById("upnp_range_ext").style.display = (document.form.wan_upnp_enable[0].checked) ? "" : "none";
+	if (igd2_support) {
+		document.getElementById("upnp_pinhole").style.display = (document.form.wan_upnp_enable[0].checked) ? "" : "none";
+	} else {
+		document.getElementById("upnp_pinhole").style.display = "none";
+	}
+}
+
+var dsltmp_transmode = "<% nvram_get("dsltmp_transmode"); %>";
+function change_wan_unit(obj){
+	if(!dualWAN_support) return;
+	
+	if(obj.options[obj.selectedIndex].text == "DSL"){	
+		if(dsltmp_transmode == "atm")
+			document.form.current_page.value = "Advanced_DSL_Content.asp";
+		else //ptm
+			document.form.current_page.value = "Advanced_VDSL_Content.asp";	
+	}else if(document.form.dsltmp_transmode){
+		document.form.dsltmp_transmode.style.display = "none";
+	}
+	
+	if(obj.options[obj.selectedIndex].text == "USB") {
+		document.form.current_page.value = "Advanced_Modem_Content.asp";
+	}else if(obj.options[obj.selectedIndex].text == "WAN" 
+			|| obj.options[obj.selectedIndex].text == "WAN2"
+			|| obj.options[obj.selectedIndex].text == "Ethernet LAN"
+			|| obj.options[obj.selectedIndex].text == "Ethernet WAN"){
+		if((wans_dualwan == "wan lan" || wans_dualwan == "lan wan")
+				 || (wans_dualwan == "wan2 wan" || wans_dualwan == "wan wan2")){
+			if(obj.selectedIndex != wan_unit_flag){
+				document.form.wan_unit.value = obj.selectedIndex;
+			}	
+			else{ 
+				return false;
+			}
+		}
+		else{
+			return false;
+		}			
+	}
+	else if(obj.options[obj.selectedIndex].text == "<#Mobile_title#>"){
+		document.form.current_page.value = "Advanced_MobileBroadband_Content.asp";
+	}
 
 	FormActions("apply.cgi", "change_wan_unit", "", "");
 	document.form.target = "";
@@ -109,19 +165,45 @@ function change_wan_unit(){
 }
 
 function genWANSoption(){
-	for(i=0; i<wans_dualwan.split(" ").length; i++)
-		document.form.wan_unit.options[i] = new Option(wans_dualwan.split(" ")[i].toUpperCase(), i);
+	for(i=0; i<wans_dualwan.split(" ").length; i++){
+		var wans_dualwan_NAME = wans_dualwan.split(" ")[i].toUpperCase();
+        //MODELDEP: DSL-N55U, DSL-N55U-B, DSL-AC68U, DSL-AC68R
+        if(wans_dualwan_NAME == "LAN" && 
+          (productid == "DSL-N55U" || productid == "DSL-N55U-B" || productid == "DSL-AC68U" || productid == "DSL-AC68R")) 
+        	wans_dualwan_NAME = "Ethernet WAN";
+		else if(wans_dualwan_NAME == "LAN")
+        	wans_dualwan_NAME = "Ethernet LAN";		
+		else if(wans_dualwan_NAME == "USB" && based_modelid == "4G-AC55U")
+			wans_dualwan_NAME = "<#Mobile_title#>";                       
+		document.form.wan_unit.options[i] = new Option(wans_dualwan_NAME, i);
+	}	
+	
 	document.form.wan_unit.selectedIndex = '<% nvram_get("wan_unit"); %>';
-
 	if(wans_dualwan.search(" ") < 0 || wans_dualwan.split(" ")[1] == 'none' || !dualWAN_support)
-		$("WANscap").style.display = "none";
+		document.getElementById("WANscap").style.display = "none";
 }
 
 function applyRule(){
+	if(ctf.dhcpToPppoe() && ctf.getLevel() == 2){
+		if(confirm("<#ctf_confirm#>")){
+			document.form.ctf_disable_force.value = 0;
+			document.form.ctf_fa_mode.value = 0;	
+			FormActions("start_apply.htm", "apply", "reboot", "<% get_default_reboot_time(); %>");
+		}
+		else{				
+			return false;
+		}
+	}
+	
+	if(productid != "DSL-AC68U" && productid != "DSL-AC68R"){      //MODELDEP: DSL-AC68U,DSL-AC68R
+		document.form.ewan_dot1q[0].disabled = true;
+		document.form.ewan_dot1q[1].disabled = true;
+		document.form.ewan_vid.disabled = true;
+		document.form.ewan_dot1p.disabled = true;
+	}
 
 	if(validForm()){
 		showLoading();
-		
 		inputCtrl(document.form.wan_dhcpenable_x[0], 1);
 		inputCtrl(document.form.wan_dhcpenable_x[1], 1);
 		if(!document.form.wan_dhcpenable_x[0].checked){
@@ -138,6 +220,36 @@ function applyRule(){
 		}
 
 		document.form.submit();	
+	}
+
+}
+
+var ctf = {
+	disable_force: '<% nvram_get("ctf_disable"); %>',
+	fa_mode: '<% nvram_get("ctf_fa_mode"); %>',
+
+	dhcpToPppoe: function(){
+		if((document.form.wan_proto.value == 'dhcp' || document.form.wan_proto.value == 'static') && 
+		   (wan_proto_orig == "pppoe" || wan_proto_orig == "pptp" || wan_proto_orig == "l2tp"))
+			return false;
+		else if((document.form.wan_proto.value == "pppoe" || document.form.wan_proto.value == "pptp" || document.form.wan_proto.value == "l2tp") && 
+		   (wan_proto_orig == 'dhcp' || wan_proto_orig == 'static'))
+			return true;
+
+		return false;
+	},
+
+	getLevel: function(){
+		var curVal;
+
+		if(ctf.disable_force == '0' && ctf.fa_mode == '0')
+			curVal = 1;
+		else if(ctf.disable_force == '0' && ctf.fa_mode == '2')
+			curVal = 2;
+		else
+			curVal = 0;		
+
+		return curVal;
 	}
 }
 
@@ -165,52 +277,35 @@ function valid_IP(obj_name, obj_flag){
 			return true;
 		}
 		
-		if(ip_num > A_class_start && ip_num < A_class_end)
+		if(ip_num > A_class_start && ip_num < A_class_end){
+		   obj_name.value = ipFilterZero(ip_obj.value);
 			return true;
+		}
 		else if(ip_num > B_class_start && ip_num < B_class_end){
 			alert(ip_obj.value+" <#JS_validip#>");
 			ip_obj.focus();
 			ip_obj.select();
 			return false;
 		}
-		else if(ip_num > C_class_start && ip_num < C_class_end)
+		else if(ip_num > C_class_start && ip_num < C_class_end){
+			obj_name.value = ipFilterZero(ip_obj.value);
 			return true;
+		}
 		else{
 			alert(ip_obj.value+" <#JS_validip#>");
 			ip_obj.focus();
 			ip_obj.select();
 			return false;
-		}
-		
-		
+		}	
 }
 
 function validForm(){
+	var wan_type = document.form.wan_proto.value;
+
 	if(!document.form.wan_dhcpenable_x[0].checked){// Set IP address by userself
 		if(!valid_IP(document.form.wan_ipaddr_x, "")) return false;  //WAN IP
 		if(!valid_IP(document.form.wan_gateway_x, "GW"))return false;  //Gateway IP		
-		
-		//Viz hold on this subnet issue cuz WAN setting hashighest prio 2013.01		
-		/*//WAN IP conflict with LAN ip subnet
-		if(matchSubnet2(document.form.wan_ipaddr_x.value, document.form.wan_netmask_x, document.form.lan_ipaddr.value, document.form.lan_netmask)){
-				document.form.wan_ipaddr_x.focus();
-				document.form.wan_ipaddr_x.select();
-				alert("<#IPConnection_x_WAN_LAN_conflict#>");
-				return false;
-		}
-						
-		//Gateway IP conflict with LAN ip subnet
-		var gateway_obj = document.form.wan_gateway_x;
-		var gateway_num = inet_network(gateway_obj.value);
-		if(gateway_num > 0 &&
-		   matchSubnet2(document.form.wan_gateway_x.value, document.form.wan_netmask_x, document.form.lan_ipaddr.value, document.form.lan_netmask)){
-				document.form.wan_gateway_x.focus();
-				document.form.wan_gateway_x.select();
-				alert("<#IPConnection_x_WAN_LAN_conflict#>");
-				return false;
-		}				
-		*/
-		
+
 		if(document.form.wan_gateway_x.value == document.form.wan_ipaddr_x.value){
 			document.form.wan_ipaddr_x.focus();
 			alert("<#IPConnection_warning_WANIPEQUALGatewayIP#>");
@@ -260,38 +355,86 @@ function validForm(){
 		if(!valid_IP(document.form.wan_dns2_x, "DNS")) return false;  //DNS2
 	}
 	
-	if(document.form.wan_proto.value == "pppoe"
-			|| document.form.wan_proto.value == "pptp"
-			|| document.form.wan_proto.value == "l2tp"
-			){
-		if(!validate_string(document.form.wan_pppoe_username)
-				|| !validate_string(document.form.wan_pppoe_passwd)
-				)
+	if(wan_type == "pppoe" || wan_type == "pptp" || wan_type == "l2tp" ||
+	   document.form.wan_auth_x.value != ""){
+	   	
+		if(document.form.wan_pppoe_username.value.length <= 0){
+			alert("<#WANJS9Text#>");
+			document.form.wan_pppoe_username.focus();
 			return false;
-		
-		if(!validate_number_range(document.form.wan_pppoe_idletime, 0, 4294967295))
+		}
+		if(!validator.string(document.form.wan_pppoe_username)){
+			document.form.wan_pppoe_username.focus();
+			return false;
+		}
+		if(document.form.wan_pppoe_passwd.value.length <= 0){
+			alert("<#WANJS9Text#>");
+			document.form.wan_pppoe_passwd.focus();
+			return false;
+		}
+		if(!validator.string(document.form.wan_pppoe_passwd)){
+			document.form.wan_pppoe_passwd.focus();
+			return false;
+		}
+	}
+	
+	if(wan_type == "pppoe" || wan_type == "pptp" || wan_type == "l2tp"){
+		if(!validator.numberRange(document.form.wan_pppoe_idletime, 0, 4294967295))
 			return false;
 	}
 	
-	if(document.form.wan_proto.value == "pppoe"){
-		if(!validate_number_range(document.form.wan_pppoe_mtu, 576, 1492)
-				|| !validate_number_range(document.form.wan_pppoe_mru, 576, 1492))
+	if(wan_type == "pppoe"){
+		if(!validator.numberRange(document.form.wan_pppoe_mtu, 576, 1500)
+				|| !validator.numberRange(document.form.wan_pppoe_mru, 576, 1500))
 			return false;
 		
-		if(!validate_string(document.form.wan_pppoe_service)
-				|| !validate_string(document.form.wan_pppoe_ac))
+		if(!validator.string(document.form.wan_pppoe_service)
+				|| !validator.string(document.form.wan_pppoe_ac))
 			return false;
 	}
 
         if((document.form.wan_proto.value == "dhcp")
 		|| (document.form.wan_proto.value == "static")){
-			if(!validate_number_range(document.form.wan_mtu, 576, 9000))
+			if(!validator.numberRange(document.form.wan_mtu, 576, 9000))
 				return false;
 	}
+
+	if(productid == "DSL-AC68U" || productid == "DSL-AC68R"){      //MODELDEP: DSL-AC68U,DSL-AC68R
+		if(document.form.ewan_dot1q.value == 1) {
+			if(!validator.range(document.form.ewan_vid, 1, 4094)) {
+				document.form.ewan_vid.focus();
+				return false;
+			}
+			if((document.form.ewan_vid.value >= 1 && document.form.ewan_vid.value <= 3) ||
+				(document.form.ewan_vid.value == 20) ||
+				(document.form.ewan_vid.value >= 3880 && document.form.ewan_vid.value <= 3887) ||
+				(document.form.ewan_vid.value >= 4000 && document.form.ewan_vid.value <= 4002)){
+				alert("VLAN ID " + document.form.ewan_vid.value + " is reserved for internal usage. Please change to another one."); /* untranslated */
+				document.form.ewan_vid.focus();
+				return false;
+			}
+			if(!validator.range(document.form.ewan_dot1p, 0, 7)) {
+				document.form.ewan_dot1p.focus();
+				return false;
+			}
+		}
+	}
 	
-	if(document.form.wan_hostname.value.length > 0)
-		 if(!validate_string(document.form.wan_hostname))
-		 	return false;
+	if(document.form.wan_hostname.value.length > 0){
+		var alert_str = validator.hostName(document.form.wan_hostname);
+	
+		if(alert_str != ""){
+			showtext(document.getElementById("alert_msg1"), alert_str);
+			document.getElementById("alert_msg1").style.display = "";
+			document.form.wan_hostname.focus();
+			document.form.wan_hostname.select();
+			return false;
+		}else{
+			document.getElementById("alert_msg1").style.display = "none";
+  	}
+
+		document.form.wan_hostname.value = trim(document.form.wan_hostname.value);
+	}	
 	
 	if(document.form.wan_hwaddr_x.value.length > 0)
 			if(!check_macaddr(document.form.wan_hwaddr_x,check_hwaddr_flag(document.form.wan_hwaddr_x))){
@@ -301,10 +444,10 @@ function validForm(){
 			}		 	
 
 	if (document.form.wan_upnp_enable[0].checked) {
-		if((!validate_number_range(document.form.upnp_min_port_int, 1, 65535))
-			|| (!validate_number_range(document.form.upnp_max_port_int, 1, 65535))
-			|| (!validate_number_range(document.form.upnp_min_port_ext, 1, 65535))
-			|| (!validate_number_range(document.form.upnp_max_port_ext, 1, 65535))) {
+		if((!validator.numberRange(document.form.upnp_min_port_int, 1, 65535))
+			|| (!validator.numberRange(document.form.upnp_max_port_int, 1, 65535))
+			|| (!validator.numberRange(document.form.upnp_min_port_ext, 1, 65535))
+			|| (!validator.numberRange(document.form.upnp_max_port_ext, 1, 65535))) {
 				return false;
 		}
 		if((parseInt(document.form.upnp_max_port_int.value) < parseInt(document.form.upnp_min_port_int.value))
@@ -315,7 +458,7 @@ function validForm(){
 	}
 	
 	if(document.form.wan_heartbeat_x.value.length > 0)
-		 if(!validate_string(document.form.wan_heartbeat_x))
+		 if(!validator.string(document.form.wan_heartbeat_x))
 		 	return false;
 	return true;
 }
@@ -336,8 +479,7 @@ function change_wan_type(wan_type, flag){
 		
 		inputCtrl(document.form.wan_auth_x, 0);
 		inputCtrl(document.form.wan_pppoe_username, 1);
-		$('tr_pppoe_password').style.display = "";
-		document.form.wan_pppoe_passwd.disabled = false;
+		inputCtrl(document.form.wan_pppoe_passwd, 1);
 		inputCtrl(document.form.wan_pppoe_idletime, 1);
 		inputCtrl(document.form.wan_pppoe_idletime_check, 1);
 		inputCtrl(document.form.wan_pppoe_mtu, 1);
@@ -351,8 +493,10 @@ function change_wan_type(wan_type, flag){
 		inputCtrl(document.form.wan_pppoe_options_x, 1);
 		inputCtrl(document.form.wan_pptp_options_x, 0);
 		// 2008.03 James. patch for Oleg's patch. }
-		$("vpn_server").style.display = "none";
-		$("vpn_dhcp").style.display = "";
+		inputCtrl(document.form.wan_heartbeat_x, 0);
+		document.getElementById("vpn_dhcp").style.display = "";
+		inputCtrl(document.form.wan_ppp_echo, 1);
+		ppp_echo_control();
 	}
 	else if(wan_type == "pptp"){
 		inputCtrl(document.form.wan_dnsenable_x[0], 1);
@@ -360,8 +504,7 @@ function change_wan_type(wan_type, flag){
 		
 		inputCtrl(document.form.wan_auth_x, 0);
 		inputCtrl(document.form.wan_pppoe_username, 1);
-		$('tr_pppoe_password').style.display = "";
-		document.form.wan_pppoe_passwd.disabled = false;
+		inputCtrl(document.form.wan_pppoe_passwd, 1);
 		inputCtrl(document.form.wan_pppoe_idletime, 1);
 		inputCtrl(document.form.wan_pppoe_idletime_check, 1);
 		inputCtrl(document.form.wan_pppoe_mtu, 0);
@@ -375,8 +518,10 @@ function change_wan_type(wan_type, flag){
 		inputCtrl(document.form.wan_pppoe_options_x, 1);
 		inputCtrl(document.form.wan_pptp_options_x, 1);
 		// 2008.03 James. patch for Oleg's patch. }
-		$("vpn_server").style.display = "";
-		$("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_heartbeat_x, 1);
+		document.getElementById("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_ppp_echo, 1);
+		ppp_echo_control();
 	}
 	else if(wan_type == "l2tp"){
 		inputCtrl(document.form.wan_dnsenable_x[0], 1);
@@ -384,8 +529,7 @@ function change_wan_type(wan_type, flag){
 		
 		inputCtrl(document.form.wan_auth_x, 0);
 		inputCtrl(document.form.wan_pppoe_username, 1);
-		$('tr_pppoe_password').style.display = "";
-		document.form.wan_pppoe_passwd.disabled = false;
+		inputCtrl(document.form.wan_pppoe_passwd, 1);
 		inputCtrl(document.form.wan_pppoe_idletime, 0);
 		inputCtrl(document.form.wan_pppoe_idletime_check, 0);
 		inputCtrl(document.form.wan_pppoe_mtu, 0);
@@ -399,8 +543,10 @@ function change_wan_type(wan_type, flag){
 		inputCtrl(document.form.wan_pppoe_options_x, 1);
 		inputCtrl(document.form.wan_pptp_options_x, 0);
 		// 2008.03 James. patch for Oleg's patch. }
-		$("vpn_server").style.display = "";
-		$("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_heartbeat_x, 1);
+		document.getElementById("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_ppp_echo, 1);
+		ppp_echo_control();
 	}
 	else if(wan_type == "static"){
 		inputCtrl(document.form.wan_dnsenable_x[0], 0);
@@ -408,8 +554,7 @@ function change_wan_type(wan_type, flag){
 		
 		inputCtrl(document.form.wan_auth_x, 1);
 		inputCtrl(document.form.wan_pppoe_username, (document.form.wan_auth_x.value != ""));
-		$('tr_pppoe_password').style.display = (document.form.wan_auth_x.value != "") ? "" : "none";
-		document.form.wan_pppoe_passwd.disabled = (document.form.wan_auth_x.value != "") ? false : true;
+		inputCtrl(document.form.wan_pppoe_passwd, (document.form.wan_auth_x.value != ""));
 		inputCtrl(document.form.wan_pppoe_idletime, 0);
 		inputCtrl(document.form.wan_pppoe_idletime_check, 0);
 		inputCtrl(document.form.wan_pppoe_mtu, 0);
@@ -423,19 +568,19 @@ function change_wan_type(wan_type, flag){
 		inputCtrl(document.form.wan_pppoe_options_x, 0);
 		inputCtrl(document.form.wan_pptp_options_x, 0);
 		// 2008.03 James. patch for Oleg's patch. }
-		$("vpn_server").style.display = "none";
-		$("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_heartbeat_x, 0);
+		document.getElementById("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_ppp_echo, 0);
+		inputCtrl(document.form.wan_ppp_echo_interval, 0);
+		inputCtrl(document.form.wan_ppp_echo_failure, 0);
 	}
 	else{	// Automatic IP or 802.11 MD or ""		
 		inputCtrl(document.form.wan_dnsenable_x[0], 1);
 		inputCtrl(document.form.wan_dnsenable_x[1], 1);
 		
 		inputCtrl(document.form.wan_auth_x, 1);	
-		
 		inputCtrl(document.form.wan_pppoe_username, (document.form.wan_auth_x.value != ""));
-		$('tr_pppoe_password').style.display = (document.form.wan_auth_x.value != "") ? "" : "none";
-		document.form.wan_pppoe_passwd.disabled = (document.form.wan_auth_x.value != "") ? false : true;
-		
+		inputCtrl(document.form.wan_pppoe_passwd, (document.form.wan_auth_x.value != ""));
 		inputCtrl(document.form.wan_pppoe_idletime, 0);
 		inputCtrl(document.form.wan_pppoe_idletime_check, 0);
 		inputCtrl(document.form.wan_pppoe_mtu, 0);
@@ -449,8 +594,11 @@ function change_wan_type(wan_type, flag){
 		inputCtrl(document.form.wan_pppoe_options_x, 0);
 		inputCtrl(document.form.wan_pptp_options_x, 0);
 		// 2008.03 James. patch for Oleg's patch. }
-		$("vpn_server").style.display = "none";
-		$("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_heartbeat_x, 0);
+		document.getElementById("vpn_dhcp").style.display = "none";
+		inputCtrl(document.form.wan_ppp_echo, 0);
+		inputCtrl(document.form.wan_ppp_echo_interval, 0);
+		inputCtrl(document.form.wan_ppp_echo_failure, 0);
 	}
 }
 
@@ -474,29 +622,32 @@ function fixed_change_wan_type(wan_type){
 			document.form.wan_dnsenable_x[0].checked = original_dnsenable;
 			document.form.wan_dnsenable_x[1].checked = !original_dnsenable;
 			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', original_dnsenable);
+			document.form.wan_ppp_echo.value = original_ppp_echo;
+			ppp_echo_control();
 		}
 		else{
 			document.form.wan_dnsenable_x[0].checked = 1;
 			document.form.wan_dnsenable_x[1].checked = 0;
-			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 0);
-			
-			inputCtrl(document.form.wan_dns1_x, 0);
-			inputCtrl(document.form.wan_dns2_x, 0);			
+			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 1);
+			document.form.wan_ppp_echo.value = 1;
+			ppp_echo_control();
 		}		
-	}else if(wan_type == "pptp"	|| wan_type == "l2tp"){
-		
+	}else if(wan_type == "pptp"	|| wan_type == "l2tp"){	
 		if(wan_type == original_wan_type){
 			document.form.wan_dnsenable_x[0].checked = original_dnsenable;
 			document.form.wan_dnsenable_x[1].checked = !original_dnsenable;
 			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', original_dnsenable);
+			document.form.wan_ppp_echo.value = original_ppp_echo;
+			ppp_echo_control();
 		}
 		else{
 			document.form.wan_dnsenable_x[0].checked = 0;
 			document.form.wan_dnsenable_x[1].checked = 1;
 			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 0);
-			
 			inputCtrl(document.form.wan_dnsenable_x[0], 1);
 			inputCtrl(document.form.wan_dnsenable_x[1], 1);
+			document.form.wan_ppp_echo.value = 1;
+			ppp_echo_control();
 		}
 	}
 	else if(wan_type == "static"){
@@ -505,8 +656,7 @@ function fixed_change_wan_type(wan_type){
 		document.form.wan_dnsenable_x[0].disabled = true;
 		change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 0);
 	}
-	else{	// wan_type == "dhcp"
-		
+	else{	// wan_type == "dhcp"	
 		if(wan_type == original_wan_type){
 			document.form.wan_dnsenable_x[0].checked = original_dnsenable;
 			document.form.wan_dnsenable_x[1].checked = !original_dnsenable;
@@ -515,10 +665,7 @@ function fixed_change_wan_type(wan_type){
 		else{
 			document.form.wan_dnsenable_x[0].checked = 1;
 			document.form.wan_dnsenable_x[1].checked = 0;
-			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 0);
-			
-			inputCtrl(document.form.wan_dns1_x, 0);
-			inputCtrl(document.form.wan_dns2_x, 0);
+			change_common_radio(document.form.wan_dnsenable_x, 'IPConnection', 'wan_dnsenable_x', 1);
 		}
 	}
 	
@@ -554,7 +701,7 @@ function change_wan_dhcp_enable(flag){
 			}
 		}
 		
-		$('IPsetting').style.display = "";
+		document.getElementById('IPsetting').style.display = "";
 		inputCtrl(document.form.wan_dhcpenable_x[0], 1);
 		inputCtrl(document.form.wan_dhcpenable_x[1], 1);
 		
@@ -565,9 +712,7 @@ function change_wan_dhcp_enable(flag){
 		inputCtrl(document.form.wan_gateway_x, !wan_dhcpenable);
 	}
 	// 2008.03 James. patch for Oleg's patch. }
-	else if(wan_type == "pptp"
-			|| wan_type == "l2tp"
-			){
+	else if(wan_type == "pptp"|| wan_type == "l2tp"){
 		if(flag == 1){
 			if(wan_type == original_wan_type){
 				document.form.wan_dhcpenable_x[0].checked = original_wan_dhcpenable;
@@ -579,7 +724,7 @@ function change_wan_dhcp_enable(flag){
 			}
 		}
 		
-		$('IPsetting').style.display = "";
+		document.getElementById('IPsetting').style.display = "";
 		inputCtrl(document.form.wan_dhcpenable_x[0], 1);
 		inputCtrl(document.form.wan_dhcpenable_x[1], 1);
 		
@@ -596,7 +741,7 @@ function change_wan_dhcp_enable(flag){
 		inputCtrl(document.form.wan_dhcpenable_x[0], 0);
 		inputCtrl(document.form.wan_dhcpenable_x[1], 0);
 		
-		$('IPsetting').style.display = "";
+		document.getElementById('IPsetting').style.display = "";
 		inputCtrl(document.form.wan_ipaddr_x, 1);
 		inputCtrl(document.form.wan_netmask_x, 1);
 		inputCtrl(document.form.wan_gateway_x, 1);
@@ -611,7 +756,7 @@ function change_wan_dhcp_enable(flag){
 		inputCtrl(document.form.wan_ipaddr_x, 0);
 		inputCtrl(document.form.wan_netmask_x, 0);
 		inputCtrl(document.form.wan_gateway_x, 0);
-		$('IPsetting').style.display = "none";
+		document.getElementById('IPsetting').style.display = "none";
 	}
 	
 	if(document.form.wan_dhcpenable_x[0].checked){
@@ -641,17 +786,17 @@ function check_macaddr(obj,flag){ //control hint of input mac address
 		childsel.setAttribute("id","check_mac");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
+		document.getElementById("check_mac").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
 		return false;
 	}else if(flag ==2){
 		var childsel=document.createElement("div");
 		childsel.setAttribute("id","check_mac");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac").innerHTML="<#IPConnection_x_illegal_mac#>";
+		document.getElementById("check_mac").innerHTML="<#IPConnection_x_illegal_mac#>";
 		return false;
 	}else{
-		$("check_mac") ? $("check_mac").style.display="none" : true;
+		document.getElementById("check_mac") ? document.getElementById("check_mac").style.display="none" : true;
 		return true;
 	}
 }
@@ -659,6 +804,12 @@ function check_macaddr(obj,flag){ //control hint of input mac address
 /* password item show or not */
 function pass_checked(obj){
 	switchType(obj, document.form.show_pass_1.checked, true);
+}
+
+function ppp_echo_control(){
+	var enable = (document.form.wan_ppp_echo.value == 1) ? 1 : 0;
+	inputCtrl(document.form.wan_ppp_echo_interval, enable);
+	inputCtrl(document.form.wan_ppp_echo_failure, enable);
 }
 
 </script>
@@ -686,7 +837,7 @@ function pass_checked(obj){
 <input type="hidden" name="productid" value="<% nvram_get("productid"); %>">
 <input type="hidden" name="support_cdma" value="<% nvram_get("support_cdma"); %>">
 <input type="hidden" name="current_page" value="Advanced_WAN_Content.asp">
-<input type="hidden" name="next_page" value="">
+<input type="hidden" name="next_page" value="Advanced_WAN_Content.asp">
 <input type="hidden" name="group_id" value="">
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="action_mode" value="apply">
@@ -695,10 +846,10 @@ function pass_checked(obj){
 <input type="hidden" name="first_time" value="">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
-<input type="hidden" name="lan_ipaddr" value="<% nvram_get("lan_ipaddr"); %>" />
-<input type="hidden" name="lan_netmask" value="<% nvram_get("lan_netmask"); %>" />
-<input type="hidden" name="wan_pppoe_username_org" value="<% nvram_char_to_ascii("", "wan_pppoe_username"); %>" />
-<input type="hidden" name="wan_pppoe_passwd_org" value="<% nvram_char_to_ascii("", "wan_pppoe_passwd"); %>" />
+<input type="hidden" name="lan_ipaddr" value="<% nvram_get("lan_ipaddr"); %>">
+<input type="hidden" name="lan_netmask" value="<% nvram_get("lan_netmask"); %>">
+<input type="hidden" name="ctf_fa_mode" value="<% nvram_get("ctf_fa_mode"); %>">
+<input type="hidden" name="ctf_disable_force" value="<% nvram_get("ctf_disable_force"); %>">
 
 <table class="content" align="center" cellpadding="0" cellspacing="0">
   <tr>
@@ -723,7 +874,7 @@ function pass_checked(obj){
 		  			<div>&nbsp;</div>
 		  			<div class="formfonttitle"><#menu5_3#> - <#menu5_3_1#></div>
 		  			<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
-		  			<div class="formfontdesc" style="margin-bottom:0px;"><#Layer3Forwarding_x_ConnectionType_sectiondesc#></div>
+		  			<div id="page_title" class="formfontdesc" style="margin-bottom:0px;"><#Layer3Forwarding_x_ConnectionType_sectiondesc#></div>
 
 						<table id="WANscap" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 							<thead>
@@ -732,13 +883,18 @@ function pass_checked(obj){
 							</tr>
 							</thead>							
 							<tr>
-								<th><#wan_type#></th>
+								<th id="wan_inf_th"><#wan_type#></th>
 								<td align="left">
-									<select id="" class="input_option" name="wan_unit" onchange="change_wan_unit();"></select>
+									<select class="input_option" name="wan_unit" onchange="change_wan_unit(this);"></select>
+									<!--select id="dsltmp_transmode" name="dsltmp_transmode" class="input_option" style="margin-left:7px;" onChange="change_dsl_transmode(this);">
+													<option value="atm" <% nvram_match("dsltmp_transmode", "atm", "selected"); %>>ADSL WAN (ATM)</option>
+													<option value="ptm" <% nvram_match("dsltmp_transmode", "ptm", "selected"); %>>VDSL WAN (PTM)</option>
+									</select-->
 								</td>
 							</tr>
 						</table>
-
+						
+						<div id="basic_setting_desc" class="formfontdesc" style="margin-bottom:0px; margin-top: 15px;"><#WAN_Cfg_Ethernet_WAN#></div>
 						<table id="t2BC" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 						  <thead>
 						  <tr>
@@ -751,8 +907,8 @@ function pass_checked(obj){
 								<td align="left">
 									<select id="wan_proto_menu" class="input_option" name="wan_proto" onchange="change_wan_type(this.value);fixed_change_wan_type(this.value);">
 										<option value="dhcp" <% nvram_match("wan_proto", "dhcp", "selected"); %>><#BOP_ctype_title1#></option>
-										<option value="pppoe" <% nvram_match("wan_proto", "pppoe", "selected"); %>>PPPoE</option>
 										<option value="static" <% nvram_match("wan_proto", "static", "selected"); %>><#BOP_ctype_title5#></option>
+										<option value="pppoe" <% nvram_match("wan_proto", "pppoe", "selected"); %>>PPPoE</option>
 										<option value="pptp" <% nvram_match("wan_proto", "pptp", "selected"); %>>PPTP</option>
 										<option value="l2tp" <% nvram_match("wan_proto", "l2tp", "selected"); %>>L2TP</option>										
 									</select>
@@ -778,28 +934,57 @@ function pass_checked(obj){
 							<tr>
 								<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,23);"><#BasicConfig_EnableMediaServer_itemname#></a>&nbsp&nbsp&nbsp&nbsp&nbsp&nbsp<a id="faq" href="" target="_blank" style="font-family:Lucida Console;text-decoration:underline;">UPnP&nbspFAQ</a></th>
 								<td>
-									<input type="radio" name="wan_upnp_enable" class="input" value="1" onclick="display_upnp_range();return change_common_radio(this, 'LANHostConfig', 'wan_upnp_enable', '1')" <% nvram_match("wan_upnp_enable", "1", "checked"); %>><#checkbox_Yes#>
-									<input type="radio" name="wan_upnp_enable" class="input" value="0" onclick="display_upnp_range();return change_common_radio(this, 'LANHostConfig', 'wan_upnp_enable', '0')" <% nvram_match("wan_upnp_enable", "0", "checked"); %>><#checkbox_No#>
+									<input type="radio" name="wan_upnp_enable" class="input" value="1" onclick="display_upnp_options();return change_common_radio(this, 'LANHostConfig', 'wan_upnp_enable', '1')" <% nvram_match("wan_upnp_enable", "1", "checked"); %>><#checkbox_Yes#>
+									<input type="radio" name="wan_upnp_enable" class="input" value="0" onclick="display_upnp_options();return change_common_radio(this, 'LANHostConfig', 'wan_upnp_enable', '0')" <% nvram_match("wan_upnp_enable", "0", "checked"); %>><#checkbox_No#>
 								</td>
-							</tr>			
+							</tr>
+							<tr id="upnp_pinhole">
+								<th>Enable UPnP IPv6 pinhole support</th>
+								<td>
+									<input type="radio" name="upnp_pinhole_enable" class="input" value="1" onclick="display_upnp_options();" <% nvram_match("upnp_pinhole_enable", "1", "checked"); %>><#checkbox_Yes#>
+									<input type="radio" name="upnp_pinhole_enable" class="input" value="0" onclick="display_upnp_options();" <% nvram_match("upnp_pinhole_enable", "0", "checked"); %>><#checkbox_No#>
+								</td>
+							</tr>
 							<tr id="upnp_range_int">
 								<th>UPNP: Allowed internal port range</th>
 									<td>
-										<input type="text" maxlength="5" name="upnp_min_port_int" class="input_6_table" value="<% nvram_get("upnp_min_port_int"); %>" onkeypress="return is_number(this,event);">
+										<input type="text" maxlength="5" name="upnp_min_port_int" class="input_6_table" value="<% nvram_get("upnp_min_port_int"); %>" onkeypress="return validator.isNumber(this,event);">
 											to
-										<input type="text" maxlength="5" name="upnp_max_port_int" class="input_6_table" value="<% nvram_get("upnp_max_port_int"); %>" onkeypress="return is_number(this,event);">
+										<input type="text" maxlength="5" name="upnp_max_port_int" class="input_6_table" value="<% nvram_get("upnp_max_port_int"); %>" onkeypress="return validator.isNumber(this,event);">
 									</td>
 							</tr>
 							<tr id="upnp_range_ext">
 
 								<th>UPNP: Allowed external port range</th>
 									<td>
-										<input type="text" maxlength="5" name="upnp_min_port_ext" class="input_6_table" value="<% nvram_get("upnp_min_port_ext"); %>" onkeypress="return is_number(this,event);">
+										<input type="text" maxlength="5" name="upnp_min_port_ext" class="input_6_table" value="<% nvram_get("upnp_min_port_ext"); %>" onkeypress="return validator.isNumber(this,event);">
 											to
-										<input type="text" maxlength="5" name="upnp_max_port_ext" class="input_6_table" value="<% nvram_get("upnp_max_port_ext"); %>" onkeypress="return is_number(this,event);">
+										<input type="text" maxlength="5" name="upnp_max_port_ext" class="input_6_table" value="<% nvram_get("upnp_max_port_ext"); %>" onkeypress="return validator.isNumber(this,event);">
 									</td>
-							</tr>
+							</tr>										
+						</table>
 
+						<table id="dot1q_setting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
+						<thead><tr><td colspan="2">802.1Q</td></tr></thead>
+						<tr>
+							<th><#WLANConfig11b_WirelessCtrl_button1name#></th>
+							<td>
+								<input type="radio" name="ewan_dot1q" class="input" value="1" onclick="change_dsl_dhcp_enable();" <% nvram_match("ewan_dot1q", "1", "checked"); %>><#checkbox_Yes#>
+								<input type="radio" name="ewan_dot1q" class="input" value="0" onclick="change_dsl_dhcp_enable();" <% nvram_match("ewan_dot1q", "0", "checked"); %>><#checkbox_No#>
+							</td>
+						</tr>
+						<tr>
+							<th>VLAN ID</th>
+							<td>
+								<input type="text" name="ewan_vid" maxlength="4" class="input_6_table" value="<% nvram_get("ewan_vid"); %>" onKeyPress="return validator.isNumber(this,event);"> ( 1 ~ 4094 )
+							</td>
+						</tr>
+						<tr>
+							<th>802.1P</th>
+							<td>
+								<input type="text" name="ewan_dot1p" maxlength="4" class="input_6_table" value="<% nvram_get("ewan_dot1p"); %>" onKeyPress="return validator.isNumber(this,event);"> ( 0 ~ 7 )
+							</td>
+						</tr>
 						</table>
 
 						<table id="IPsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
@@ -819,24 +1004,24 @@ function pass_checked(obj){
             
 							<tr>
 								<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,1);"><#IPConnection_ExternalIPAddress_itemname#></a></th>
-								<td><input type="text" name="wan_ipaddr_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_ipaddr_x"); %>" onKeyPress="return is_ipaddr(this, event);" ></td>
+								<td><input type="text" name="wan_ipaddr_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_ipaddr_x"); %>" onKeyPress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off"></td>
 							</tr>
 							
 							<tr>
 								<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,2);"><#IPConnection_x_ExternalSubnetMask_itemname#></a></th>
-								<td><input type="text" name="wan_netmask_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_netmask_x"); %>" onKeyPress="return is_ipaddr(this, event);" ></td>
+								<td><input type="text" name="wan_netmask_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_netmask_x"); %>" onKeyPress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off"></td>
 							</tr>
 							
 							<tr>
 								<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,3);"><#IPConnection_x_ExternalGateway_itemname#></a></th>
-								<td><input type="text" name="wan_gateway_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_gateway_x"); %>" onKeyPress="return is_ipaddr(this, event);" ></td>
+								<td><input type="text" name="wan_gateway_x" maxlength="15" class="input_15_table" value="<% nvram_get("wan_gateway_x"); %>" onKeyPress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off"></td>
 							</tr>
 						</table>
 
-						<table id="DNSsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+				<table id="DNSsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
           		<thead>
             	<tr>
-              <td colspan="2"><#IPConnection_x_DNSServerEnable_sectionname#></td>
+            	<td colspan="2"><#IPConnection_x_DNSServerEnable_sectionname#></td>
             	</tr>
           		</thead>
          			<tr>
@@ -844,69 +1029,68 @@ function pass_checked(obj){
 								<td>
 			  					<input type="radio" name="wan_dnsenable_x" class="input" value="1" onclick="return change_common_radio(this, 'IPConnection', 'wan_dnsenable_x', 1)" <% nvram_match("wan_dnsenable_x", "1", "checked"); %> /><#checkbox_Yes#>
 			  					<input type="radio" name="wan_dnsenable_x" class="input" value="0" onclick="return change_common_radio(this, 'IPConnection', 'wan_dnsenable_x', 0)" <% nvram_match("wan_dnsenable_x", "0", "checked"); %> /><#checkbox_No#>
+								<div id="yadns_hint" style="display:none;"></div>
 								</td>
           		</tr>          		
           		
           		<tr>
             		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,13);"><#IPConnection_x_DNSServer1_itemname#></a></th>
-            		<td><input type="text" maxlength="15" class="input_15_table" name="wan_dns1_x" value="<% nvram_get("wan_dns1_x"); %>" onkeypress="return is_ipaddr(this, event)" ></td>
+            		<td><input type="text" maxlength="15" class="input_15_table" name="wan_dns1_x" value="<% nvram_get("wan_dns1_x"); %>" onkeypress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off"></td>
           		</tr>
           		<tr>
             		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,14);"><#IPConnection_x_DNSServer2_itemname#></a></th>
-            		<td><input type="text" maxlength="15" class="input_15_table" name="wan_dns2_x" value="<% nvram_get("wan_dns2_x"); %>" onkeypress="return is_ipaddr(this, event)" ></td>
+            		<td><input type="text" maxlength="15" class="input_15_table" name="wan_dns2_x" value="<% nvram_get("wan_dns2_x"); %>" onkeypress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off"></td>
           		</tr>
         		</table>
 
-		  			<table id="PPPsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+		  		<table id="PPPsetting" width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
             	<thead>
             	<tr>
               	<td colspan="2"><#PPPConnection_UserName_sectionname#></td>
             	</tr>
             	</thead>
-                <th>MTU</th>
-                <td><input type="text" maxlength="5" name="wan_mtu" class="input_6_table" value="<% nvram_get("wan_mtu"); %>" onKeyPress="return is_number(this,event);"/></td>
-                </tr>
             	<tr>
 							<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,29);"><#PPPConnection_Authentication_itemname#></a></th>
 							<td align="left">
 							    <select class="input_option" name="wan_auth_x" onChange="change_wan_type(document.form.wan_proto.value);">
 							    <option value="" <% nvram_match("wan_auth_x", "", "selected"); %>><#wl_securitylevel_0#></option>
 							    <option value="8021x-md5" <% nvram_match("wan_auth_x", "8021x-md5", "selected"); %>>802.1x MD5</option>
+							    <option value="telenet" <% nvram_match("wan_auth_x", "telenet", "selected"); %>>Кабinet</option>
 							    </select></td>
 							</tr>
             	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,4);"><#PPPConnection_UserName_itemname#></a></th>
-              	<td><input type="text" maxlength="64" class="input_32_table" name="wan_pppoe_username" value="<% nvram_get("wan_pppoe_username"); %>" onkeypress="return is_string(this, event)"></td>
+              	<td><input type="text" maxlength="64" class="input_32_table" name="wan_pppoe_username" value="" autocomplete="off" onkeypress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off"></td>
             	</tr>
-            	<tr id="tr_pppoe_password">
+            	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,5);"><#PPPConnection_Password_itemname#></a></th>
               	<td>
-					<div style="margin-top:2px;"><input type="password" autocapitalization="off" maxlength="64" class="input_32_table" id="wan_pppoe_passwd" name="wan_pppoe_passwd" value="<% nvram_get("wan_pppoe_passwd"); %>"></div>
-					<div style="margin-top:1px;"><input type="checkbox" name="show_pass_1" onclick="pass_checked(document.form.wan_pppoe_passwd);"><#QIS_show_pass#></div>
-				</td>
-            	</tr>
+									<input type="password" maxlength="64" class="input_32_table" style="margin-top:2px;" id="wan_pppoe_passwd" name="wan_pppoe_passwd" value="" autocomplete="off" autocorrect="off" autocapitalize="off">
+									<div style="margin-top:1px;"><input type="checkbox" name="show_pass_1" onclick="pass_checked(document.form.wan_pppoe_passwd);"><#QIS_show_pass#></div>
+								</td>
+            	</tr>            	
 							<tr style="display:none">
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,6);"><#PPPConnection_IdleDisconnectTime_itemname#></a></th>
               	<td>
-                	<input type="text" maxlength="10" class="input_12_table" name="wan_pppoe_idletime" value="<% nvram_get("wan_pppoe_idletime"); %>" onKeyPress="return is_number(this,event);" />
+                	<input type="text" maxlength="10" class="input_12_table" name="wan_pppoe_idletime" value="<% nvram_get("wan_pppoe_idletime"); %>" onKeyPress="return validator.isNumber(this,event);" autocorrect="off" autocapitalize="off"/>
                 	<input type="checkbox" style="margin-left:30;display:none;" name="wan_pppoe_idletime_check" value="" />
               	</td>
             	</tr>
             	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,7);"><#PPPConnection_x_PPPoEMTU_itemname#></a></th>
-              	<td><input type="text" maxlength="5" name="wan_pppoe_mtu" class="input_6_table" value="<% nvram_get("wan_pppoe_mtu"); %>" onKeyPress="return is_number(this,event);"/></td>
+              	<td><input type="text" maxlength="5" name="wan_pppoe_mtu" class="input_6_table" value="<% nvram_get("wan_pppoe_mtu"); %>" onKeyPress="return validator.isNumber(this,event);" autocorrect="off" autocapitalize="off"/></td>
             	</tr>
             	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,8);"><#PPPConnection_x_PPPoEMRU_itemname#></a></th>
-              	<td><input type="text" maxlength="5" name="wan_pppoe_mru" class="input_6_table" value="<% nvram_get("wan_pppoe_mru"); %>" onKeyPress="return is_number(this,event);"/></td>
+              	<td><input type="text" maxlength="5" name="wan_pppoe_mru" class="input_6_table" value="<% nvram_get("wan_pppoe_mru"); %>" onKeyPress="return validator.isNumber(this,event);" autocorrect="off" autocapitalize="off"/></td>
             	</tr>
             	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,9);"><#PPPConnection_x_ServiceName_itemname#></a></th>
-              	<td><input type="text" maxlength="32" class="input_32_table" name="wan_pppoe_service" value="<% nvram_get("wan_pppoe_service"); %>" onkeypress="return is_string(this, event)"/></td>
+              	<td><input type="text" maxlength="32" class="input_32_table" name="wan_pppoe_service" value="<% nvram_get("wan_pppoe_service"); %>" onkeypress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off"/></td>
             	</tr>
             	<tr>
               	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,10);"><#PPPConnection_x_AccessConcentrator_itemname#></a></th>
-              	<td><input type="text" maxlength="32" class="input_32_table" name="wan_pppoe_ac" value="<% nvram_get("wan_pppoe_ac"); %>" onkeypress="return is_string(this, event)"/></td>
+              	<td><input type="text" maxlength="32" class="input_32_table" name="wan_pppoe_ac" value="<% nvram_get("wan_pppoe_ac"); %>" onkeypress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off"/></td>
             	</tr>
             	<!-- 2008.03 James. patch for Oleg's patch. { -->
 		<tr>
@@ -922,10 +1106,27 @@ function pass_checked(obj){
 		</td>
 		</tr>
 		<tr>
-		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,18);"><#PPPConnection_x_AdditionalOptions_itemname#></a></th>
-		<td><input type="text" name="wan_pppoe_options_x" value="<% nvram_get("wan_pppoe_options_x"); %>" class="input_32_table" maxlength="255" onKeyPress="return is_string(this, event)" onBlur="validate_string(this)"></td>
+			<th><a class="hintstyle" href="javascript:void(0);">Internet Detection</a></th><!--untranslated-->
+			<td>
+				<select name="wan_ppp_echo" class="input_option">
+				<option value="0" <% nvram_match("wan_ppp_echo", "0","selected"); %>><#btn_disable#></option>
+				<option value="1" <% nvram_match("wan_ppp_echo", "1","selected"); %>>PPP Echo</option>
+				<option value="2" <% nvram_match("wan_ppp_echo", "2","selected"); %>>DNS Probe</option>
+				</select>
+			</td>
 		</tr>
-		<!-- 2008.03 James. patch for Oleg's patch. } -->
+		<tr>
+			<th><a class="hintstyle" href="javascript:void(0);">PPP Echo Interval</a></th><!--untranslated-->
+			<td><input type="text" maxlength="6" class="input_6_table" name="wan_ppp_echo_interval" value="<% nvram_get("wan_ppp_echo_interval"); %>" onkeypress="return validator.isNumber(this, event)" autocorrect="off" autocapitalize="off"/></td>
+		</tr>
+		<tr>
+			<th><a class="hintstyle" href="javascript:void(0);">PPP Echo Max Failures</a></th><!--untranslated-->
+			<td><input type="text" maxlength="6" class="input_6_table" name="wan_ppp_echo_failure" value="<% nvram_get("wan_ppp_echo_failure"); %>" onkeypress="return validator.isNumber(this,event);" autocorrect="off" autocapitalize="off"/></td>
+		</tr>
+		<tr>
+			<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,18);"><#PPPConnection_x_AdditionalOptions_itemname#></a></th>
+			<td><input type="text" name="wan_pppoe_options_x" value="<% nvram_get("wan_pppoe_options_x"); %>" class="input_32_table" maxlength="255" onKeyPress="return validator.isString(this, event)" onBlur="validator.string(this)" autocorrect="off" autocapitalize="off"></td>
+		</tr>
           </table>
 
       <table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
@@ -934,49 +1135,69 @@ function pass_checked(obj){
             	<td colspan="2"><#PPPConnection_x_HostNameForISP_sectionname#></td>
             	</tr>
 		</thead>
-		<tr id="vpn_server">    
+		<tr>
           	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,19);"><#BOP_isp_heart_item#></a></th>
           	<td>
           	<!-- 2008.03 James. patch for Oleg's patch. { -->
-          	<input type="text" name="wan_heartbeat_x" class="input_32_table" maxlength="256" value="<% nvram_get("wan_heartbeat_x"); %>" onKeyPress="return is_string(this, event)"></td>
+          	<input type="text" name="wan_heartbeat_x" class="input_32_table" maxlength="256" value="<% nvram_get("wan_heartbeat_x"); %>" onKeyPress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off"></td>
           	<!-- 2008.03 James. patch for Oleg's patch. } -->
         	</tr>
 		<tr id="vpn_dhcp">
-		<th><!--a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,);"-->Enable VPN + DHCP Connection<!--/a--></th>
+		<th><#PPPConnection_x_vpn_dhcp_itemname#></th>
 		<td><input type="radio" name="wan_vpndhcp" class="input" value="1" onclick="return change_common_radio(this, 'IPConnection', 'wan_vpndhcp', 1)" <% nvram_match("wan_vpndhcp", "1", "checked"); %> /><#checkbox_Yes#>
 		    <input type="radio" name="wan_vpndhcp" class="input" value="0" onclick="return change_common_radio(this, 'IPConnection', 'wan_vpndhcp', 0)" <% nvram_match("wan_vpndhcp", "0", "checked"); %> /><#checkbox_No#>
 		</td>
         	</tr>
         	<tr>
           	<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,15);"><#PPPConnection_x_HostNameForISP_itemname#></a></th>
-          	<td><input type="text" name="wan_hostname" class="input_32_table" maxlength="32" value="<% nvram_get("wan_hostname"); %>" onkeypress="return is_string(this, event)"></td>
+          	<td>
+          		<div><input type="text" name="wan_hostname" class="input_32_table" maxlength="32" value="<% nvram_get("wan_hostname"); %>" onkeypress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off"><br/><span id="alert_msg1" style="color:#FC0;"></span></div>
+          	</td>
         	</tr>
+                <th>WAN MTU</th>
+                <td><input type="text" maxlength="5" name="wan_mtu" class="input_6_table" value="<% nvram_get("wan_mtu"); %>" onKeyPress="return validator.isNumber(this,event);"/></td>
+                </tr>
         	<tr>
           	<th ><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,16);"><#PPPConnection_x_MacAddressForISP_itemname#></a></th>
 				<td>
-					<input type="text" name="wan_hwaddr_x" class="input_20_table" maxlength="17" value="<% nvram_get("wan_hwaddr_x"); %>" onKeyPress="return is_hwaddr(this,event)">
+					<input type="text" name="wan_hwaddr_x" class="input_20_table" maxlength="17" value="<% nvram_get("wan_hwaddr_x"); %>" onKeyPress="return validator.isHWAddr(this,event)" autocorrect="off" autocapitalize="off">
 					<input type="button" class="button_gen_long" onclick="showMAC();" value="<#BOP_isp_MACclone#>">
 				</td>
         	</tr>
 
-        	<tr>
+        <tr>
 		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,30);"><#DHCP_query_freq#></a></th>
-        	<td>
-        	<select name="dhcpc_mode" class="input_option">
+		<td>
+		<select name="dhcpc_mode" class="input_option">
 			<option value="0" <% nvram_match(" dhcpc_mode", "0","selected"); %>><#DHCPnormal#></option>
 			<option value="1" <% nvram_match(" dhcpc_mode", "1","selected"); %>><#DHCPaggressive#></option>
-        	</select>
-        	</td>
-        	</tr>
+		</select>
+		</td>
+		</tr>
 
-                <tr>
-                <th>Manual clientid (for some ISPs)</th>
-                <td><input type="text" name="wan_dhcpc_options" class="input_32_table" maxlength="128" value="<% nvram_get("wan_dhcpc_options"); %>" onkeypress="return is_string(this, event)"></td>
-                </tr>
+		<tr>
+		<th>Manual clientid (Option 61)</th>
+			<td><input type="text" name="wan_clientid" class="input_32_table" maxlength="128" value="<% nvram_get("wan_clientid"); %>" onkeypress="return is_string(this, event)"></td>
+		</tr>
+
+		<tr style="display:none;">
+			<th><a class="hintstyle" href="javascript:void(0);" onClick=""><#Extend_TTL_Value#></a></th>
+				<td>
+					<input type="radio" name="ttl_inc_enable" class="input" value="1" <% nvram_match("ttl_inc_enable", "1", "checked"); %>><#checkbox_Yes#>
+					<input type="radio" name="ttl_inc_enable" class="input" value="0" <% nvram_match("ttl_inc_enable", "0", "checked"); %>><#checkbox_No#>
+				</td>
+		</tr>	
+		<tr>
+			<th><a class="hintstyle" href="javascript:void(0);" onClick=""><#Spoof_TTL_Value#></a></th>
+				<td>
+					<input type="radio" name="ttl_spoof_enable" class="input" value="1" <% nvram_match("ttl_spoof_enable", "1", "checked"); %>><#checkbox_Yes#>
+					<input type="radio" name="ttl_spoof_enable" class="input" value="0" <% nvram_match("ttl_spoof_enable", "0", "checked"); %>><#checkbox_No#>
+				</td>
+		</tr>	
 		</table>
-	  <div class="apply_gen" style="height:auto">
+		<div class="apply_gen" style="height:auto">
 			<input class="button_gen" onclick="applyRule();" type="button" value="<#CTL_apply#>"/>
-	  </div>
+		</div>
 
                     </td>
                     </tr>

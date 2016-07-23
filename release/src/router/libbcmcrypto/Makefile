@@ -14,7 +14,7 @@
 
 include $(TOP)/.config
 
-CFLAGS	+= -Wsign-compare -I. -I$(SRCBASE)/common/include -I../httpd -I$(SRCBASE)/include -Wall -fPIC
+CFLAGS	+= -Wsign-compare -I. -I$(SRCBASE)/common/include -I../httpd -I$(SRCBASE)/include ${WLAN_StdIncPathA} -Wall -fPIC
 #CFLAGS	+= -g -DDEBUG
 CFLAGS	+= -s
 LDFLAGS += -L.
@@ -23,6 +23,10 @@ LDFLAGS += -L.
 vpath %.c $(SRCBASE)/bcmcrypto
 ifeq ($(RTCONFIG_BCMARM),y)
 vpath %.o $(SRCBASE)/router/libbcmcrypto/prebuilt.arm
+else ifeq ($(RTCONFIG_RALINK),y)
+vpath %.o $(SRCBASE)/router/libbcmcrypto/prebuilt.mipsel
+else ifeq ($(RTCONFIG_QCA),y)
+vpath %.o $(SRCBASE)/router/libbcmcrypto/prebuilt.qca
 else
 vpath %.o $(SRCBASE)/router/libbcmcrypto/prebuilt.mipsel
 endif

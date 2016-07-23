@@ -502,6 +502,7 @@ asmlinkage void __init start_kernel(void)
 
 	smp_setup_processor_id();
 
+printk("start_kernel\n");
 	/*
 	 * Need to run as early as possible, to initialize the
 	 * lockdep hash:
@@ -606,6 +607,9 @@ asmlinkage void __init start_kernel(void)
 	calibrate_delay();
 	pidmap_init();
 	pgtable_cache_init();
+#ifdef CONFIG_DUMP_PREV_OOPS_MSG 
+        prepare_and_dump_previous_oops();
+#endif
 	prio_tree_init();
 	anon_vma_init();
 #ifdef CONFIG_X86

@@ -1,3 +1,5 @@
+include ../../.config
+
 VERSION = 2
 PATCHLEVEL = 6
 SUBLEVEL = 36
@@ -371,6 +373,10 @@ KBUILD_CFLAGS += -DBCMDRIVER -Dlinux
 # Bcm dbg flag
 #KBUILD_CFLAGS += -DBCMDBG
 
+ifeq ($(FEM_PATCH),y)
+KBUILD_CFLAGS += -DSKY85710_FEM_PATCH
+endif
+
 
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
@@ -549,7 +555,7 @@ all: vmlinux
 
 # Broadcom features compile options
 ifneq ($(CONFIG_BCM_CTF),)
-KBUILD_CFLAGS += -DHNDCTF -DCTFPOOL -DCTFMAP -DPKTC -DCTF_PPPOE
+KBUILD_CFLAGS += -DHNDCTF -DCTFPOOL -DCTFMAP -DPKTC -DCTF_PPPOE -DCTF_PPTP -DCTF_L2TP
 ifneq ($(CONFIG_WL_USBAP),)
 KBUILD_CFLAGS += -DCTFPOOL_SPINLOCK
 endif
@@ -562,6 +568,10 @@ ifneq ($(CONFIG_BCM_FA),)
 KBUILD_CFLAGS += -DBCMFA
 endif
 
+ifneq ($(CONFIG_RGMII_BCM_FA),)
+KBUILD_CFLAGS += -DRGMII_BCM_FA
+endif
+
 ifneq ($(CONFIG_BCM47XX),)
 KBUILD_CFLAGS += -DBCM47XX
 endif
@@ -570,6 +580,24 @@ ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS	+= -Os
 else
 KBUILD_CFLAGS	+= -O2
+endif
+
+ifeq ($(CONFIG_LINUX_MTD),32)
+KBUILD_CFLAGS += -D"CONFIG_LINUX_MTD=32"
+endif
+ifeq ($(CONFIG_LINUX_MTD),64)
+KBUILD_CFLAGS += -D"CONFIG_LINUX_MTD=64"
+endif
+ifeq ($(CONFIG_LINUX_MTD),128)
+KBUILD_CFLAGS += -D"CONFIG_LINUX_MTD=128"
+endif
+
+ifeq ($(BWDPI),y)
+KBUILD_CFLAGS += -DRTCONFIG_BWDPI
+endif
+
+ifeq ($(CONFIG_DUAL_TRX),y)
+KBUILD_CFLAGS += -DCONFIG_DUAL_TRX
 endif
 
 include $(srctree)/arch/$(SRCARCH)/Makefile

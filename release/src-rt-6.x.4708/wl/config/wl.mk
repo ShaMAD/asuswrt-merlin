@@ -1,7 +1,7 @@
 # Helper makefile for building Broadcom wl device driver
 # This file maps wl driver feature flags (import) to WLFLAGS and WLFILES_SRC (export).
 #
-# Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+# Copyright (C) 2015, Broadcom Corporation. All Rights Reserved.
 # 
 # Permission to use, copy, modify, and/or distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -14,7 +14,10 @@
 # WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 # OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 # CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-# $Id: wl.mk 435362 2013-11-11 00:24:00Z $
+# $Id: wl.mk 555412 2015-05-08 21:08:52Z $
+
+WLFLAGS += -DBCM943217ROUTER_ACI_SCANMORECH
+WLFLAGS += -DBPHY_DESENSE
 
 
 
@@ -407,6 +410,9 @@ endif
 			WLFLAGS += -DWL_AP_TPC
 		endif
 #endif
+		ifeq ($(WL_CHANSPEC_TXPWR_MAX),1)
+			WLFLAGS += -DWL_CHANSPEC_TXPWR_MAX
+		endif
 	endif
 	WLFILES_SRC_HI += src/wl/sys/wlc_dfs.c
 	ifeq ($(WLC_DISABLE_DFS_RADAR_SUPPORT),1)
@@ -1486,7 +1492,13 @@ endif
 
 #ifdef WLMCHAN
 ifeq ($(WLMCHAN),1)
+ifeq ($(WL_HIGH),1)
 	WLFLAGS += -DWLTXPWR_CACHE
+else
+	ifneq ($(PHY_WLSRVSDB),1)
+		WLFLAGS += -DWLTXPWR_CACHE
+	endif
+endif
 	WLFLAGS += -DWLMCHAN
 	WLFILES_SRC_HI += src/wl/sys/wlc_mchan.c
 ifndef WLMULTIQUEUE
@@ -1562,6 +1574,13 @@ ifeq ($(WLMEDIA_FLAMES),1)
         WLFLAGS += -DWLMEDIA_FLAMES
 endif
 
+ifeq ($(STBLINUX),1)
+	WLFLAGS += -DSTB
+	ifeq ($(BCMEXTNVM),1)
+		WLFLAGS += -DBCMEXTNVM -DBCM47XX
+		WLFILES_SRC_LO += src/shared/bcmsromio.c
+	endif
+endif
 
 #ifdef WL_WFDLL
 ifeq ($(WL_WFDLL),1)
@@ -2221,7 +2240,6 @@ endif
 #ifdef PROP_TXSTATUS
 ifeq ($(WLMCHAN),1)
 ifeq ($(PROP_TXSTATUS),1)
-	WLFLAGS += -DWLTXPWR_CACHE
 	ifeq ($(WL_SPLIT),0)
 		WLFLAGS += -DWLMCHANPRECLOSE
 		WLFLAGS += -DBBPLL_PARR
@@ -2273,4 +2291,15 @@ endif
 # Work-arounds for ROM compatibility to handle ROM that exclude MFP support.
 ifeq ($(WLC_MFP_ROM_COMPAT),1)
 	EXTRA_DFLAGS += -DWLC_MFP_ROM_COMPAT
+endif
+
+# This feature disables mac sleep on 11AC router platforms (zero packet loss).
+ifeq ($(WLMAC_RX_NO_SLEEP),1)
+	WLFLAGS += -DWLMAC_RX_NO_SLEEP
+endif
+
+# enabling secure DMA feature
+
+ifeq ($(BCM_SECURE_DMA),1)
+	WLFLAGS += -DBCM_SECURE_DMA
 endif

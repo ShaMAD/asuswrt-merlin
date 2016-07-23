@@ -35,6 +35,7 @@
 #include <linux/mtd/mtd.h>
 #endif
 #include <stdint.h>
+#include <arpa/inet.h>
 
 #include <trxhdr.h>
 #include <bcmutils.h>
@@ -194,7 +195,7 @@ int mtd_erase_old(const char *mtdname)
 int mtd_erase(const char *mtdname)
 #endif
 {
-	return _unlock_erase(mtdname, 1);
+	return !_unlock_erase(mtdname, 1);
 }
 
 #ifdef RTCONFIG_BCMARM
@@ -230,11 +231,6 @@ int mtd_write_main(int argc, char *argv[])
 	int mf = -1;
 	mtd_info_t mi;
 	erase_info_t ei;
-#ifdef RTCONFIG_BCMARM	
-	uint32 sig;
-	struct code_header cth;
-	uint32 crc;
-#endif
 	FILE *f;
 	unsigned char *buf = NULL, *p, *bounce_buf = NULL;
 	const char *error;
@@ -242,7 +238,6 @@ int mtd_write_main(int argc, char *argv[])
 	struct sysinfo si;
 	uint32 ofs;
 	char c;
-	int web = 0;
 	char *iname = NULL;
 	char *dev = NULL;
 	char msg_buf[2048];
@@ -251,16 +246,13 @@ int mtd_write_main(int argc, char *argv[])
 	FILE *of;
 #endif
 
-	while ((c = getopt(argc, argv, "i:d:w")) != -1) {
+	while ((c = getopt(argc, argv, "i:d:")) != -1) {
 		switch (c) {
 		case 'i':
 			iname = optarg;
 			break;
 		case 'd':
 			dev = optarg;
-			break;
-		case 'w':
-			web = 1;
 			break;
 		}
 	}
@@ -465,6 +457,9 @@ mtd_erase(const char *mtd)
         int mtd_fd;
         mtd_info_t mtd_info;
         erase_info_t erase_info;
+#ifdef RTAC87U
+	char erase_err[255] = {0};
+#endif
 
         /* Open MTD device */
         if ((mtd_fd = mtd_open(mtd, O_RDWR)) < 0) {
@@ -488,11 +483,19 @@ mtd_erase(const char *mtd)
                 if (ioctl(mtd_fd, MEMERASE, &erase_info) != 0) {
                         perror(mtd);
                         close(mtd_fd);
+#ifdef RTAC87U
+						sprintf(erase_err, "logger -t ATE mtd_erase failed: [%d]", errno);
+						system(erase_err);
+#endif
                         return errno;
                 }
         }
 
         close(mtd_fd);
+#ifdef RTAC87U
+	sprintf(erase_err, "logger -t ATE mtd_erase OK:[%d]", errno);
+	system(erase_err);
+#endif
         return 0;
 }
 

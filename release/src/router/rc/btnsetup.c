@@ -107,7 +107,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
 #include <errno.h>
 #include <sys/fcntl.h>
@@ -121,10 +120,14 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-
+#include <limits.h>
 
 #ifdef RTCONFIG_RALINK
 #include <ralink.h>
+#endif
+
+#ifdef RTCONFIG_QCA
+#include <qca.h>
 #endif
 
 #define logs(fmt, arg...) //syslog(LOG_NOTICE, fmt, ##arg)
@@ -168,9 +171,10 @@ int bs_encrypt;
 int rand_seed_by_time(void)
 {
 	time_t atime;
+	static unsigned long rand_base = 0;
 
 	time(&atime);
-	srand((unsigned long)atime);
+	srand(((unsigned long)atime + rand_base++) % ULONG_MAX);
 	
 	return rand();
 }
@@ -178,8 +182,8 @@ int rand_seed_by_time(void)
 #ifdef OTS_SIMU
 int ots_simu(int stage)
 {
-	printf("ots check: %d %d\n", stage, atoi(nvram_safe_get("ots_simu_stage")));
-	if(stage==atoi(nvram_safe_get("ots_simu_stage")))
+	printf("ots check: %d %d\n", stage, nvram_get_int("ots_simu_stage"));
+	if(stage==nvram_get_int("ots_simu_stage"))
 	{
 		nvram_set("ots_simu_stage", "");
 		return 0;
@@ -284,50 +288,6 @@ void nvram_set_str(const char *nvram_name, char *value, int size)
 	nvram_set(nvram_name, tmpbuf);
 }
 
-int
-start_sdhcpd(void)
-{
-	FILE *fp;
-	char *dhcpd_argv[] = {"udhcpd", "/tmp/udhcpd.conf", NULL, NULL};
-	pid_t pid;
-
-	if (nvram_match("lan_proto", "dhcp")) return 0;
-	//ifconfig(nvram_safe_get("lan_ifname"), IFUP,
-	//	 nvram_safe_get("lan_ipaddr"), "255.255.255.0");
-	//_dprintf("%s %s %s %s\n",
-	//	nvram_safe_get("lan_ifname"),
-	//	nvram_safe_get("dhcp_start"),
-	//	nvram_safe_get("dhcp_end"),
-	//	nvram_safe_get("lan_lease"));
-
-	if (!(fp = fopen("/tmp/udhcpd-br0.leases", "a"))) {
-		perror("/tmp/udhcpd-br0.leases");
-		return errno;
-	}
-	fclose(fp);
-
-	/* Write configuration file based on current information */
-	if (!(fp = fopen("/tmp/udhcpd.conf", "w"))) {
-		perror("/tmp/udhcpd.conf");
-		return errno;
-	}
-	
-	fprintf(fp, "pidfile /var/run/udhcpd-br0.pid\n");
-	fprintf(fp, "start %s\n", nvram_safe_get("dhcp_start"));
-	fprintf(fp, "end %s\n", nvram_safe_get("dhcp_end"));
-	fprintf(fp, "interface %s\n", nvram_safe_get("lan_ifname"));
-	fprintf(fp, "remaining yes\n");
-	fprintf(fp, "lease_file /tmp/udhcpd-br0.leases\n");
-	fprintf(fp, "option subnet %s\n", nvram_safe_get("lan_netmask"));
-	fprintf(fp, "option router %s\n", nvram_safe_get("lan_ipaddr"));
-	fprintf(fp, "option lease 3600\n");
-	fclose(fp);
-	
-	_eval(dhcpd_argv, NULL, 0, &pid);
-	//_dprintf("done\n");
-	return 0;
-}
-
 int btn_setup_get_setting(PKT_SET_INFO_GW_QUICK *pkt)	// WLAN 2.4G
 {
 	char tmpbuf[256];
@@ -342,10 +302,10 @@ int btn_setup_get_setting(PKT_SET_INFO_GW_QUICK *pkt)	// WLAN 2.4G
 	if(nvram_match("wl0_auth_mode_x", "open"))
 	{
 		pkt->WSetting.Auth=AUTHENTICATION_OPEN;
-		pkt->WSetting.Encrypt=atoi(nvram_safe_get("wl0_wep_x"));
+		pkt->WSetting.Encrypt=nvram_get_int("wl0_wep_x");
 		if (pkt->WSetting.Encrypt>ENCRYPTION_DISABLE)
 		{
-			pkt->WSetting.DefaultKey = atoi(nvram_safe_get("wl0_key"));
+			pkt->WSetting.DefaultKey = nvram_get_int("wl0_key");
 			sprintf(tmpbuf, "wl0_key%d", pkt->WSetting.DefaultKey);
 			strcpy(pkt->WSetting.Key, nvram_safe_get(tmpbuf));
 		}
@@ -353,10 +313,10 @@ int btn_setup_get_setting(PKT_SET_INFO_GW_QUICK *pkt)	// WLAN 2.4G
 	else if(nvram_match("wl0_auth_mode_x", "shared"))
 	{
 		pkt->WSetting.Auth=AUTHENTICATION_SHARED;
-		pkt->WSetting.Encrypt=atoi(nvram_safe_get("wl0_wep_x"));
+		pkt->WSetting.Encrypt=nvram_get_int("wl0_wep_x");
 		if (pkt->WSetting.Encrypt>ENCRYPTION_DISABLE)
 		{
-			pkt->WSetting.DefaultKey = atoi(nvram_safe_get("wl0_key"));
+			pkt->WSetting.DefaultKey = nvram_get_int("wl0_key");
 			sprintf(tmpbuf, "wl0_key%d", pkt->WSetting.DefaultKey);
 			strcpy(pkt->WSetting.Key, nvram_safe_get(tmpbuf));
 		}	
@@ -402,10 +362,10 @@ int btn_setup_get_setting2(PKT_SET_INFO_GW_QUICK *pkt)	// WLAN 5G
 	if(nvram_match("wl1_auth_mode_x", "open"))
 	{
 		pkt->WSetting.Auth=AUTHENTICATION_OPEN;
-		pkt->WSetting.Encrypt=atoi(nvram_safe_get("wl1_wep_x"));
+		pkt->WSetting.Encrypt=nvram_get_int("wl1_wep_x");
 		if (pkt->WSetting.Encrypt>ENCRYPTION_DISABLE)
 		{
-			pkt->WSetting.DefaultKey = atoi(nvram_safe_get("wl1_key"));
+			pkt->WSetting.DefaultKey = nvram_get_int("wl1_key");
 			sprintf(tmpbuf, "wl1_key%d", pkt->WSetting.DefaultKey);
 			strcpy(pkt->WSetting.Key, nvram_safe_get(tmpbuf));
 		}
@@ -413,10 +373,10 @@ int btn_setup_get_setting2(PKT_SET_INFO_GW_QUICK *pkt)	// WLAN 5G
 	else if(nvram_match("wl1_auth_mode_x", "shared"))
 	{
 		pkt->WSetting.Auth=AUTHENTICATION_SHARED;
-		pkt->WSetting.Encrypt=atoi(nvram_safe_get("wl1_wep_x"));
+		pkt->WSetting.Encrypt=nvram_get_int("wl1_wep_x");
 		if (pkt->WSetting.Encrypt>ENCRYPTION_DISABLE)
 		{
-			pkt->WSetting.DefaultKey = atoi(nvram_safe_get("wl1_key"));
+			pkt->WSetting.DefaultKey = nvram_get_int("wl1_key");
 			sprintf(tmpbuf, "wl1_key%d", pkt->WSetting.DefaultKey);
 			strcpy(pkt->WSetting.Key, nvram_safe_get(tmpbuf));
 		}	
@@ -913,7 +873,7 @@ int OTSStart(int flag)
 	if (flag)
 	{
 		//stop_service_main(1);
-		start_sdhcpd();
+		/* start_sdhcpd(); */
 		strcpy(sharedkeystr, nvram_safe_get("sharedkeystr"));
 		tw = (TEMP_WIRELESS *)sharedkeystr;
 		nvram_set("sharedkeystr", "");
@@ -926,7 +886,7 @@ int OTSStart(int flag)
 	{
 #ifdef FULL_EZSETUP
 		stop_service_main(1);
-		start_sdhcpd();
+		/* start_sdhcpd(); */
 
 		BN_register_RAND(ots_rand);
 
@@ -940,10 +900,12 @@ int OTSStart(int flag)
 			sprintf(ssid, "%s_OTS1", get_productid()); 
 		else sprintf(ssid, "%s_OTS0", get_productid()); 
 
+#if defined(RTCONFIG_HAS_5G)
 		doSystem("iwpriv %s set AuthMode=OPEN", WIF_5G);
 		doSystem("iwpriv %s set EncrypType=NONE", WIF_5G);
 		doSystem("iwpriv %s set IEEE8021X=0", WIF_5G);
 		doSystem("iwpriv %s set SSID=ASUS_OTS", WIF_5G);
+#endif	/* RTCONFIG_HAS_5G */
 
 		doSystem("iwpriv %s set AuthMode=OPEN", WIF2G);
 		doSystem("iwpriv %s set EncrypType=NONE", WIF2G);
@@ -1261,8 +1223,8 @@ int OTSPacketHandler(int sockfd)
 		     
 		     ezprobe_res = (PKT_EZPROBE_INFO *)(pdubuf_res+sizeof(IBOX_COMM_PKT_RES_EX));		
 
-		     ezprobe_res->isNotDefault = atoi(nvram_safe_get("x_Setting")) | atoi(nvram_safe_get("wl0_wsc_config_state")) | atoi(nvram_safe_get("wl1_wsc_config_state")); // for EZSetup to coexist w/ WSC
-		     ezprobe_res->isSetByOts = atoi(nvram_safe_get("x_EZSetup"));
+		     ezprobe_res->isNotDefault = nvram_get_int("x_Setting") | nvram_get_int("wl0_wsc_config_state") | nvram_get_int("wl1_wsc_config_state"); // for EZSetup to coexist w/ WSC
+		     ezprobe_res->isSetByOts = nvram_get_int("x_EZSetup");
 //		     ezprobe_res->isWAN = is_phyconnected(nvram_safe_get("wan_ifname"));
 		     ezprobe_res->isWAN = isWAN_detect();
 		     ezprobe_res->isDHCP = 0;
@@ -1448,12 +1410,10 @@ start_ots(void)
 	return 0;
 }
 
-int
+void
 stop_ots(void)
 {
-	int ret1 = eval("killall", "ots");
-	_dprintf("done\n");
-	return(ret1);
+	killall_tk("ots");
 }
 
 int 
@@ -1558,10 +1518,10 @@ finish:
 		bs_mode=BTNSETUP_NONE;
 		sleep(2);
 		stop_wan();
-		stop_dhcpd();
+		stop_dnsmasq(); /* stop_dhcpd(); */
 		//convert_asus_values(1);
 		//nvram_commit_safe();
-		start_dhcpd();
+		start_dnsmasq(); /* start_dhcpd(); */
 		start_wan();
 #else
 		

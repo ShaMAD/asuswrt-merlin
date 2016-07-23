@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -16,13 +16,93 @@
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
+<% get_route_array(); %>
+function initial() {
+	show_menu();
+	show_routev4();
+	show_routev6();
+}
+
+
+function show_routev4() {
+	var code, i, line;
+
+	code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
+	code += '<thead><tr><td colspan="8">IPv4 Routing table</td></tr></thead>';
+	code += '<tr><th width="19%">Destination</th>';
+	code += '<th width="19%">Gateway</th>';
+	code += '<th width="16%">Genmask</th>';
+	code += '<th width="11%">Flags</th>';
+	code += '<th width="10%">Metric</th>';
+	code += '<th width="8%">Ref</th>';
+	code += '<th width="8%">Use</th>';
+	code += '<th width="9%">Iface</th>';
+	code += '</tr>';
+
+	if (routearray.length > 1) {
+		for (i = 0; i < routearray.length-1; ++i) {
+			line = routearray[i];
+
+			code += '<tr>';
+			code += '<td>' + line[0] + '</td>';
+			code += '<td>' + line[1] + '</td>';
+			code += '<td>' + line[2] + '</td>';
+			code += '<td>' + line[3] + '</td>';
+			code += '<td>' + line[4] + '</td>';
+			code += '<td>' + line[5] + '</td>';
+			code += '<td>' + line[6] + '</td>';
+			code += '<td>' + line[7] + '</td>';
+			code += '</tr>';
+		}
+	} else {
+		code += '<tr><td colspan="8"><span>No IPv4 routes.</span></td></tr>';
+	}
+
+	code += '</tr></table>';
+	document.getElementById("routev4block").innerHTML = code;
+}
+
+
+function show_routev6() {
+	var code, i, line;
+
+	code = '<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable_table">';
+	code += '<thead><tr><td colspan="7">IPv6 Routing table</td></tr></thead>';
+	code += '<tr><th width="40%">Destination<br><span style="color:#FFCC00;">Next Hop</span></th>';
+	code += '<th width="10%">Flags</th>';
+	code += '<th width="10%">Metric</th>';
+	code += '<th width="10%">Ref</th>';
+	code += '<th width="10%">Use</th>';
+	code += '<th width="10%">Dev</th>';
+	code += '<th width="10%">Iface</th>';
+	code += '</tr>';
+
+	if (routev6array.length > 1) {
+		for (i = 0; i < routev6array.length-1; ++i) {
+			line = routev6array[i];
+
+			code += '<tr>';
+			code += '<td>' + line[0] + '<br><span style="color:#FFCC00;">' + line[1] + '</span></td>';
+			code += '<td>' + line[2] + '</td>';
+			code += '<td>' + line[3] + '</td>';
+			code += '<td>' + line[4] + '</td>';
+			code += '<td>' + line[5] + '</td>';
+			code += '<td>' + line[6] + '</td>';
+			code += '<td>' + line[7] + '</td>';
+			code += '</tr>';
+		}
+	} else {
+		code += '<tr><td colspan="7"><span>No IPv6 routes.</span></td></tr>';
+	}
+
+	code += '</tr></table>';
+	document.getElementById("routev6block").innerHTML = code;
+}
+
 </script>
 </head>
 
-<body onload="show_menu();">
+<body onload="initial();">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 
@@ -61,7 +141,11 @@ wan_proto = '<% nvram_get("wan_proto"); %>';
 								<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
 								<div class="formfontdesc"><#Route_title#></div>
 								<div style="margin-top:8px">
-									<textarea style="width:99%; font-family:'Courier New', Courier, mono; font-size:13px;background:#475A5F;color:#FFFFFF;" cols="63" rows="25" readonly="readonly" wrap=off><% nvram_dump("route.log","route.sh"); %></textarea><!--==magic 2008.11 del name ,if there are name, when the form was sent, the textarea also will be sent==-->
+									<div id="routev4block"></div>
+								</div>
+								<br>
+								<div style="margin-top:8px">
+									<div id="routev6block"></div>
 								</div>
 								<div class="apply_gen">
 									<input type="button" onClick="location.href=location.href" value="<#CTL_refresh#>" class="button_gen">

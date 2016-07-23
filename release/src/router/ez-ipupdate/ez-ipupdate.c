@@ -123,6 +123,11 @@
 #define HEIPV6TB_DEFAULT_PORT "80"
 #define HEIPV6TB_REQUEST "/ipv4_end.php"
 
+//Andy Chiu, 2015/04/02, add for SelfHost.de
+#define SELFHOST_DEFAULT_SERVER	"carol.selfhost.de"
+#define SELFHOST_DEFAULT_PORT	"80"
+#define SELFHOST_REQUEST	"/nic/update"
+
 #define DEFAULT_TIMEOUT 15 //120
 #define DEFAULT_UPDATE_PERIOD 120
 #define DEFAULT_RESOLV_PERIOD 30
@@ -486,6 +491,17 @@ struct service_t services[] = {
     QDNS_DEFAULT_SERVER,
     QDNS_DEFAULT_PORT,
     QDNS_REQUEST
+  },
+  //Andy Chiu, 2015/04/02, add for SelfHost.de
+  { "selfhost",
+    {  "selfhost", 0, 0 },
+    DYNDNS_init,
+    DYNDNS_update_entry,
+    DYNDNS_check_info,
+    DYNDNS_fields_used,
+    SELFHOST_DEFAULT_SERVER,
+    SELFHOST_DEFAULT_PORT,
+    SELFHOST_REQUEST
   },
   { "qdns-static",
     {"qdns-static"},
@@ -1783,7 +1799,7 @@ int read_input(char *buf, int len)
 
   ret = select(max_fd + 1, &readfds, NULL, NULL, &tv);
   dprintf((stderr, "read_input ret: %d\n", ret));
-fprintf(stderr, "read_input ret: %d\n", ret);
+  fprintf(stderr, "read_input ret: %d\n", ret);
   if(ret == -1)
   {
     dprintf((stderr, "select: %s\n", error_string));
@@ -5254,13 +5270,15 @@ show_message("asusddns_update: %d\n", retval);
           sock = socket(AF_INET, SOCK_STREAM, 0);
           if(get_if_addr(sock, interface, &sin) != 0)
           {
-            exit(1);
+            retval = 1;
+            goto exit_main;
           }
           close(sock);
           snprintf(ipbuf, sizeof(ipbuf), "%s", inet_ntoa(sin.sin_addr));
 #else
           show_message("interface lookup not enabled at compile time\n");
-          exit(1);
+          retval = 1;
+          goto exit_main;
 #endif
         }
         else
@@ -5272,7 +5290,8 @@ show_message("asusddns_update: %d\n", retval);
         {
           show_message("unable to write cache file \"%s\": %s\n",
               cache_file, error_string);
-          exit(1);
+          retval = 1;
+          goto exit_main;
         }
       }
       if(retval == 0 && post_update_cmd)
@@ -5315,10 +5334,8 @@ show_message("asusddns_update: %d\n", retval);
       show_message("no update needed at this time\n");
     }
   }
-//2007.03.14 Yau add
-#ifdef ASUS_DDNS
+
   exit_main:
-#endif
 
 #ifdef IF_LOOKUP
   if(sock > 0) { close(sock); }

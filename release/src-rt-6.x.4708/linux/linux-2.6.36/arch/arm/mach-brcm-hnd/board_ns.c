@@ -251,7 +251,7 @@ static void __init board_fixup(
 	if (lo_size == mem_size)
 		return;
 
-	mi->bank[1].start = PHYS_OFFSET2 + lo_size;
+	mi->bank[1].start = PHYS_OFFSET2;
 	mi->bank[1].size = mem_size - lo_size;
 	mi->nr_banks++;
 }
@@ -532,6 +532,12 @@ init_mtd_partitions(hndsflash_t *sfl_info, struct mtd_info *mtd, size_t size)
 		/* Setup kernel MTD partition */
 		bcm947xx_flash_parts[nparts].name = "linux";
 #ifdef CONFIG_FAILSAFE_UPGRADE
+		if (trx_size > (image_second_offset-image_first_offset)) {
+			printk("sflash size is too small to afford two images.\n");
+			dual_image_on = 0;
+			image_first_offset = 0;
+			image_second_offset = 0;
+		}
 		if (dual_image_on) {
 			bcm947xx_flash_parts[nparts].size = image_second_offset-image_first_offset;
 		} else {
@@ -600,6 +606,12 @@ init_mtd_partitions(hndsflash_t *sfl_info, struct mtd_info *mtd, size_t size)
 		if (dual_image_on) {
 			offset = image_second_offset;
 			rfs_off = lookup_flash_rootfs_offset(mtd, &offset, size, &trx_size);
+			/* When the second image doesn't exist,
+			 * set the rootfs use the same offset with the kernel
+			 */
+			if (rfs_off == size)
+				rfs_off = offset;
+
 			vmlz_off = offset;
 			/* Setup kernel2 MTD partition */
 			bcm947xx_flash_parts[nparts].name = "linux2";
@@ -864,6 +876,19 @@ init_nflash_mtd_partitions(hndnand_t *nfl, struct mtd_info *mtd, size_t size)
 		offset = nfl_boot_os_size(nfl);
 
 		nparts++;
+
+#ifdef CONFIG_DUAL_TRX /* ASUS Setup 2nd kernel MTD partition */
+                bcm947xx_nflash_parts[nparts].name = "linux2";
+                bcm947xx_nflash_parts[nparts].size = NFL_BOOT_OS_SIZE;
+                bcm947xx_nflash_parts[nparts].offset = NFL_BOOT_OS_SIZE;
+                nparts++;
+                /* Setup rootfs MTD partition */
+                bcm947xx_nflash_parts[nparts].name = "rootfs2";
+                bcm947xx_nflash_parts[nparts].size = NFL_BOOT_OS_SIZE - shift;
+                bcm947xx_nflash_parts[nparts].offset = NFL_BOOT_OS_SIZE + shift;
+                bcm947xx_nflash_parts[nparts].mask_flags = MTD_WRITEABLE;
+                nparts++;
+#endif /* End of ASUS 2nd FW partition*/
 
 #ifdef CONFIG_FAILSAFE_UPGRADE
 		/* Setup 2nd kernel MTD partition */

@@ -1,7 +1,8 @@
-/* $Id: upnppinhole.h,v 1.3 2012/09/27 15:47:15 nanard Exp $ */
-/* MiniUPnP project
+/* $Id: upnppinhole.h,v 1.2 2012/09/18 08:29:49 nanard Exp $ */
+/* vim: tabstop=4 shiftwidth=4 noexpandtab
+ * MiniUPnP project
  * http://miniupnp.free.fr/ or http://miniupnp.tuxfamily.org/
- * (c) 2006-2012 Thomas Bernard
+ * (c) 2006-2016 Thomas Bernard
  * This software is subject to the conditions detailed
  * in the LICENCE file provided within the distribution */
 
@@ -10,14 +11,25 @@
 
 #include "config.h"
 
-#ifdef ENABLE_6FC_SERVICE
-/* functions to be used by WANIPv6_FirewallControl implementation */
+#ifdef ENABLE_UPNPPINHOLE
+
+/* functions to be used by WANIPv6_FirewallControl implementation
+ * and PCP (IPv6) */
 
 #if 0
 /* retrieve outbound pinhole timeout */
 int
 upnp_check_outbound_pinhole(int proto, int * timeout);
 #endif
+
+/* find an inbound pinhole base on remove host:port / local host:port
+ * return the (positive) uid or a negative value if not found */
+int
+upnp_find_inboundpinhole(const char * raddr, unsigned short rport,
+                         const char * iaddr, unsigned short iport,
+                         int proto,
+                         char * desc, int desc_len, unsigned int * leasetime);
+
 
 /* add an inbound pinehole
  * return value :
@@ -26,10 +38,11 @@ upnp_check_outbound_pinhole(int proto, int * timeout);
  * .. = error */
 int
 upnp_add_inboundpinhole(const char * raddr, unsigned short rport,
-              const char * iaddr, unsigned short iport,
-              int proto, unsigned int leasetime, int * uid);
+                        const char * iaddr, unsigned short iport,
+                        int proto, char * desc,
+                        unsigned int leasetime, int * uid);
 
-/*
+/* get from uid
  * return values :
  *  -1 not found
  * */
@@ -39,9 +52,17 @@ upnp_get_pinhole_info(unsigned short uid,
                       unsigned short * rport,
                       char * iaddr, int iaddrlen,
                       unsigned short * iport,
-                      int * proto,
+                      int * proto, char * desc, int desclen,
                       unsigned int * leasetime,
                       unsigned int * packets);
+
+/*
+ * return values:
+ * -1 = not found
+ * 0 .. 65535 = uid of the rule for the index
+ */
+int
+upnp_get_pinhole_uid_by_index(int index);
 
 /* update the lease time */
 int
@@ -63,8 +84,6 @@ upnp_check_pinhole_working(const char * uid, char * eaddr, char * iaddr, unsigne
 int
 upnp_clean_expired_pinholes(unsigned int * next_timestamp);
 
-#endif /* ENABLE_6FC_SERVICE */
+#endif /* ENABLE_UPNPPINHOLE */
 
-#endif
-
-
+#endif /* !UPNPPINHOLE_H_INCLUDED */

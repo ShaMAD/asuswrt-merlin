@@ -10,14 +10,16 @@
 <link rel="stylesheet" type="text/css" href="aidisk.css">
 <link rel="stylesheet" type="text/css" href="/form_style.css">
 <script type="text/javascript" src="/state.js"></script>
-<script type="text/javaScript" src="/jquery.js"></script>
+<script type="text/javaScript" src="/general.js"></script>
+<script type="text/javaScript" src="/validator.js"></script>
+<script type="text/javaScript" src="/js/jquery.js"></script>
 <script>
 var ddns_server_x = '<% nvram_get("ddns_server_x"); %>';
 var ddns_hostname_x = '<% nvram_get("ddns_hostname_x"); %>';
 var ddns_old_name = '<% nvram_get("ddns_old_name"); %>';
 var ddns_return_code = '<% nvram_get_ddns("LANHostConfig", "ddns_return_code"); %>';
 var ddns_hostname_title;
-var $j = jQuery.noConflict();
+
 
 function initial(){
 	parent.hideLoading();
@@ -56,13 +58,13 @@ function switch_ddns(){
 function show_TOS_checkbox(){
 	if(document.form.check_asus_ddns[0].checked){
 		document.form.asusddns_tos_agreement.value = "1";
-		$("ddnsname_input").style.display = "block";
-		$("DDNSName").focus();
-		$("DDNSName").select();
+		document.getElementById("ddnsname_input").style.display = "block";
+		document.getElementById("DDNSName").focus();
+		document.getElementById("DDNSName").select();
 	}
 	else{
 		document.form.asusddns_tos_agreement.value = "0";		
-		$("ddnsname_input").style.display = "none";	
+		document.getElementById("ddnsname_input").style.display = "none";	
 	}
 
 	if(this.ddns_server_x == "WWW.ASUS.COM")
@@ -70,53 +72,26 @@ function show_TOS_checkbox(){
 	}
 
 function show_alert_block(alert_str){
-	$("alert_block").style.display = "block";
+	document.getElementById("alert_block").style.display = "block";
 	
-	showtext($("alert_str"), alert_str);
+	showtext(document.getElementById("alert_str"), alert_str);
 }
 
 function hide_alert_block(){
-	$("alert_block").style.display = "none";
+	document.getElementById("alert_block").style.display = "none";
 }
 
 function check_return_code(){
 
-	if(this.ddns_return_code.indexOf('-1')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_2#>");
-	else if(this.ddns_return_code.indexOf('200')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_3#>");
-	else if(this.ddns_return_code.indexOf('203')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_hostname#> '"+this.ddns_hostname_x+"' <#LANHostConfig_x_DDNS_alarm_registered#>");
-	else if(this.ddns_return_code.indexOf('220')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_4#>");
-	else if(this.ddns_return_code.indexOf('230')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_5#>");
-	else if(this.ddns_return_code.indexOf('233')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_hostname#> '"+this.ddns_hostname_x+"' <#LANHostConfig_x_DDNS_alarm_registered_2#> '"+this.ddns_old_name+"'.");
-	else if(this.ddns_return_code.indexOf('296')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_6#>");
-	else if(this.ddns_return_code.indexOf('297')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_7#>");
-	else if(this.ddns_return_code.indexOf('298')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_8#>");
-	else if(this.ddns_return_code.indexOf('299')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_9#>");
-	else if(this.ddns_return_code.indexOf('401')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_10#>");
-	else if(this.ddns_return_code.indexOf('407')!=-1)
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_11#>");
-	else if(this.ddns_return_code == 'Time_out')
-		show_alert_block("<#LANHostConfig_x_DDNS_alarm_12#>");
-  	else if(this.ddns_return_code =='unknown_error')
-    		show_alert_block("<#LANHostConfig_x_DDNS_alarm_2#>");
-	else if(this.ddns_return_code =='connect_fail')
-    		show_alert_block("<#qis_fail_desc7#>");
-  	else if(this.ddns_return_code == 'no_change')
-    		{}
-        else if(ddns_return_code =='connect_fail')
-                alert("<#qis_fail_desc7#>");
-  	else if(this.ddns_return_code !='')
-    		show_alert_block("<#LANHostConfig_x_DDNS_alarm_2#>");
+	if(this.ddns_return_code != 'no_change'){
+		var ddnsHint = getDDNSState(this.ddns_return_code, this.ddns_hostname_x, this.ddns_old_name);
+		if(ddnsHint != ""){
+			if(this.ddns_return_code == 'Time_out')
+				show_alert_block("<#LANHostConfig_x_DDNS_alarm_12#>");
+			else
+				show_alert_block(ddnsHint);
+		}
+	}
 
 	document.getElementById("loadingIcon").style.display = "none";	
 	this.ddns_return_code = "";
@@ -124,7 +99,7 @@ function check_return_code(){
 
 function verify_ddns_name(){
 	
-	if(!validate_ddns_hostname($("DDNSName"))){
+	if(!validate_ddns_hostname(document.getElementById("DDNSName"))){
 		document.form.DDNSName.focus();
 		document.form.DDNSName.select();
 		return false;		
@@ -133,7 +108,7 @@ function verify_ddns_name(){
 		document.getElementById("loadingIcon").style.display = "";
 		
 		document.form.current_page.value = "/aidisk/Aidisk-3.asp";
-		document.form.ddns_hostname_x.value = $("DDNSName").value+".asuscomm.com";
+		document.form.ddns_hostname_x.value = document.getElementById("DDNSName").value+".asuscomm.com";
 		
 		document.form.flag.value = "nodetect";
 		FormActions("", "apply", "aidisk_asusddns_register", "1");
@@ -176,7 +151,7 @@ function validate_ddns_hostname(o){
 		show_alert_block("<#LANHostConfig_x_DDNS_alarm_7#>");
 		return false;
 	}	
-	if(!validate_string(o)){
+	if(!validator.string(o)){
 		return false;
 	}
 	
@@ -190,23 +165,13 @@ function validate_ddns_hostname(o){
 			}
 		}
 		
-		if(!validate_hostnamechar(c)){
+		if(!validator.hostNameChar(c)){
 			show_alert_block("<#LANHostConfig_x_DDNS_alarm_13#> '"+s.charAt(i)+"' !");
 			return false;
 		}
 	}
 	
 	return true;
-}
-
-function validate_hostnamechar(ch){
-	if(ch >= 48 && ch <= 57)	return true;	//0~9		
-	if(ch >= 97 && ch <= 122)	return true;	//little EN
-	if(ch >= 65 && ch <= 90)	return true;	//large EN
-	if(ch == 45)	return true;	//-
-	if(ch == 46)	return true;	//.
-	
-	return false;
 }
 
 function done_validating(action){
@@ -224,7 +189,7 @@ function hideLoading(flag){
 }
 
 function checkDDNSReturnCode(){
-    $j.ajax({
+    $.ajax({
     	url: '/ajax_ddnscode.asp',
     	dataType: 'script', 
         
@@ -301,12 +266,11 @@ function cleandef(){
 			<td>
 			<div style="margin-left:20px;">	
 				<p><input type="radio" name="check_asus_ddns" id="c1" onClick="switch_ddns();" checked>
-						<label for="c1"><#DDNSterm_agreeword#></label>
-						<a onclick="parent.show_help_iframe(5);"><#DDNS_termofservice_Title#></a>
+					<label for="c1"><#DDNSterm_agreeword#></label>
 				</p>			
 				<br/>
 						<div id="ddnsname_input" class="aidiskdesc" style="display:none;">
-							<input type="text" name="DDNSName" id="DDNSName" class="input_25_table" onClick="cleandef()">.asuscomm.com
+							<input type="text" name="DDNSName" id="DDNSName" class="input_25_table" onClick="cleandef()" autocorrect="off" autocapitalize="off">.asuscomm.com
 							<div id="alert_block" style="color:#FFCC00; margin-left:5px; font-size:11px;display:none;">
 								<span id="alert_str"></span>
 							</div>
@@ -327,14 +291,12 @@ function cleandef(){
 
 		<tr valign="bottom">
   		<td width="20%">
-  			<div class="apply_gen" style="margin-top:30px">	
-  				<input type="button" id="prevButton" value="<#btn_pre#>" onclick="go_pre_page();" class="button_gen">
-	    		<input type="submit" id="nextButton" value="<#btn_next#>" class="button_gen">
-					<!--a href="javascript:go_pre_page();"><div class="titlebtn" align="center" style="margin-left:275px;_margin-left:137px;"><span><#btn_pre#></span></div></a-->
-	    		<!--a href="javascript:go_next_page();"><div class="titlebtn" align="center"><span><#btn_next#></span></div></a-->
-					<img id="loadingIcon" style="display:none;margin-top:7px" src="/images/InternetScan.gif"></span>
-				</div>
-	    </td>
+			<div class="apply_gen" style="margin-top:30px">	
+				<input type="button" id="prevButton" value="<#CTL_prev#>" onclick="go_pre_page();" class="button_gen">
+				<input type="submit" id="nextButton" value="<#CTL_next#>" class="button_gen">
+				<img id="loadingIcon" style="display:none;margin-top:7px" src="/images/InternetScan.gif"></span>
+			</div>
+		</td>
 	  </tr>
 	  <!-- end -->
   </table>

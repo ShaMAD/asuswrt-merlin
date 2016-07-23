@@ -45,6 +45,11 @@
 #define srandom srand
 #endif
 
+#ifdef _MSC_VER // Visual Studio
+#define __func__ __FUNCTION__
+#define __attribute__(x)
+#endif
+
 #if defined(__APPLE__)
 #if __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ >= 1070
 #define __APPLE_USE_RFC_3542  1
@@ -214,10 +219,6 @@
 
 #ifdef TARGET_LINUX
 
-#if defined(HAVE_NETINET_IF_ETHER_H)
-#include <netinet/if_ether.h>
-#endif
-
 #ifdef HAVE_LINUX_IF_TUN_H
 #include <linux/if_tun.h>
 #endif
@@ -348,6 +349,14 @@
 #endif
 
 #endif /* TARGET_DRAGONFLY */
+
+#ifdef TARGET_DARWIN
+
+#ifdef HAVE_NETINET_TCP_H
+#include <netinet/tcp.h>
+#endif
+
+#endif /* TARGET_DARWIN */
 
 #ifdef WIN32
 #include <iphlpapi.h>
@@ -546,7 +555,7 @@ socket_defined (const socket_descriptor_t sd)
 /*
  * Enable external private key
  */
-#if defined(ENABLE_MANAGEMENT) && defined(ENABLE_SSL) && !defined(ENABLE_CRYPTO_POLARSSL)
+#if defined(ENABLE_MANAGEMENT) && defined(ENABLE_SSL)
 #define MANAGMENT_EXTERNAL_KEY
 #endif
 

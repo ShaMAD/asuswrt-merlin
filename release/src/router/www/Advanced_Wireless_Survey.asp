@@ -1,63 +1,34 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
+<link rel="shortcut icon" href="images/favicon.png">
+<link rel="icon" href="images/favicon.png">
 <title><#Web_Title#> - Visible Wifi</title>
 <link rel="stylesheet" type="text/css" href="/form_style.css">
 <link rel="stylesheet" type="text/css" href="qis/qis_style.css">
 <link rel="stylesheet" type="text/css" href="index_style.css">
-
 <style>
-#radio_0{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -0px; width: 30px; height: 30px;
-}
-#radio_1{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -30px; width: 30px; height: 30px;
-}
-#radio_2{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -60px; width: 30px; height: 30px;
-}
-#radio_3{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -90px; width: 30px; height: 30px;
-}
-#radio_4{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -120px; width: 30px; height: 30px;
-}
-#radio_5{
-  background: url(../images/survey/radio_status.png);
-  background-position: -0px -150px; width: 30px; height: 30px;
-}
 p{
 	font-weight: bolder;
 }
-
 </style>
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script language="JavaScript" type="text/javascript" src="/detect.js"></script>
 <script language="JavaScript" type="text/javascript" src="/tmmenu.js"></script>
-<script language="JavaScript" type="text/javascript" src="/nameresolv.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.xdomainajax.js"></script>
-
-
+<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
 
 <script type="text/JavaScript">
 var aplist = new Array();
 var wlc_scan_state = '<% nvram_get("wlc_scan_state"); %>';
 var _wlc_ssid;
 var _sw_mode;
-
-var $j = jQuery.noConflict();
 
 var isrescan = 0;
 
@@ -75,7 +46,7 @@ function initial(){
 
 	if (radio_2 == 0)
 		E("radio2warn").style.display = "";
-	if ((band5g_support != -1) && (radio_5 == 0))
+	if ((band5g_support) && (radio_5 == 0))
 		E("radio5warn").style.display = "";
 
 	update_site_info();
@@ -150,7 +121,7 @@ var sorter = {
 // end
 
 function update_site_info(){
-	$j.ajax({
+	$.ajax({
 		url: '/apscan.asp',
 		dataType: 'script',
 		error: function(xhr){
@@ -204,7 +175,7 @@ function showSiteTable(){
 
 				//ssid
 				ssid_str=decodeURI(handle_show_str(aplist[i][1]));
-				htmlCode += '<td id="ssid" onclick="oui_query(\'' + aplist[i][6] +'\');overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">' + ssid_str + '</td>';
+				htmlCode += '<td id="ssid" onclick="oui_query_full_vendor(\'' + aplist[i][6].toUpperCase() +'\');overlib_str_tmp=\''+ overlib_str +'\';return overlib(\''+ overlib_str +'\');" onmouseout="nd();" style="cursor:pointer; text-decoration:underline;">' + ssid_str + '</td>';
 
 				// channel
 				htmlCode += '<td width="15%" style="text-align:center;">' + aplist[i][2] + ' (' + aplist[i][7] + ')</td>';
@@ -223,7 +194,7 @@ function showSiteTable(){
 					htmlCode += '<td width="10%" style="text-align:center;">5GHz</td>';
 
 				// signal
-				htmlCode += '<td width="10%" style="text-align:center;"><span title="' + aplist[i][5] + '%"><div style="margin-left:13px;" id="radio_'+ Math.ceil(aplist[i][5]/20) +'"></div></span></td></tr>';
+				htmlCode += '<td width="10%" style="text-align:center;"><span title="' + aplist[i][5] + '%"><div style="margin-left:13px;" id="radio_'+ Math.ceil(aplist[i][5]/25) +'"></div></span></td></tr>';
 
 			}
 			document.form.rescanButton.disabled = false;

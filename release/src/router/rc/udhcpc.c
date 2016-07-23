@@ -2,11 +2,11 @@
  * udhcpc scripts
  *
  * Copyright (C) 2009, Broadcom Corporation. All Rights Reserved.
- * 
+ *
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
- * 
+ *
  * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
  * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
@@ -18,6 +18,8 @@
  * $Id: udhcpc.c,v 1.27 2009/12/02 20:06:40 Exp $
  */
 
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,19 +29,198 @@
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
-#include <proto/ethernet.h>
+#include <net/ethernet.h>
 
 #include <bcmnvram.h>
 #include <shutils.h>
 #include <rc.h>
 
-/* Zeroconf support if DHCP fails */
-#undef DHCP_ZEROCONF
+/* Support for Domain Search List */
+#undef DHCP_RFC3397
+
+/* returns: length of hex value
+ * dest size must be lagre enough to accept n bytes from
+   src in hex representation plus one \0 byte */
+static int
+bin2hex(char *dest, size_t size, const void *src, size_t n)
+{
+	unsigned char *sptr = (unsigned char *) src;
+	unsigned char *send = sptr + n;
+	char *dptr = dest;
+
+	while (sptr < send && size > 2) {
+		n = snprintf(dptr, size, "%02x", *sptr++);
+		dptr += n;
+		size -= n;
+	}
+	return dptr - dest;
+}
+
+#ifdef RTCONFIG_TR069
+/* returns:
+ *  NULL on NULL value or alloc error
+ *  binary representation of hex value on success
+ * if size if specified, returns actual size of parsed value
+ * note: value is alloced and needs to be free() */
+static char *
+hex2bin(const char *value, size_t *size)
+{
+	char buf[3], *src, *tmp;
+	unsigned char *dst, *ptr;
+
+	if (!(src = (char *) value) ||
+	    !(dst = calloc(1, strlen(src)/2 + 1)))
+		return NULL;
+
+	memset(buf, 0, sizeof(buf));
+	for (ptr = dst; src[0] && src[1]; ptr++) {
+		buf[0] = *src++;
+		buf[1] = *src++;
+		*ptr = strtoul(buf, &tmp, 16);
+		if (tmp == buf || *tmp)
+			break;
+	}
+	if (size)
+		*size = ptr - dst;
+
+	return (char *) dst;
+}
+#endif
+
+/* set nvram to value
+ * returns:
+ *  0 if not changed
+ *  1 if new/changed/removed */
+static int
+nvram_set_check(const char *name, const char *value)
+{
+	char *nvalue = nvram_get(name);
+
+	if (nvalue == value || strcmp(nvalue ? : "", value ? : "") == 0)
+		return 0;
+
+	nvram_set(name, value);
+	return 1;
+}
+
+/* set nvram to env value
+ * returns:
+ *  0 if not changed
+ *  1 if new/changed/removed */
+static int
+nvram_set_env(const char *name, const char *env)
+{
+	char *evalue = getenv(env);
+
+	if (evalue)
+		evalue = trim_r(evalue);
+
+	return nvram_set_check(name, evalue);
+}
+
+struct viopt_hdr {
+	unsigned int entnum;
+	unsigned char len;
+	unsigned char data[0];
+} __attribute__ ((__packed__));
+
+struct opt_hdr {
+	unsigned char id;
+	unsigned char len;
+	unsigned char data[0];
+} __attribute__ ((__packed__));
+
+#ifdef RTCONFIG_TR069
+#ifdef RTCONFIG_TR181
+static struct viopt_hdr *
+viopt_get(const void *buf, size_t size, unsigned int entnum)
+{
+	struct viopt_hdr *opt;
+	unsigned char *ptr = (unsigned char *) buf;
+	unsigned char *end = (unsigned char *) buf + size;
+
+	while (ptr + sizeof(*opt) <= end) {
+		opt = (struct viopt_hdr *) ptr;
+		if ((ptr += sizeof(*opt) + opt->len) > end)
+			break;
+		if (opt->entnum == entnum)
+			return opt;
+	}
+
+	return NULL;
+}
+#endif
+
+static struct opt_hdr *
+opt_get(const void *buf, size_t size, unsigned char id)
+{
+	struct opt_hdr *opt;
+	unsigned char *ptr = (unsigned char *) buf;
+	unsigned char *end = (unsigned char *) buf + size;
+
+	while (ptr + sizeof(*opt) <= end) {
+		opt = (struct opt_hdr *) ptr;
+		if (opt->id == 0) {
+			ptr++;
+			continue;
+		} else if (opt->id == 255)
+			break;
+		if ((ptr += sizeof(*opt) + opt->len) > end)
+			break;
+		if (opt->id == id)
+			return opt;
+	}
+
+	return NULL;
+}
+
+static char
+*stropt(const struct opt_hdr *opt, char *buf)
+{
+	*stpncpy(buf, opt->data, opt->len) = '\0';
+	return buf;
+}
+
+#ifdef RTCONFIG_TR181
+static int
+opt_add(const void *buf, size_t size, unsigned char id, void *data, unsigned char len)
+{
+	struct opt_hdr *opt = (struct opt_hdr *) buf;
+
+	if (size >= sizeof(*opt) + len) {
+		opt->id = id;
+		opt->len = len;
+		memcpy(opt->data, data, len);
+		return sizeof(*opt) + len;
+	}
+
+	return 0;
+}
+#endif
+#endif
+
+struct duid {
+	uint16_t type;
+	uint16_t hwtype;
+	unsigned char ea[ETHER_ADDR_LEN];
+} __attribute__ ((__packed__));
+
+/* Generate DUID-LL */
+int get_duid(struct duid *duid)
+{
+	if (!duid || !ether_atoe(get_lan_hwaddr(), duid->ea))
+		return 0;
+
+	duid->type = htons(3);		/* DUID-LL */
+	duid->hwtype = htons(1);	/* Ethernet */
+
+	return ETHER_ADDR_LEN;
+}
 
 static int
 expires(char *wan_ifname, unsigned int in)
 {
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 	int unit;
 	time_t now;
 	FILE *fp;
@@ -63,7 +244,7 @@ expires(char *wan_ifname, unsigned int in)
 	return 0;
 }
 
-/* 
+/*
  * deconfig: This argument is used when udhcpc starts, and when a
  * leases is lost. The script should put the interface in an up, but
  * deconfigured state.
@@ -72,8 +253,9 @@ static int
 deconfig(int zcip)
 {
 	char *wan_ifname = safe_getenv("interface");
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 	int unit = wan_ifunit(wan_ifname);
+	int end_wan_sbstate = WAN_STOPPED_REASON_DHCP_DECONFIG;
 
 	/* Figure out nvram variable name prefix for this i/f */
 	if (wan_prefix(wan_ifname, prefix) < 0)
@@ -88,9 +270,14 @@ deconfig(int zcip)
 	expires(wan_ifname, 0);
 	wan_down(wan_ifname);
 
+#if (defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS))
+	if(nvram_get_int(strcat_r(prefix, "sbstate_t", tmp)) == WAN_STOPPED_REASON_DATALIMIT)
+		end_wan_sbstate = WAN_STOPPED_REASON_DATALIMIT;
+#endif
+
 	/* Skip physical VPN subinterface */
 	if (!(unit < 0))
-		update_wan_state(prefix, WAN_STATE_STOPPED, WAN_STOPPED_REASON_DHCP_DECONFIG);
+		update_wan_state(prefix, WAN_STATE_STOPPED, end_wan_sbstate);
 
 	_dprintf("udhcpc:: %s done\n", __FUNCTION__);
 	return 0;
@@ -107,15 +294,14 @@ bound(void)
 {
 	char *wan_ifname = safe_getenv("interface");
 	char *value, *gateway;
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
-	char wanprefix[] = "wanXXXXXXXXXX_";
-	char route[sizeof("255.255.255.255/255")];
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char wanprefix[sizeof("wanXXXXXXXXXX_")];
 	int unit, ifunit;
 	int changed = 0;
-
-#ifdef DHCP_ZEROCONF
-	killall("zcip", SIGTERM);
+#ifdef RTCONFIG_TR069
+	size_t size = 0;
 #endif
+
 	/* Figure out nvram variable name prefix for this i/f */
 	if ((ifunit = wan_prefix(wan_ifname, wanprefix)) < 0)
 		return -1;
@@ -123,24 +309,46 @@ bound(void)
 		snprintf(prefix, sizeof(prefix), "wan%d_x", ifunit);
 	else	snprintf(prefix, sizeof(prefix), "wan%d_", ifunit);
 
-	if ((value = getenv("ip"))) {
-		changed = nvram_invmatch(strcat_r(prefix, "ipaddr", tmp), trim_r(value));
-		nvram_set(strcat_r(prefix, "ipaddr", tmp), trim_r(value));
-	}
-	if ((value = getenv("subnet")))
-		nvram_set(strcat_r(prefix, "netmask", tmp), trim_r(value));
+	/* Stop zcip to avoid races */
+	stop_zcip(ifunit);
+
+	changed += nvram_set_env(strcat_r(prefix, "ipaddr", tmp), "ip");
+#if defined(RTCONFIG_USB_MODEM) && defined(RTCONFIG_INTERNAL_GOBI)
+	if (get_dualwan_by_unit(ifunit) == WANS_DUALWAN_IF_USB &&
+	    nvram_match("usb_modem_act_type", "gobi")) {
+		changed += nvram_set_check(strcat_r(prefix, "netmask", tmp), "255.255.255.255");
+		if ((gateway = getenv("ip")))
+			nvram_set(strcat_r(prefix, "gateway", tmp), trim_r(gateway));
+	} else
+#endif
+{
+	changed += nvram_set_env(strcat_r(prefix, "netmask", tmp), "subnet");
 	if ((gateway = getenv("router")))
 		nvram_set(strcat_r(prefix, "gateway", tmp), trim_r(gateway));
-	/* ex: android phone, the gateway is the DNS server. */
-	if ((value = getenv("dns") ? : gateway) &&
-	    nvram_get_int(strcat_r(wanprefix, "dnsenable_x", tmp)))
-		nvram_set(strcat_r(prefix, "dns", tmp), trim_r(value));
+}
+
+	if (nvram_get_int(strcat_r(wanprefix, "dnsenable_x", tmp))) {
+		/* ex: android phone, the gateway is the DNS server. */
+		if ((value = getenv("dns") ? : getenv("router")))
+			nvram_set(strcat_r(prefix, "dns", tmp), trim_r(value));
+#ifdef DHCP_RFC3397
+		if ((value = getenv("search")) && *value) {
+			char *domain, *result;
+			if ((domain = getenv("domain")) && *domain &&
+			    find_word(value, trim_r(domain)) == NULL) {
+				result = alloca(strlen(domain) + strlen(value) + 2);
+				sprintf(result, "%s %s", domain, value);
+				value = result;
+			}
+			nvram_set(strcat_r(prefix, "domain", tmp), trim_r(value));
+		} else
+#endif
+		nvram_set_env(strcat_r(prefix, "domain", tmp), "domain");
+	}
 	if ((value = getenv("wins")))
 		nvram_set(strcat_r(prefix, "wins", tmp), trim_r(value));
 	//if ((value = getenv("hostname")))
 	//	sethostname(value, strlen(value) + 1);
-	if ((value = getenv("domain")))
-		nvram_set(strcat_r(prefix, "domain", tmp), trim_r(value));
 	if ((value = getenv("lease"))) {
 		unsigned int lease = atoi(value);
 		nvram_set_int(strcat_r(prefix, "lease", tmp), lease);
@@ -154,22 +362,9 @@ bound(void)
 	/* rfc3442 classless static routes */
 	nvram_set(strcat_r(prefix, "routes_rfc", tmp), getenv("staticroutes"));
 
-	/* rfc3442 could contain gateway
-	 * format: "net/size gateway" */
-	if (!gateway) {
-		foreach(route, nvram_safe_get(strcat_r(prefix, "routes_rfc", tmp)), value) {
-			if (gateway) {
-				nvram_set(strcat_r(prefix, "gateway", tmp), route);
-				break;
-			} else
-			if (strcmp(route, "0.0.0.0/0") == 0)
-				gateway = route;
-		}
-	}
-
 #ifdef RTCONFIG_IPV6
 	if ((value = getenv("ip6rd")) &&
-	    (get_ipv6_service() == IPV6_6RD && nvram_match("ipv6_6rd_dhcp", "1"))) {
+	    (get_ipv6_service() == IPV6_6RD && nvram_match(ipv6_nvname("ipv6_6rd_dhcp"), "1"))) {
 		char *ptr, *values[4];
 		int i;
 
@@ -177,23 +372,63 @@ bound(void)
 		for (i = 0; value && i < 4; i++)
 			values[i] = strsep(&value, " ");
 		if (i == 4) {
-			nvram_set(strcat_r(prefix, "6rd_ip4size", tmp), values[0]);
-			nvram_set(strcat_r(prefix, "6rd_prefixlen", tmp), values[1]);
-			nvram_set(strcat_r(prefix, "6rd_prefix", tmp), values[2]);
-			nvram_set(strcat_r(prefix, "6rd_router", tmp), values[3]);
+			nvram_set(strcat_r(wanprefix, "6rd_ip4size", tmp), values[0]);
+			nvram_set(strcat_r(wanprefix, "6rd_prefixlen", tmp), values[1]);
+			nvram_set(strcat_r(wanprefix, "6rd_prefix", tmp), values[2]);
+			nvram_set(strcat_r(wanprefix, "6rd_router", tmp), values[3]);
 		}
 		free(ptr);
 	}
 #endif
 
+#ifdef RTCONFIG_TR069
+	if ((value = getenv("opt43")) && nvram_get_int("tr_discovery") &&
+	    (value = hex2bin(value, &size))) {
+		struct opt_hdr *opt;
+		char buf[256], *url = NULL;
+		if ((opt = opt_get(value, size, 1)) &&
+		    strstr(stropt(opt, buf), "://") > buf)
+			url = buf;
+		else if (strstr(value, "://") > value)
+			url = trim_r(value);
+		if (url && strncmp(url, "http", sizeof("http") - 1) == 0) {
+			//nvram_set(strcat_r(wanprefix, "tr_acs_url", tmp), url);
+			nvram_set("tr_acs_url", url);
+			nvram_set_int("tr_enable", 1);
+		}
+		if ((opt = opt_get(value, size, 2))) {
+			//nvram_set(strcat_r(wanprefix, "tr_pvgcode", tmp), stropt(opt, buf));
+			nvram_set("pvgcode", stropt(opt, buf));
+		}
+		free(value);
+	}
+#ifdef RTCONFIG_TR181
+	nvram_unset("vivso");
+	if ((value = hex2bin(getenv("opt125"), &size))) {
+		struct viopt_hdr *viopt;
+		struct opt_hdr *oui, *serial, *class;
+		if ((viopt = viopt_get(value, size, htonl(3561))) &&
+		    (oui = opt_get(viopt->data, viopt->len, 4)) &&
+		    (serial = opt_get(viopt->data, viopt->len, 5))) {
+			char vivso[6 + 64 + 64 + 3];
+			char *ptr = vivso;
+			char *end = ptr + sizeof(vivso);
+			ptr += snprintf(ptr, end - ptr, "%s,", stropt(oui, tmp));
+			ptr += snprintf(ptr, end - ptr, "%s,", stropt(serial, tmp));
+			if ((class = opt_get(viopt->data, viopt->len, 6)))
+				ptr += snprintf(ptr, end - ptr, "%s", stropt(class, tmp));
+			nvram_set("vivso", vivso);
+		}
+		free(value);
+	}
+#endif
+#endif
+
 	// check if the ipaddr is safe to apply
 	// only handle one lan instance so far
 	// update_wan_state(prefix, WAN_STATE_STOPPED, WAN_STOPPED_REASON_INVALID_IPADDR)
-/* TODO: remake it as macro */
-	if ((inet_network(nvram_safe_get(strcat_r(prefix, "ipaddr", tmp))) &
-	     inet_network(nvram_safe_get(strcat_r(prefix, "netmask", tmp)))) ==
-	    (inet_network(nvram_safe_get("lan_ipaddr")) &
-	     inet_network(nvram_safe_get("lan_netmask")))) {
+	if (inet_equal(nvram_safe_get(strcat_r(prefix, "ipaddr", tmp)), nvram_safe_get(strcat_r(prefix, "netmask", tmp)),
+		       nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"))) {
 		update_wan_state(prefix, WAN_STATE_STOPPED, WAN_STOPPED_REASON_INVALID_IPADDR);
 		return 0;
 	}
@@ -216,10 +451,6 @@ bound(void)
 		nvram_get_int(strcat_r(prefix, "lease", tmp))
 		);
 
-#ifdef RTCONFIG_VPNC
-	start_vpnc();
-#endif
-
 	_dprintf("udhcpc:: %s done\n", __FUNCTION__);
 	return 0;
 }
@@ -236,14 +467,11 @@ renew(void)
 {
 	char *wan_ifname = safe_getenv("interface");
 	char *value, *gateway;
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
-	char wanprefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char wanprefix[sizeof("wanXXXXXXXXXX_")];
 	int unit, ifunit;
 	int changed = 0;
 
-#ifdef DHCP_ZEROCONF
-	killall("zcip", SIGTERM);
-#endif
 	/* Figure out nvram variable name prefix for this i/f */
 	if ((ifunit = wan_prefix(wan_ifname, wanprefix)) < 0)
 		return -1;
@@ -251,25 +479,53 @@ renew(void)
 		snprintf(prefix, sizeof(prefix), "wan%d_x", ifunit);
 	else	snprintf(prefix, sizeof(prefix), "wan%d_", ifunit);
 
+	if ((value = getenv("ip")) == NULL ||
+	    !nvram_match(strcat_r(prefix, "ipaddr", tmp), trim_r(value)))
+		return bound();
+#if defined(RTCONFIG_USB_MODEM) && defined(RTCONFIG_INTERNAL_GOBI)
+	if (get_dualwan_by_unit(ifunit) == WANS_DUALWAN_IF_USB &&
+	    nvram_match("usb_modem_act_type", "gobi")) {
+		if (!nvram_match(strcat_r(prefix, "netmask", tmp), "255.255.255.255"))
+			return bound();
+		if ((gateway = getenv("ip")) == NULL ||
+		    !nvram_match(strcat_r(prefix, "gateway", tmp), trim_r(gateway)))
+			return bound();
+	} else
+#endif
+{
 	if ((value = getenv("subnet")) == NULL ||
-	    nvram_invmatch(strcat_r(prefix, "netmask", tmp), trim_r(value)))
+	    !nvram_match(strcat_r(prefix, "netmask", tmp), trim_r(value)))
 		return bound();
 	if ((gateway = getenv("router")) == NULL ||
-	    nvram_invmatch(strcat_r(prefix, "gateway", tmp), trim_r(gateway)))
+	    !nvram_match(strcat_r(prefix, "gateway", tmp), trim_r(gateway)))
 		return bound();
+}
 
-	/* ex: android phone, the gateway is the DNS server. */
-	if ((value = getenv("dns") ? : gateway) &&
-	    nvram_get_int(strcat_r(wanprefix, "dnsenable_x", tmp))) {
-		changed = nvram_invmatch(strcat_r(prefix, "dns", tmp), trim_r(value));
-		nvram_set(strcat_r(prefix, "dns", tmp), trim_r(value));
+	if (nvram_get_int(strcat_r(wanprefix, "dnsenable_x", tmp))) {
+		/* ex: android phone, the gateway is the DNS server. */
+		if ((value = getenv("dns") ? : getenv("router"))) {
+			changed += !nvram_match(strcat_r(prefix, "dns", tmp), trim_r(value));
+			nvram_set(strcat_r(prefix, "dns", tmp), trim_r(value));
+		}
+#ifdef DHCP_RFC3397
+		if ((value = getenv("search")) && *value) {
+			char *domain, *result;
+			if ((domain = getenv("domain")) && *domain &&
+			    find_word(value, trim_r(domain)) == NULL) {
+				result = alloca(strlen(domain) + strlen(value) + 2);
+				sprintf(result, "%s %s", domain, value);
+				value = result;
+			}
+			changed += !nvram_match(strcat_r(prefix, "domain", tmp), trim_r(value));
+			nvram_set(strcat_r(prefix, "domain", tmp), trim_r(value));
+		} else
+#endif
+		changed += nvram_set_env(strcat_r(prefix, "domain", tmp), "domain");
 	}
 	if ((value = getenv("wins")))
 		nvram_set(strcat_r(prefix, "wins", tmp), trim_r(value));
 	//if ((value = getenv("hostname")))
 	//	sethostname(value, strlen(value) + 1);
-	if ((value = getenv("domain")))
-		nvram_set(strcat_r(prefix, "domain", tmp), trim_r(value));
 	if ((value = getenv("lease"))) {
 		unsigned int lease = atoi(value);
 		nvram_set_int(strcat_r(prefix, "lease", tmp), lease);
@@ -289,35 +545,33 @@ renew(void)
 	return 0;
 }
 
-#ifdef DHCP_ZEROCONF
 static int
 leasefail(void)
 {
 	char *wan_ifname = safe_getenv("interface");
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
-	char wanprefix[] = "wanXXXXXXXXXX_";
-	int unit, ifunit;
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char pid[sizeof("/var/run/zcipXXXXXXXXXX.pid")];
+	int unit;
 
 	/* Figure out nvram variable name prefix for this i/f */
-	if ((ifunit = wan_prefix(wan_ifname, wanprefix)) < 0)
+	if ((unit = wan_prefix(wan_ifname, prefix)) < 0)
 		return -1;
-	if ((unit = wan_ifunit(wan_ifname)) < 0)
-		snprintf(prefix, sizeof(prefix), "wan%d_x", ifunit);
-	else	snprintf(prefix, sizeof(prefix), "wan%d_", ifunit);
 
-	if ((inet_network(nvram_safe_get(strcat_r(prefix, "ipaddr", tmp))) &
-	     inet_network(nvram_safe_get(strcat_r(prefix, "netmask", tmp)))) ==
-	     inet_network("169.254.0.0"))
+	/* Start zcip for pppoe only */
+	if (!nvram_match(strcat_r(prefix, "proto", tmp), "pppoe"))
 		return 0;
 
-	return start_zcip(wan_ifname);
+	snprintf(pid, sizeof(pid), "/var/run/zcip%d.pid", unit);
+	if (kill_pidfile_s(pid, 0) == 0)
+		return 0;
+
+	return start_zcip(wan_ifname, unit, NULL);
 }
-#endif
 
 int
 udhcpc_wan(int argc, char **argv)
 {
-	_dprintf("%s:: %s\n", __FUNCTION__, argv[1]);
+	_dprintf("%s:: %s\n", __FUNCTION__, argv[1] ? : "");
 
 	run_custom_script("dhcpc-event", argv[1]);
 
@@ -329,10 +583,8 @@ udhcpc_wan(int argc, char **argv)
 		return bound();
 	else if (strstr(argv[1], "renew"))
 		return renew();
-#ifdef DHCP_ZEROCONF
 	else if (strstr(argv[1], "leasefail"))
 		return leasefail();
-#endif
 /*	else if (strstr(argv[1], "nak")) */
 
 	return 0;
@@ -341,11 +593,20 @@ udhcpc_wan(int argc, char **argv)
 int
 start_udhcpc(char *wan_ifname, int unit, pid_t *ppid)
 {
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 	char pid[sizeof("/var/run/udhcpcXXXXXXXXXX.pid")];
-	char clientid[sizeof("61:") + (32+32+1)*2];
+	char clientid[sizeof("61:") + (128*2) + 1];
+#ifdef RTCONFIG_TR069
+	char vendorid[32+32+sizeof(" dslforum.org")];
+#ifdef RTCONFIG_TR181
+	unsigned char optbuf[sizeof(struct viopt_hdr) + 128];
+	unsigned char hwaddr[6];
+	char vivopts[sizeof("125:") + sizeof(optbuf)*2];
+#endif
+#endif
+	struct duid duid;
 	char *value;
-	char *dhcp_argv[] = { "udhcpc",
+	char *dhcp_argv[] = { "/sbin/udhcpc",
 		"-i", wan_ifname,
 		"-p", (snprintf(pid, sizeof(pid), "/var/run/udhcpc%d.pid", unit), pid),
 		"-s", "/tmp/udhcpc",
@@ -357,28 +618,41 @@ start_udhcpc(char *wan_ifname, int unit, pid_t *ppid)
 		NULL,		/* -Oroutes */
 		NULL,		/* -Ostaticroutes */
 		NULL,		/* -Omsstaticroutes */
-#ifdef __CONFIG_IPV6__
+#ifdef RTCONFIG_IPV6
 		NULL,		/* -Oip6rd rfc */
 		NULL,		/* -Oip6rd comcast */
 #endif
-#ifdef RTCONFIG_DSL
 		NULL, NULL,	/* -x 61:wan_clientid */
+		NULL, NULL,	/* -V wan_vendorid */
+#ifdef RTCONFIG_TR069
+		NULL,		/* -O43 */
+#ifdef RTCONFIG_TR181
+		NULL, NULL,	/* -x 125:vivopts */
+#endif
 #endif
 		NULL, NULL,	/* -x 61:wan_clientid (non-DSL) */
 		NULL };
 	int index = 7;		/* first NULL */
-	int dr_enable;
+	int len, dr_enable;
 
 	/* Use unit */
 	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
 
-	if (nvram_get_int("dhcpc_mode") == 0)
-	{
+	/* Stop zcip to avoid races */
+	stop_zcip(unit);
+
+	/* Skip dhcp and start zcip for pppoe, if desired */
+	if (nvram_match(strcat_r(prefix, "proto", tmp), "pppoe") &&
+	    nvram_match(strcat_r(prefix, "vpndhcp", tmp), "0"))
+		return start_zcip(wan_ifname, unit, ppid);
+
+	if (nvram_get_int("dhcpc_mode") == 0) {
 		/* 2 discover packets max (default 3 discover packets) */
 		dhcp_argv[index++] = "-t2";
 		/* 5 seconds between packets (default 3 seconds) */
 		dhcp_argv[index++] = "-T5";
-		/* Wait 120 seconds before trying again (default 20 seconds) */
+		/* Wait 160 seconds before trying again (default 20 seconds) */
+		/* set to 160 to accomodate new timings enforced by Charter cable */
 		dhcp_argv[index++] = "-A160";
 	}
 
@@ -402,34 +676,103 @@ start_udhcpc(char *wan_ifname, int unit, pid_t *ppid)
 	}
 
 #ifdef RTCONFIG_IPV6
-	if (get_ipv6_service() == IPV6_6RD && nvram_match("ipv6_6rd_dhcp", "1")) {
+	if (get_ipv6_service() == IPV6_6RD && nvram_match(ipv6_nvname("ipv6_6rd_dhcp"), "1")) {
 		dhcp_argv[index++] = "-O212";		/* ip6rd rfc */
 		dhcp_argv[index++] = "-O150";		/* ip6rd comcast */
 	}
 #endif
 
-#ifdef RTCONFIG_DSL
+	/* Client ID */
 	value = nvram_safe_get(strcat_r(prefix, "clientid", tmp));
-	if (*value) {
-		char *ptr = clientid;
-		ptr += sprintf(ptr, "61:");
-		while (*value && (ptr - clientid) < sizeof(clientid) - 2)
-			ptr += sprintf(ptr, "%02x", *value++);
+//	value = nvram_safe_get(strcat_r(prefix,"dhcpc_options",tmp));
+	if (nvram_get_int(strcat_r(prefix, "clientid_type", tmp))) {
+		if (get_duid(&duid)) {
+			/* RFC4361 implementation, use WAN number as IAID.
+			 * This also fits odhcp6c behavior for IA_NA for the WAN0 */
+			unsigned long iaid = htonl(unit + 1);
+			len = snprintf(clientid, sizeof(clientid), "61:ff");
+			len += bin2hex(clientid + len, sizeof(clientid) - len, &iaid, sizeof(iaid));
+			bin2hex(clientid + len, sizeof(clientid) - len, &duid, sizeof(duid));
+			dhcp_argv[index++] = "-x";
+			dhcp_argv[index++] = clientid;
+		}
+	} else if (*value) {
+		len = snprintf(clientid, sizeof(clientid), "61:");
+		bin2hex(clientid + len, sizeof(clientid) - len, value, strlen(value));
 		dhcp_argv[index++] = "-x";
 		dhcp_argv[index++] = clientid;
+	}
+
+	/* Vendor ID */
+	value = nvram_safe_get(strcat_r(prefix, "vendorid", tmp));
+#ifdef RTCONFIG_TR069
+	if (nvram_get_int("tr_discovery")) {
+		/* Add dslforum.org to VCI and request VSI */
+		value = stpncpy(vendorid, *value ? value : "udhcp",
+				sizeof(vendorid) - sizeof(" dslforum.org"));
+		snprintf(value, sizeof(vendorid) - (value - vendorid), " %s", "dslforum.org");
+		value = vendorid;
+		dhcp_argv[index++] = "-O43";
 	}
 #endif
-
-	value = nvram_safe_get(strcat_r(prefix,"dhcpc_options",tmp));
 	if (*value) {
-		char *ptr = clientid;
-		ptr += sprintf(ptr, "61:");
-		while (*value && (ptr - clientid) < sizeof(clientid) - 2)
-			ptr += sprintf(ptr, "%02x", *value++);
-		dhcp_argv[index++] = "-x";
-		dhcp_argv[index++] = clientid;
+		dhcp_argv[index++] = "-V";
+		dhcp_argv[index++] = value;
 	}
+
+#ifdef RTCONFIG_TR069
+#ifdef RTCONFIG_TR181
+	if (ether_atoe(get_lan_hwaddr(), hwaddr)) {
+		struct viopt_hdr *viopt = (struct viopt_hdr *) optbuf;
+		unsigned char *ptr = viopt->data;
+		unsigned char *end = optbuf + sizeof(optbuf);
+
+		/* OUI */
+		len = snprintf(tmp, sizeof(tmp), "%02X%02X%02X", hwaddr[0], hwaddr[1], hwaddr[2]);
+		ptr += opt_add(ptr, end - ptr, 1, tmp, len);
+		/* Serial */
+		len = snprintf(tmp, sizeof(tmp), "%02X%02X%02X%02X%02X%02X",
+			       hwaddr[0], hwaddr[1], hwaddr[2], hwaddr[3], hwaddr[4], hwaddr[5]);
+		ptr += opt_add(ptr, end - ptr, 2, tmp, len);
+		/* Class */
+		len = snprintf(tmp, sizeof(tmp), "%s", nvram_safe_get("productid"));
+		ptr += opt_add(ptr, end - ptr, 3, tmp, len);
+
+		viopt->entnum = htonl(3561);
+		viopt->len = ptr - viopt->data;
+
+		len = snprintf(vivopts, sizeof(vivopts), "125:");
+		bin2hex(vivopts + len, sizeof(vivopts) - len, viopt, sizeof(*viopt) + viopt->len);
+
+		dhcp_argv[index++] = "-x";
+		dhcp_argv[index++] = vivopts;
+	}
+#endif
+#endif
+
 	return _eval(dhcp_argv, NULL, 0, ppid);
+}
+
+void
+stop_udhcpc(int unit)
+{
+	char pid[sizeof("/var/run/udhcpcXXXXXXXXXX.pid")];
+
+	/* Stop zcip before udhcpc to avoid races */
+	stop_zcip(unit);
+
+	/* Stop all instances */
+	if (unit < 0) {
+		killall_tk("udhcpc");
+		return;
+	}
+
+	/* Stop unit instance only */
+	snprintf(pid, sizeof(pid), "/var/run/udhcpc%d.pid", unit);
+	if (kill_pidfile_s(pid, SIGUSR2) == 0) {
+		usleep(10000);
+		kill_pidfile_s(pid, SIGTERM);
+	}
 }
 
 /*
@@ -442,8 +785,8 @@ config(void)
 {
 	char *wan_ifname = safe_getenv("interface");
 	char *value;
-	char tmp[100], prefix[] = "wanXXXXXXXXXX_";
-	char wanprefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
+	char wanprefix[sizeof("wanXXXXXXXXXX_")];
 	int unit, ifunit;
 	int changed = 0;
 
@@ -455,18 +798,28 @@ config(void)
 	else	snprintf(prefix, sizeof(prefix), "wan%d_", ifunit);
 
 	if ((value = getenv("ip"))) {
-		changed = nvram_invmatch(strcat_r(prefix, "ipaddr", tmp), trim_r(value));
+		changed = !nvram_match(strcat_r(prefix, "ipaddr", tmp), trim_r(value));
 		nvram_set(strcat_r(prefix, "ipaddr", tmp), trim_r(value));
 	}
 	nvram_set(strcat_r(prefix, "netmask", tmp), "255.255.0.0");
 	nvram_set(strcat_r(prefix, "gateway", tmp), "");
 	if (nvram_get_int(strcat_r(wanprefix, "dnsenable_x", tmp)))
 		nvram_set(strcat_r(prefix, "dns", tmp), "");
-	//nvram_set(strcat_r(prefix, "wins", tmp), "");
-	//nvram_set(strcat_r(prefix, "domain", tmp), "");
-#ifdef DHCP_ZEROCONF
+	nvram_unset(strcat_r(prefix, "wins", tmp));
+	nvram_unset(strcat_r(prefix, "domain", tmp));
 	nvram_unset(strcat_r(prefix, "lease", tmp));
 	nvram_unset(strcat_r(prefix, "expires", tmp));
+
+	nvram_unset(strcat_r(prefix, "routes", tmp));
+	nvram_unset(strcat_r(prefix, "routes_ms", tmp));
+	nvram_unset(strcat_r(prefix, "routes_rfc", tmp));
+
+#ifdef RTCONFIG_TR069
+//	nvram_unset(strcat_r(prefix, "tr_acs_url", tmp));
+//	nvram_unset(strcat_r(prefix, "tr_pvgcode", tmp));
+#ifdef RTCONFIG_TR181
+	nvram_unset("vivso");
+#endif
 #endif
 	/* Clean nat conntrack for this interface,
 	 * but skip physical VPN subinterface for PPTP/L2TP */
@@ -490,7 +843,7 @@ config(void)
 int
 zcip_wan(int argc, char **argv)
 {
-	_dprintf("%s:: %s\n", __FUNCTION__, argv[1]);
+	_dprintf("%s:: %s\n", __FUNCTION__, argv[1] ? : "");
 
         run_custom_script("zcip-event", argv[1]);
 
@@ -506,11 +859,32 @@ zcip_wan(int argc, char **argv)
 }
 
 int
-start_zcip(char *wan_ifname)
+start_zcip(char *wan_ifname, int unit, pid_t *ppid)
 {
-	char *zcip_argv[] = { "zcip", "-q", wan_ifname, "/tmp/zcip", NULL };
+	char pid[sizeof("/var/run/zcipXXXXXXXXXX.pid")];
+	char *zcip_argv[] = { "/sbin/zcip",
+		"-p", (snprintf(pid, sizeof(pid), "/var/run/zcip%d.pid", unit), pid),
+		wan_ifname,
+		"/tmp/zcip",
+		NULL };
 
-	return _eval(zcip_argv, NULL, 0, NULL);
+	return _eval(zcip_argv, NULL, 0, ppid);
+}
+
+void
+stop_zcip(int unit)
+{
+	char pid[sizeof("/var/run/zcipXXXXXXXXXX.pid")];
+
+	/* Stop all instances */
+	if (unit < 0) {
+		killall_tk("zcip");
+		return;
+	}
+
+	/* Stop unit instance only */
+	snprintf(pid, sizeof(pid), "/var/run/zcip%d.pid", unit);
+	kill_pidfile_s(pid, SIGTERM);
 }
 
 static int
@@ -531,7 +905,7 @@ expires_lan(char *lan_ifname, unsigned int in)
 	return 0;
 }
 
-/* 
+/*
  * deconfig: This argument is used when udhcpc starts, and when a
  * leases is lost. The script should put the interface in an up, but
  * deconfigured state.
@@ -543,10 +917,15 @@ deconfig_lan(void)
 
 	//ifconfig(lan_ifname, IFUP, "0.0.0.0", NULL);
 _dprintf("%s: IFUP.\n", __FUNCTION__);
-	if(nvram_match("lan_proto", "static"))
-		ifconfig(lan_ifname, IFUP, nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"));
+#ifdef RTCONFIG_DHCP_OVERRIDE
+	if (nvram_get_int("sw_mode") == SW_MODE_AP)
+		;
 	else
-		ifconfig(lan_ifname, IFUP, nvram_default_get("lan_ipaddr"), nvram_default_get("lan_netmask"));
+#endif
+	if(nvram_match("lan_proto", "static"))
+		ifconfig(lan_ifname, IFUP | IFF_ALLMULTI, nvram_safe_get("lan_ipaddr"), nvram_safe_get("lan_netmask"));
+	else
+		ifconfig(lan_ifname, IFUP | IFF_ALLMULTI, nvram_default_get("lan_ipaddr"), nvram_default_get("lan_netmask"));
 
 	expires_lan(lan_ifname, 0);
 
@@ -567,9 +946,19 @@ bound_lan(void)
 {
 	char *lan_ifname = safe_getenv("interface");
 	char *value;
+#if defined(RTCONFIG_TR069) && defined(RTCONFIG_TR181)
+	char tmp[100];
+	int size;
+#endif
 
-	if ((value = getenv("ip")))
+	if ((value = getenv("ip"))) {
+		/* restart httpd after lan_ipaddr udpating through lan dhcp client */
+		if (!nvram_match("lan_ipaddr", trim_r(value))) {
+			stop_httpd();
+			start_httpd();
+		}
 		nvram_set("lan_ipaddr", trim_r(value));
+	}
 	if ((value = getenv("subnet")))
 		nvram_set("lan_netmask", trim_r(value));
 	if ((value = getenv("router")))
@@ -581,6 +970,27 @@ bound_lan(void)
 	if (nvram_get_int("lan_dnsenable_x") && (value = getenv("dns")))
 		nvram_set("lan_dns", trim_r(value));
 
+#if defined(RTCONFIG_TR069) && defined(RTCONFIG_TR181)
+	nvram_unset("vivso");
+	if ((value = hex2bin(getenv("opt125"), &size))) {
+		struct viopt_hdr *viopt;
+		struct opt_hdr *oui, *serial, *class;
+		if ((viopt = viopt_get(value, size, htonl(3561))) &&
+		    (oui = opt_get(viopt->data, viopt->len, 4)) &&
+		    (serial = opt_get(viopt->data, viopt->len, 5))) {
+			char vivso[6 + 64 + 64 + 3];
+			char *ptr = vivso;
+			char *end = ptr + sizeof(vivso);
+			ptr += snprintf(ptr, end - ptr, "%s,", stropt(oui, tmp));
+			ptr += snprintf(ptr, end - ptr, "%s,", stropt(serial, tmp));
+			if ((class = opt_get(viopt->data, viopt->len, 6)))
+				ptr += snprintf(ptr, end - ptr, "%s", stropt(class, tmp));
+			nvram_set("vivso", vivso);
+		}
+		free(value);
+	}
+#endif
+
 _dprintf("%s: IFUP.\n", __FUNCTION__);
 #ifdef RTCONFIG_WIRELESSREPEATER
 	if(nvram_get_int("sw_mode") == SW_MODE_REPEATER && nvram_get_int("wlc_mode") == 0){
@@ -590,7 +1000,14 @@ _dprintf("%s: IFUP.\n", __FUNCTION__);
 	}
 #endif
 
-	ifconfig(lan_ifname, IFUP, nvram_safe_get("lan_ipaddr"),
+#ifdef RTCONFIG_DHCP_OVERRIDE
+	if (nvram_get_int("sw_mode") == SW_MODE_AP && nvram_match("dnsqmode", "2")) {
+		nvram_set("dnsqmode", "1");
+		restart_dnsmasq(1);
+	}
+#endif
+
+	ifconfig(lan_ifname, IFUP | IFF_ALLMULTI, nvram_safe_get("lan_ipaddr"),
 		nvram_safe_get("lan_netmask"));
 
 	lan_up(lan_ifname);
@@ -619,6 +1036,8 @@ renew_lan(void)
 int
 udhcpc_lan(int argc, char **argv)
 {
+	_dprintf("%s:: %s\n", __FUNCTION__, argv[1] ? : "");
+
         run_custom_script("dhcpc-event", argv[1]);
 
 	if (!argv[1])
@@ -629,157 +1048,283 @@ udhcpc_lan(int argc, char **argv)
 		return bound_lan();
 	else if (strstr(argv[1], "renew"))
 		return renew_lan();
-	else
-		return EINVAL;
+/*	else if (strstr(argv[1], "leasefail")) */
+/*	else if (strstr(argv[1], "nak")) */
+
+	return EINVAL;
 }
 
 // -----------------------------------------------------------------------------
 
 #ifdef RTCONFIG_IPV6
-// copy env to nvram
-// returns 1 if new/changed, 0 if not changed/no env
-static int env2nv(char *env, char *nv)
+static int
+deconfig6(char *wan_ifname)
 {
-	char *value;
-	if ((value = getenv(env)) != NULL) {
-		if (!nvram_match(nv, trim_r(value))) {
-			nvram_set(nv, trim_r(value));
-			return 1;
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+
+	if (nvram_invmatch(ipv6_nvname("ipv6_wan_addr"), "")) {
+		eval("ip", "-6", "addr", "del", nvram_safe_get(ipv6_nvname("ipv6_wan_addr")), "dev", wan_ifname);
+		nvram_set(ipv6_nvname("ipv6_wan_addr"), "");
+	}
+
+	if (get_ipv6_service() == IPV6_NATIVE_DHCP &&
+	    nvram_get_int(ipv6_nvname("ipv6_dhcp_pd"))) {
+		if (nvram_invmatch(ipv6_nvname("ipv6_prefix"), "") ||
+		    nvram_get_int(ipv6_nvname("ipv6_prefix_length")) != 0) {
+			eval("ip", "-6", "addr", "flush", "scope", "global", "dev", lan_ifname);
+			nvram_set(ipv6_nvname("ipv6_rtr_addr"), "");
+			nvram_set(ipv6_nvname("ipv6_prefix"), "");
+			nvram_set(ipv6_nvname("ipv6_prefix_length"), "");
 		}
 	}
+
+	if (nvram_invmatch(ipv6_nvname("ipv6_get_dns"), "") ||
+	    nvram_invmatch(ipv6_nvname("ipv6_get_domain"), "")) {
+		nvram_set(ipv6_nvname("ipv6_get_dns"), "");
+		nvram_set(ipv6_nvname("ipv6_get_domain"), "");
+		if (nvram_get_int(ipv6_nvname("ipv6_dnsenable")))
+			update_resolvconf();
+	}
+
 	return 0;
 }
 
-int dhcp6c_state_main(int argc, char **argv)
+static int
+bound6(char *wan_ifname, int bound)
 {
-	char *p;
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+	struct in6_addr range;
+	char addr[INET6_ADDRSTRLEN + 1], *value;
+	char tmp[100], *next;
+	int wanaddr_changed, prefix_changed, dns_changed;
+	int size, start, end, intval;
 
-	TRACE_PT("begin\n");
+	value = safe_getenv("RA_HOPLIMIT");
+	if (*value && (intval = atoi(value)))
+		ipv6_sysconf(wan_ifname, "hop_limit", intval);
 
-	if (!wait_action_idle(10)) return 1;
+	value = safe_getenv("RA_MTU");
+	if (*value && (intval = atoi(value)) && intval < ifconfig_mtu(wan_ifname, 0)) {
+		ipv6_sysconf(wan_ifname, "mtu", intval);
+		ipv6_sysconf(lan_ifname, "mtu", intval);
+	} else if ((intval = ipv6_getconf(wan_ifname, "mtu")))
+		ipv6_sysconf(lan_ifname, "mtu", intval);
 
-	if (nvram_get_int("ipv6_dhcp_pd"))
-	nvram_set("ipv6_rtr_addr", getifaddr(nvram_safe_get("lan_ifname"), AF_INET6, 0));
-
-	if (nvram_get_int("ipv6_dhcp_pd")) {
-		p = (char *)ipv6_prefix(NULL);
-		if (*p) nvram_set("ipv6_prefix", p);
+	value = safe_getenv("ADDRESSES");
+	if (*value) {
+		foreach(tmp, value, next) {
+			char *ptr = tmp;
+			value = strsep(&ptr,",");
+			break; /* only first address at the moment */
+		}
 	}
+	wanaddr_changed = !nvram_match(ipv6_nvname("ipv6_wan_addr"), value);
+	if (wanaddr_changed) {
+		if (nvram_invmatch(ipv6_nvname("ipv6_wan_addr"), ""))
+			eval("ip", "-6", "addr", "del", nvram_safe_get(ipv6_nvname("ipv6_wan_addr")), "dev", wan_ifname);
+		nvram_set(ipv6_nvname("ipv6_wan_addr"), value);
+	}
+	if (*value)
+		eval("ip", "-6", "addr", "add", value, "dev", wan_ifname);
 
-	if (env2nv("new_domain_name_servers", "ipv6_get_dns")) {
-		TRACE_PT("ipv6_get_dns=%s\n", nvram_safe_get("ipv6_get_dns"));
+	prefix_changed = 0;
+	if (get_ipv6_service() == IPV6_NATIVE_DHCP &&
+	    nvram_get_int(ipv6_nvname("ipv6_dhcp_pd"))) {
+		value = safe_getenv("PREFIXES");
+		if (*value) {
+			foreach(tmp, value, next) {
+				char *ptr = tmp;
+				value = strsep(&ptr,",");
+				break; /* only first prefix at the moment */
+			}
+		}
+		if (sscanf(value, "%[^/]/%d", addr, &size) != 2)
+			goto skip;
+
+		prefix_changed = (!nvram_match(ipv6_nvname("ipv6_prefix"), addr) ||
+				  nvram_get_int(ipv6_nvname("ipv6_prefix_length")) != size);
+		if (prefix_changed) {
+			eval("ip", "-6", "addr", "flush", "scope", "global", "dev", lan_ifname);
+			nvram_set(ipv6_nvname("ipv6_rtr_addr"), "");
+			nvram_set(ipv6_nvname("ipv6_prefix"), addr);
+			nvram_set_int(ipv6_nvname("ipv6_prefix_length"), size);
+		}
+		if (*addr)
+			add_ip6_lanaddr();
+
+		if (prefix_changed && nvram_get_int(ipv6_nvname("ipv6_autoconf_type"))) {
+			/* TODO: rework WEB UI to specify ranges without prefix
+			 * TODO: add size checking, now range takes all of 16 bit */
+			start = (inet_pton(AF_INET6, nvram_safe_get(ipv6_nvname("ipv6_dhcp_start")), &range) > 0) ?
+			    ntohs(range.s6_addr16[7]) : 0x1000;
+			end = (inet_pton(AF_INET6, nvram_safe_get(ipv6_nvname("ipv6_dhcp_end")), &range) > 0) ?
+			    ntohs(range.s6_addr16[7]) : 0x2000;
+
+			value = nvram_safe_get(ipv6_nvname("ipv6_prefix"));
+			inet_pton(AF_INET6, *value ? value : "::", &range);
+
+			range.s6_addr16[7] = (start < end) ? htons(start) : htons(end);
+			inet_ntop(AF_INET6, &range, addr, sizeof(addr));
+			nvram_set(ipv6_nvname("ipv6_dhcp_start"), addr);
+			range.s6_addr16[7] = (start < end) ? htons(end) : htons(start);
+			inet_ntop(AF_INET6, &range, addr, sizeof(addr));
+			nvram_set(ipv6_nvname("ipv6_dhcp_end"), addr);
+		}
+	}
+skip:
+
+	if (*safe_getenv("RDNSS")) {
+		dns_changed = nvram_set_env(ipv6_nvname("ipv6_get_dns"), "RDNSS");
+		dns_changed += nvram_set_env(ipv6_nvname("ipv6_get_domain"), "DOMAINS");
+	} else {
+		dns_changed = nvram_set_env(ipv6_nvname("ipv6_get_dns"), "RA_DNS");
+		dns_changed += nvram_set_env(ipv6_nvname("ipv6_get_domain"), "RA_DOMAINS");
+	}
+	if (dns_changed && nvram_get_int(ipv6_nvname("ipv6_dnsenable")))
 		update_resolvconf();
+
+	if (bound == 1 || wanaddr_changed || prefix_changed) {
+		char *address = nvram_safe_get(ipv6_nvname("ipv6_wan_addr"));
+		char *prefix = nvram_safe_get(ipv6_nvname("ipv6_prefix"));
+
+		if (*prefix) {
+			snprintf(addr, sizeof(addr), "%s/%d", prefix, nvram_get_int(ipv6_nvname("ipv6_prefix_length")));
+			prefix = addr;
+		}
+		logmessage("dhcp6 client", "%s %s%s%s%s%s",
+			bound ? "bound" : "informed",
+			*address ? "address " : "", address, *address ? ", " : "",
+			*prefix ? "prefix " : "", prefix);
+#ifdef RTCONFIG_IGD2
+		notify_rc("restart_upnp");
+#endif
 	}
 
-	if (env2nv("new_domain_name", "ipv6_get_domain"))
-		TRACE_PT("ipv6_get_domain=%s\n", nvram_safe_get("ipv6_get_domain"));
+	return 0;
+}
 
-	// (re)start radvd and httpd
-	start_radvd();
-	start_httpd();
+static int
+ra_updated6(char *wan_ifname)
+{
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+	char *value;
+	int dns_changed, intval;
 
-	TRACE_PT("end\n");
+	value = safe_getenv("RA_HOPLIMIT");
+	if (*value && (intval = atoi(value)))
+		ipv6_sysconf(wan_ifname, "hop_limit", intval);
+
+	value = safe_getenv("RA_MTU");
+	if (*value && (intval = atoi(value)) && intval < ifconfig_mtu(wan_ifname, 0)) {
+		ipv6_sysconf(wan_ifname, "mtu", intval);
+		ipv6_sysconf(lan_ifname, "mtu", intval);
+	}
+
+	if (*safe_getenv("RDNSS")) {
+		dns_changed = nvram_set_env(ipv6_nvname("ipv6_get_dns"), "RDNSS");
+		dns_changed += nvram_set_env(ipv6_nvname("ipv6_get_domain"), "DOMAINS");
+	} else {
+		dns_changed = nvram_set_env(ipv6_nvname("ipv6_get_dns"), "RA_DNS");
+		dns_changed += nvram_set_env(ipv6_nvname("ipv6_get_domain"), "RA_DOMAINS");
+	}
+	if (dns_changed && nvram_get_int(ipv6_nvname("ipv6_dnsenable")))
+		update_resolvconf();
+
+	return 0;
+}
+
+int dhcp6c_wan(int argc, char **argv)
+{
+
+	if (argv[2]) run_custom_script("dhcpc-event", argv[2]);
+
+	if (!argv[1] || !argv[2])
+		return EINVAL;
+	else if (strcmp(argv[2], "started") == 0 ||
+		 strcmp(argv[2], "stopped") == 0 ||
+		 strcmp(argv[2], "unbound") == 0)
+		return deconfig6(argv[1]);
+	else if (strcmp(argv[2], "bound") == 0)
+		return bound6(argv[1], 1);
+	else if (strcmp(argv[2], "updated") == 0 ||
+		 strcmp(argv[2], "rebound") == 0)
+		return bound6(argv[1], 2);
+	else if (strcmp(argv[2], "informed") == 0)
+		return bound6(argv[1], 0);
+	else if (strcmp(argv[2], "ra-updated") == 0)
+		return ra_updated6(argv[2]);
+
 	return 0;
 }
 
 int
 start_dhcp6c(void)
 {
-	FILE *fp;
-	char *wan_ifname = (char *)get_wan6face();
-	char *lan_ifname = nvram_safe_get("lan_ifname");
-	char *dhcp6c_argv[] = { "dhcp6c",
-		"-T", "LL",
-		NULL,		/* -D */
+	char *wan_ifname = (char *) get_wan6face();
+	char *dhcp6c_argv[] = { "odhcp6c",
+		"-df",
+		"-R",
+		"-s", "/tmp/dhcp6c",
+		"-N", "try",
+		NULL, NULL,	/* -c duid */
+		NULL, NULL,	/* -FP len:iaidhex */
+		NULL, NULL,	/* -rdns -rdomain */
+		NULL, NULL, 	/* -rsolmaxrt -r infmaxrt */
+		NULL,		/* -v */
 		NULL,		/* interface */
 		NULL };
-	int index = 3;
-	int prefix_len;
-	unsigned char ea[ETHER_ADDR_LEN];
-	unsigned long iaid = 0;
-	struct {
-		uint16 type;
-		uint16 hwtype;
-	} __attribute__ ((__packed__)) duid;
-	uint16 duid_len = 0;
+	int index = 7;
+	struct duid duid;
+	char duid_arg[sizeof(duid)*2+1];
+	char prefix_arg[sizeof("128:xxxxxxxx")];
+	int service, i;
 
 	/* Check if enabled */
-	if (get_ipv6_service() != IPV6_NATIVE_DHCP)
+	service = get_ipv6_service();
+	if (
+#ifdef RTCONFIG_6RELAYD
+	    service != IPV6_PASSTHROUGH &&
+#endif
+	    service != IPV6_NATIVE_DHCP)
 		return 0;
-	if (!wan_ifname || !*wan_ifname)
+
+	if (!wan_ifname || *wan_ifname == '\0')
 		return -1;
-	if (!nvram_match("ipv6_ra_conf", "mset") &&
-		!nvram_get_int("ipv6_dhcp_pd") &&
-		nvram_match("ipv6_dnsenable", "0"))
-		return -2;
-	if (nvram_match("ipv6_ra_conf", "noneset") &&
-		!nvram_get_int("ipv6_dhcp_pd"))
-		return -3;
 
-	nvram_set("ipv6_get_dns", "");
-	nvram_set("ipv6_get_domain", "");
-	if (nvram_get_int("ipv6_dhcp_pd")) {
-		nvram_set("ipv6_rtr_addr", "");
-		nvram_set("ipv6_prefix", "");
+	stop_dhcp6c();
+
+	if (get_duid(&duid)) {
+		bin2hex(duid_arg, sizeof(duid_arg), &duid, sizeof(duid));
+		dhcp6c_argv[index++] = "-c";
+		dhcp6c_argv[index++] = duid_arg;
 	}
 
-	prefix_len = 64 - (nvram_get_int("ipv6_prefix_length") ? : 64);
-	if (prefix_len < 0)
-		prefix_len = 0;
-
-	if (ether_atoe(nvram_safe_get("wan0_hwaddr"), ea)) {
-		/* Generate IAID from the last 7 digits of WAN MAC */
-		iaid =	((unsigned long)(ea[3] & 0x0f) << 16) |
-			((unsigned long)(ea[4]) << 8) |
-			((unsigned long)(ea[5]));
-
-		/* Generate DUID-LL */
-		duid_len = sizeof(duid) + ETHER_ADDR_LEN;
-		duid.type = htons(3);	/* DUID-LL */
-		duid.hwtype = htons(1);	/* Ethernet */
+	if (service == IPV6_NATIVE_DHCP &&
+	    nvram_get_int(ipv6_nvname("ipv6_dhcp_pd"))) {
+		/* Generate IA_PD IAID from the last 7 digits of WAN MAC */
+		unsigned long iaid = ether_atoe(nvram_safe_get("wan0_hwaddr"), duid.ea) ?
+			((unsigned long)(duid.ea[3] & 0x0f) << 16) |
+			((unsigned long)(duid.ea[4]) << 8) |
+			((unsigned long)(duid.ea[5])) : 1;
+#if 0
+		i = (nvram_get_int(ipv6_nvname("ipv6_prefix_length")) ? : 64);
+		if ((i < 0) || (i > 128))
+#endif
+			i = 0;
+		snprintf(prefix_arg, sizeof(prefix_arg), "%d:%lx", i, iaid);
+		dhcp6c_argv[index++] = "-FP";
+		dhcp6c_argv[index++] = prefix_arg;
 	}
 
-	/* Create dhcp6c_duid */
-	unlink("/var/dhcp6c_duid");
-	if ((duid_len != 0) &&
-	    (fp = fopen("/var/dhcp6c_duid", "w")) != NULL) {
-		fwrite(&duid_len, sizeof(duid_len), 1, fp);
-		fwrite(&duid, sizeof(duid), 1, fp);
-		fwrite(&ea, ETHER_ADDR_LEN, 1, fp);
-		fclose(fp);
+	if (nvram_get_int(ipv6_nvname("ipv6_dnsenable"))) {
+		dhcp6c_argv[index++] = "-r23";	/* dns */
+		dhcp6c_argv[index++] = "-r24";	/* domain */
 	}
-
-	/* Create dhcp6c.conf */
-	if ((fp = fopen("/etc/dhcp6c.conf", "w")) != NULL) {
-		fprintf(fp,	"interface %s {\n", wan_ifname);
-		if (nvram_get_int("ipv6_dhcp_pd"))
-		fprintf(fp,		"send ia-pd %lu;\n", iaid);
-		if (nvram_match("ipv6_ra_conf", "mset"))
-		fprintf(fp,		"send ia-na %lu;\n", iaid);
-		fprintf(fp,		"send rapid-commit;\n");
-		if (nvram_match("ipv6_dnsenable", "1") &&
-			!nvram_match("ipv6_ra_conf", "noneset"))
-		fprintf(fp,		"request domain-name-servers;\n"
-					"request domain-name;\n"
-					"script \"/sbin/dhcp6c-state\";\n");
-		fprintf(fp,		"};\n");
-		if (nvram_get_int("ipv6_dhcp_pd"))
-		fprintf(fp,	"id-assoc pd %lu {\n"
-					"prefix-interface %s {\n"
-						"sla-id 1;\n"
-						"sla-len %d;\n"
-					"};\n"
-				"};\n", iaid, lan_ifname, prefix_len);
-		if (nvram_match("ipv6_ra_conf", "mset"))
-		fprintf(fp,	"id-assoc na %lu { };\n", iaid);
-		fclose(fp);
-	} else {
-		perror("/etc/dhcp6c.conf");
-		return -1;
-	}
+	dhcp6c_argv[index++] = "-r82";	/* sol_max_rt */
+	dhcp6c_argv[index++] = "-r83";	/* inf_max_rt */
 
 	if (nvram_get_int("ipv6_debug"))
-		dhcp6c_argv[index++] = "-D";
+		dhcp6c_argv[index++] = "-v";
 
 	dhcp6c_argv[index++] = wan_ifname;
 
@@ -788,19 +1333,45 @@ start_dhcp6c(void)
 
 void stop_dhcp6c(void)
 {
-	TRACE_PT("begin\n");
-
-	char *lan_ifname = nvram_safe_get("lan_ifname");
-
-	if (!pids("dhcp6c")) return;
-
-	killall("dhcp6c-event", SIGTERM);
-	killall_tk("dhcp6c");
-
-	if (nvram_get_int("ipv6_dhcp_pd"))
-	eval("ip", "-6", "addr", "flush", "scope", "global", "dev", lan_ifname);
-	eval("ip", "-6", "neigh", "flush", "dev", lan_ifname);
-
-	TRACE_PT("end\n");
+	killall_tk("odhcp6c");
 }
-#endif	// RTCONFIG_IPV6
+
+#ifdef RTCONFIG_6RELAYD
+int start_6relayd(void)
+{
+	char *lan_ifname = nvram_safe_get("lan_ifname");
+	char *wan_ifname = (char *) get_wan6face();
+	char *relayd_argv[] = { "6relayd",
+		"-drs",
+		"-Rrelay", "-Dserver", "-N",
+		"-n",
+		NULL,		/* -v */
+		NULL,		/* master ifname */
+		NULL,		/* internal ifname */
+		NULL };
+	int index = 6;
+
+	if (get_ipv6_service() != IPV6_PASSTHROUGH)
+		return 0;
+
+	if (!wan_ifname || *wan_ifname == '\0')
+		return -1;
+
+	stop_6relayd();
+
+	if (nvram_get_int("ipv6_debug"))
+		relayd_argv[index++] = "-v";
+
+	relayd_argv[index++] = wan_ifname;
+	relayd_argv[index++] = lan_ifname;
+
+	return _eval(relayd_argv, NULL, 0, NULL);
+}
+
+void stop_6relayd(void)
+{
+	killall_tk("6relayd");
+}
+#endif // RTCONFIG_6RELAYD
+
+#endif // RTCONFIG_IPV6

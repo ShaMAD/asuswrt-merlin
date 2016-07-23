@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -14,14 +14,13 @@
 
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" language="JavaScript" src="/detect.js"></script>
 <script language="JavaScript" type="text/javascript" src="/merlin.js"></script>
 <script language="JavaScript" type="text/javascript" src="/tmmenu.js"></script>
-<script type="text/javascript" src="/jquery.js"></script>
+<script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript" src="/disk_functions.js"></script>
-<script type="text/javascript" src="/aidisk/AiDisk_folder_tree.js"></script>
 <style type="text/css">
 /* folder tree */
 .mask_bg{
@@ -70,12 +69,7 @@
 </style>
 
 <script>
-var $j = jQuery.noConflict();
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
 <% get_AiDisk_status(); %>
-<% disk_pool_mapping_info(); %>
 var PROTOCOL = "cifs";
 var _layer_order = "";
 var FromObject = "0";
@@ -97,13 +91,26 @@ function initial() {
 		document.form.usb_idle_exclude_b.checked = true;
 	if (document.form.usb_idle_exclude.value.indexOf("c") != -1)
 		document.form.usb_idle_exclude_c.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("d") != -1)
+		document.form.usb_idle_exclude_d.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("e") != -1)
+		document.form.usb_idle_exclude_e.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("f") != -1)
+		document.form.usb_idle_exclude_f.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("g") != -1)
+		document.form.usb_idle_exclude_g.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("h") != -1)
+		document.form.usb_idle_exclude_h.checked = true;
+	if (document.form.usb_idle_exclude.value.indexOf("i") != -1)
+		document.form.usb_idle_exclude_i.checked = true;
 
-	if ((productid == "RT-AC56U") || (productid == "RT-AC68U"))
-		$("ct_established_default").innerHTML = "Default: 432000 (5 days)";
-
+	if ((productid == "RT-AC56U") || (productid == "RT-AC68U") || (productid == "RT-AC87U") ||
+	    (productid == "RT-AC3200") || (productid == "RT-AC88U") || (productid == "RT-AC3100") || (productid == "RT-AC5300")) {
+		document.getElementById("ct_established_default").innerHTML = "Default: 2400";
+		showhide("memory_mgmt_tr" ,1);
+	}
 	document.aidiskForm.protocol.value = PROTOCOL;
 	initial_dir();
-	check_dir_path();
 }
 
 function initial_dir(){
@@ -112,7 +119,7 @@ function initial_dir(){
 	var type = "General";
 
 	url += "?motion=gettree&layer_order=" + __layer_order + "&t=" + Math.random();
-	$j.get(url,function(data){initial_dir_status();});
+	$.get(url,function(data){initial_dir_status(data);});
 }
 
 function initial_dir_status(data){
@@ -136,11 +143,11 @@ function get_disk_tree(){
 		return false;
 	}
 	cal_panel_block();
-	$j("#folderTree_panel").fadeIn(300);
+	$("#folderTree_panel").fadeIn(300);
 	get_layer_items("0");
 }
 function get_layer_items(layer_order){
-	$j.ajax({
+	$.ajax({
     		url: '/gettree.asp?layer_order='+layer_order,
     		dataType: 'script',
     		error: function(xhr){
@@ -241,13 +248,13 @@ function BuildTree(){
 		TempObject +='<tr>';
 		// the line in the front.
 		TempObject +='<td class="vert_line">';
-		TempObject +='<img id="a'+ItemBarCode+'" onclick=\'$("d'+ItemBarCode+'").onclick();\' class="FdRead" src="/images/Tree/vert_line_'+isSubTree+'0.gif">';
+		TempObject +='<img id="a'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' class="FdRead" src="/images/Tree/vert_line_'+isSubTree+'0.gif">';
 		TempObject +='</td>';
 
 		if(layer == 3){
 		/*a: connect_line b: harddisc+name  c:harddisc  d:name e: next layer forder*/
 			TempObject +='<td>';
-			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'$("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
+			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td>';
 			TempObject +='<td>';
 			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>\n';
@@ -258,7 +265,7 @@ function BuildTree(){
 			TempObject +='<table class="tree_table">';
 			TempObject +='<tr>';
 			TempObject +='<td class="vert_line">';
-			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'$("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
+			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td>';
 			TempObject +='<td class="FdText">';
 			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>';
@@ -275,7 +282,7 @@ function BuildTree(){
 		/*a: connect_line b: harddisc+name  c:harddisc  d:name e: next layer forder*/
 			TempObject +='<td>';
 			TempObject +='<table><tr><td>';
-			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'$("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
+			TempObject +='<img id="c'+ItemBarCode+'" onclick=\'document.getElementById("d'+ItemBarCode+'").onclick();\' src="/images/New_ui/advancesetting/'+ItemIcon+'.png">';
 			TempObject +='</td><td>';
 			TempObject +='<span id="d'+ItemBarCode+'"'+SubClick+' title="'+ItemText+'">'+shown_ItemText+'</span>';
 			TempObject +='</td></tr></table>';
@@ -288,7 +295,7 @@ function BuildTree(){
 		TempObject +='</tr>';
 	}
 	TempObject +='</table>';
-	$("e"+this.FromObject).innerHTML = TempObject;
+	document.getElementById("e"+this.FromObject).innerHTML = TempObject;
 }
 function get_layer(barcode){
 	var tmp, layer;
@@ -311,9 +318,9 @@ function build_array(obj,layer){
 				layer3_path = layer3_path.replace("&nbsp;"," ");
 
 			if(obj.id.length >8)
-				layer2_path = "/" + $(obj.id.substring(0,obj.id.length-3)).innerHTML;
+				layer2_path = "/" + document.getElementById(obj.id.substring(0,obj.id.length-3)).innerHTML;
 			else
-				layer2_path = "/" + $(obj.id.substring(0,obj.id.length-2)).innerHTML;
+				layer2_path = "/" + document.getElementById(obj.id.substring(0,obj.id.length-2)).innerHTML;
 
 			while(layer2_path.indexOf("&nbsp;") != -1)
 				layer2_path = layer2_path.replace("&nbsp;"," ");
@@ -341,25 +348,25 @@ function GetFolderItem(selectedObj, haveSubTree){
 		// chose Disk
 		setSelectedDiskOrder(selectedObj.id);
 		path_directory = build_array(selectedObj,layer);
-		$('createFolderBtn').className = "createFolderBtn";
-		$('deleteFolderBtn').className = "deleteFolderBtn";
-		$('modifyFolderBtn').className = "modifyFolderBtn";
+		document.getElementById('createFolderBtn').className = "createFolderBtn";
+		document.getElementById('deleteFolderBtn').className = "deleteFolderBtn";
+		document.getElementById('modifyFolderBtn').className = "modifyFolderBtn";
 
-		$('createFolderBtn').onclick = function(){};
-		$('deleteFolderBtn').onclick = function(){};
-		$('modifyFolderBtn').onclick = function(){};
+		document.getElementById('createFolderBtn').onclick = function(){};
+		document.getElementById('deleteFolderBtn').onclick = function(){};
+		document.getElementById('modifyFolderBtn').onclick = function(){};
 	}
 	else if(layer == 2){
 		// chose Partition
 		setSelectedPoolOrder(selectedObj.id);
 		path_directory = build_array(selectedObj,layer);
-		$('createFolderBtn').className = "createFolderBtn_add";
-		$('deleteFolderBtn').className = "deleteFolderBtn";
-		$('modifyFolderBtn').className = "modifyFolderBtn";
+		document.getElementById('createFolderBtn').className = "createFolderBtn_add";
+		document.getElementById('deleteFolderBtn').className = "deleteFolderBtn";
+		document.getElementById('modifyFolderBtn').className = "modifyFolderBtn";
 
-		$('createFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popCreateFolder.asp');};
-		$('deleteFolderBtn').onclick = function(){};
-		$('modifyFolderBtn').onclick = function(){};
+		document.getElementById('createFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popCreateFolder.asp');};
+		document.getElementById('deleteFolderBtn').onclick = function(){};
+		document.getElementById('modifyFolderBtn').onclick = function(){};
 		document.aidiskForm.layer_order.disabled = "disabled";
 		document.aidiskForm.layer_order.value = barcode;
 	}
@@ -367,13 +374,13 @@ function GetFolderItem(selectedObj, haveSubTree){
 		// chose Shared-Folder
 		setSelectedFolderOrder(selectedObj.id);
 		path_directory = build_array(selectedObj,layer);
-		$('createFolderBtn').className = "createFolderBtn";
-		$('deleteFolderBtn').className = "deleteFolderBtn_add";
-		$('modifyFolderBtn').className = "modifyFolderBtn_add";
+		document.getElementById('createFolderBtn').className = "createFolderBtn";
+		document.getElementById('deleteFolderBtn').className = "deleteFolderBtn_add";
+		document.getElementById('modifyFolderBtn').className = "modifyFolderBtn_add";
 
-		$('createFolderBtn').onclick = function(){};
-		$('deleteFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popDeleteFolder.asp');};
-		$('modifyFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popModifyFolder.asp');};
+		document.getElementById('createFolderBtn').onclick = function(){};
+		document.getElementById('deleteFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popDeleteFolder.asp');};
+		document.getElementById('modifyFolderBtn').onclick = function(){popupWindow('OverlayMask','/aidisk/popModifyFolder.asp');};
 		document.aidiskForm.layer_order.disabled = "disabled";
 		document.aidiskForm.layer_order.value = barcode;
 	}
@@ -391,41 +398,41 @@ function showClickedObj(clickedObj){
 function GetTree(layer_order, v){
 	if(layer_order == "0"){
 		this.FromObject = layer_order;
-		$('d'+layer_order).innerHTML = '<span class="FdWait">. . . . . . . . . .</span>';
+		document.getElementById('d'+layer_order).innerHTML = '<span class="FdWait">. . . . . . . . . .</span>';
 		setTimeout('get_layer_items("'+layer_order+'", "gettree")', 1);
 		return;
 	}
 
-	if($('a'+layer_order).className == "FdRead"){
-		$('a'+layer_order).className = "FdOpen";
-		$('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"1.gif";
+	if(document.getElementById('a'+layer_order).className == "FdRead"){
+		document.getElementById('a'+layer_order).className = "FdOpen";
+		document.getElementById('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"1.gif";
 		this.FromObject = layer_order;
-		$('e'+layer_order).innerHTML = '<img src="/images/Tree/folder_wait.gif">';
+		document.getElementById('e'+layer_order).innerHTML = '<img src="/images/Tree/folder_wait.gif">';
 		setTimeout('get_layer_items("'+layer_order+'", "gettree")', 1);
 	}
-	else if($('a'+layer_order).className == "FdOpen"){
-		$('a'+layer_order).className = "FdClose";
-		$('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"0.gif";
-		$('e'+layer_order).style.position = "absolute";
-		$('e'+layer_order).style.visibility = "hidden";
+	else if(document.getElementById('a'+layer_order).className == "FdOpen"){
+		document.getElementById('a'+layer_order).className = "FdClose";
+		document.getElementById('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"0.gif";
+		document.getElementById('e'+layer_order).style.position = "absolute";
+		document.getElementById('e'+layer_order).style.visibility = "hidden";
 	}
-	else if($('a'+layer_order).className == "FdClose"){
-		$('a'+layer_order).className = "FdOpen";
-		$('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"1.gif";
-		$('e'+layer_order).style.position = "";
-		$('e'+layer_order).style.visibility = "";
+	else if(document.getElementById('a'+layer_order).className == "FdClose"){
+		document.getElementById('a'+layer_order).className = "FdOpen";
+		document.getElementById('a'+layer_order).src = "/images/Tree/vert_line_s"+v+"1.gif";
+		document.getElementById('e'+layer_order).style.position = "";
+		document.getElementById('e'+layer_order).style.visibility = "";
 	}
 	else
 		alert("Error when show the folder-tree!");
 }
 function cancel_folderTree(){
 	this.FromObject ="0";
-	$j("#folderTree_panel").fadeOut(300);
+	$("#folderTree_panel").fadeOut(300);
 }
 function confirm_folderTree(){
-	$('rstats_path').value = path_directory + "/" ;
+	document.getElementById('rstats_path').value = path_directory + "/" ;
 	this.FromObject ="0";
-	$j("#folderTree_panel").fadeOut(300);
+	$("#folderTree_panel").fadeOut(300);
 }
 
 function cal_panel_block(){
@@ -448,7 +455,7 @@ function cal_panel_block(){
 		blockmarginLeft= (winWidth)*0.25+document.body.scrollLeft;
 	}
 
-	$("folderTree_panel").style.marginLeft = blockmarginLeft+"px";
+	document.getElementById("folderTree_panel").style.marginLeft = blockmarginLeft+"px";
 }
 
 
@@ -545,6 +552,18 @@ function applyRule(){
                 excluded += "b";
         if (document.form.usb_idle_exclude_c.checked)
                 excluded += "c";
+	if (document.form.usb_idle_exclude_d.checked)
+		excluded += "d";
+	if (document.form.usb_idle_exclude_e.checked)
+		excluded += "e";
+	if (document.form.usb_idle_exclude_f.checked)
+		excluded += "f";
+	if (document.form.usb_idle_exclude_g.checked)
+		excluded += "g";
+	if (document.form.usb_idle_exclude_h.checked)
+		excluded += "h";
+	if (document.form.usb_idle_exclude_i.checked)
+		excluded += "i";
 
 	document.form.usb_idle_exclude.value = excluded;
 
@@ -669,9 +688,9 @@ function done_validating(action){
                 <tbody>
                 <tr bgcolor="#4D595D">
                 <td valign="top">
-                <div>&nbsp;</div>
-                <div class="formfonttitle">Tools - Other Settings</div>
-                <div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
+                	<div>&nbsp;</div>
+                	<div class="formfonttitle">Tools - Other Settings</div>
+                	<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
 
 				<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
 					<thead>
@@ -692,7 +711,7 @@ function done_validating(action){
 					</tr>
 
 					<tr id="rstats_stime_tr">
-						<th>Save frequency:</th>
+						<th>Save frequency</th>
 						<td>
 							<select name="rstats_stime" class="input_option" >
 								<option value="1" <% nvram_match("rstats_stime", "1","selected"); %>>Every 1 hour</option>
@@ -718,7 +737,7 @@ function done_validating(action){
 					</tr>
 					<tr>
 				        	<th>Starting day of monthly cycle</th>
-			        		<td><input type="text" maxlength="2" class="input_3_table" name="rstats_offset" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 31)" value="<% nvram_get("rstats_offset"); %>"></td>
+			        		<td><input type="text" maxlength="2" class="input_3_table" name="rstats_offset" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 31)" value="<% nvram_get("rstats_offset"); %>"></td>
 			        	</tr>
 					<tr id="cstats_enable_tr">
 			        		<th>Enable IPTraffic (per IP monitoring)</i></th>
@@ -740,7 +759,7 @@ function done_validating(action){
 							<input type="radio" name="cstats_all" class="input" value="1" <% nvram_match_x("", "cstats_all", "1", "checked"); %> onclick="hide_cstats_ip(this.value);"><#checkbox_Yes#>
 							<input type="radio" name="cstats_all" class="input" value="0" <% nvram_match_x("", "cstats_all", "0", "checked"); %> onclick="hide_cstats_ip(this.value);"><#checkbox_No#>
 						</td>
-        			</tr>
+        				</tr>
 					<tr id="cstats_inc_tr">
 						<th>List of IPs to monitor (comma-separated):</th>
 						<td>
@@ -774,7 +793,7 @@ function done_validating(action){
 					<tr>
 						<th>Disk spindown idle time (in seconds)<br><i>0 = disable feature</i></th>
 						<td>
-							<input type="text" maxlength="6" class="input_12_table"name="usb_idle_timeout" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 0, 43200)"value="<% nvram_get("usb_idle_timeout"); %>">
+							<input type="text" maxlength="6" class="input_12_table"name="usb_idle_timeout" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 0, 43200)"value="<% nvram_get("usb_idle_timeout"); %>">
 						</td>
 					</tr>
 					<tr>
@@ -783,6 +802,12 @@ function done_validating(action){
 							<input type="checkbox" name="usb_idle_exclude_a">sda</input>
 							<input type="checkbox" name="usb_idle_exclude_b">sdb</input>
 							<input type="checkbox" name="usb_idle_exclude_c">sdc</input>
+							<input type="checkbox" name="usb_idle_exclude_d">sdd</input>
+							<input type="checkbox" name="usb_idle_exclude_e">sde</input>
+							<input type="checkbox" name="usb_idle_exclude_f">sdf</input>
+							<input type="checkbox" name="usb_idle_exclude_g">sdg</input>
+							<input type="checkbox" name="usb_idle_exclude_h">sdh</input>
+							<input type="checkbox" name="usb_idle_exclude_i">sdi</input>
 						</td>
 					</tr>
 					<tr>
@@ -803,95 +828,138 @@ function done_validating(action){
  					<tr>
 						<th>TCP connections limit</th>
 						<td>
-							<input type="text" maxlength="6" class="input_12_table" name="ct_max" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 256, 300000)" value="<% nvram_get("ct_max"); %>">
+							<input type="text" maxlength="6" class="input_12_table" name="ct_max" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 256, 300000)" value="<% nvram_get("ct_max"); %>">
 						</td>
-						</tr>
+					</tr>
 
+					<tr>
+						<th>TCP Timeout: Established</th>
+						<td>
+							<input type="text" maxlength="6" class="input_6_table" name="tcp_established" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 432000)" value="">
+							<span id="ct_established_default">Default: 1200</span>
+						</td>
+
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: syn_sent</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_syn_sent" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 120</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: syn_recv</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_syn_recv" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 60</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: fin_wait</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_fin_wait" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 120</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: time_wait</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_time_wait" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 120</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: close</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_close" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 10</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: close_wait</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_close_wait" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 60</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>TCP Timeout: last_ack</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="tcp_last_ack" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 30</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>UDP Timeout: Assured</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="udp_assured" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
+							<span>Default: 180</span>
+						</td>
+					</tr>
+
+					<tr>
+						<th>UDP Timeout: Unreplied</th>
+						<td>
+							<input type="text" maxlength="5" class="input_6_table" name="udp_unreplied" onKeyPress="return validator.isNumber(this,event);" onblur="validate_number_range(this, 1,86400)" value="">
+							<span>Default: 30</span>
+						</td>
+					</tr>
+				</table>
+				<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
+                                        <thead>
 						<tr>
-							<th>TCP Timeout: Established</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_established" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 432000)" value="">
-								<span id="ct_established_default">Default: 1200</span>
-							</td>
-
+							<td colspan="2">Advanced Tweaks and Hacks</td>
 						</tr>
+					</thead>
+					<tr>
+						<th>Samba: Enable SMB2 protocol (default: No)</th>
+						<td>
+							<input type="radio" name="smbd_enable_smb2" class="input" value="1" <% nvram_match_x("", "smbd_enable_smb2", "1", "checked"); %>><#checkbox_Yes#>
+							<input type="radio" name="smbd_enable_smb2" class="input" value="0" <% nvram_match_x("", "smbd_enable_smb2", "0", "checked"); %>><#checkbox_No#>
+						</td>
+	                                </tr>
+					<tr id="memory_mgmt_tr" style="display:none;">
+						<th>Memory Management: Regularly flush caches (default: Yes)</th>
+						<td>
+							<input type="radio" name="drop_caches" class="input" value="1" <% nvram_match_x("", "drop_caches", "1", "checked"); %>><#checkbox_Yes#>
+							<input type="radio" name="drop_caches" class="input" value="0" <% nvram_match_x("", "drop_caches", "0", "checked"); %>><#checkbox_No#>
+						</td>
+					</tr>
+					<tr>
+						<th>Miniupnp: Enable secure mode (default: Yes)</th>
+						<td>
+							<input type="radio" name="upnp_secure" class="input" value="1" <% nvram_match_x("", "upnp_secure", "1", "checked"); %>><#checkbox_Yes#>
+							<input type="radio" name="upnp_secure" class="input" value="0" <% nvram_match_x("", "upnp_secure", "0", "checked"); %>><#checkbox_No#>
+						</td>
+					</tr>
+					<tr>
+						<th>DLNA: Rebuild entire database at start (default: No)</th>
+						<td>
+							<input type="radio" name="dms_rebuild" class="input" value="1" <% nvram_match_x("", "dms_rebuild", "1", "checked"); %>><#checkbox_Yes#>
+							<input type="radio" name="dms_rebuild" class="input" value="0" <% nvram_match_x("", "dms_rebuild", "0", "checked"); %>><#checkbox_No#>
+						</td>
+					</tr>
+					<tr>
+						<th>Firewall: Drop IPv6 neighbour solicitation broadcasts (Comcast fix) (default: No)</th>
+						<td>
+							<input type="radio" name="ipv6_ns_drop" class="input" value="1" <% nvram_match_x("", "ipv6_ns_drop", "1", "checked"); %>><#checkbox_Yes#>
+							<input type="radio" name="ipv6_ns_drop" class="input" value="0" <% nvram_match_x("", "ipv6_ns_drop", "0", "checked"); %>><#checkbox_No#>
+						</td>
+					</tr>
 
- 						<tr>
-							<th>TCP Timeout: syn_sent</th>
-							<td>
- 								<input type="text" maxlength="5" class="input_6_table" name="tcp_syn_sent" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 120</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: syn_recv</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_syn_recv" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 60</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: fin_wait</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_fin_wait" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 120</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: time_wait</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_time_wait" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 120</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: close</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_close" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 10</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: close_wait</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_close_wait" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 60</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>TCP Timeout: last_ack</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="tcp_last_ack" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 30</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>UDP Timeout: Assured</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="udp_assured" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1, 86400)" value="">
-								<span>Default: 180</span>
-							</td>
-						</tr>
-
-						<tr>
-							<th>UDP Timeout: Unreplied</th>
-							<td>
-								<input type="text" maxlength="5" class="input_6_table" name="udp_unreplied" onKeyPress="return is_number(this,event);" onblur="validate_number_range(this, 1,86400)" value="">
-								<span>Default: 30</span>
-							</td>
-						</tr>
-					</table>
-					<div class="apply_gen">
-						<input name="button" type="button" class="button_gen" onclick="validate();" value="<#CTL_apply#>"/>
+				</table>
+				<div class="apply_gen">
+					<input name="button" type="button" class="button_gen" onclick="validate();" value="<#CTL_apply#>"/>
 			        </div>
-				</td></tr>
+			</td></tr>
 	        </tbody>
             </table>
             </td>

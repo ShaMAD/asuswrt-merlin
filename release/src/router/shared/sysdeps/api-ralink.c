@@ -27,24 +27,35 @@
 
 typedef uint32_t __u32;
 
-#if defined(RTN14U) || defined(RTAC52U) || defined(RTAC51U)
+#if defined(RTN14U) || defined(RTAC52U) || defined(RTAC51U) || defined(RTN11P) || defined(RTN300) || defined(RTN54U) || defined(RTAC1200HP) || defined(RTN56UB1) || defined(RTN56UB2) ||defined(RTAC54U)
 const char WIF_5G[]	= "rai0";
 const char WIF_2G[]	= "ra0";
 const char WDSIF_5G[]	= "wdsi";
+const char APCLI_5G[]	= "apclii0";
+const char APCLI_2G[]	= "apcli0";
 #else
 const char WIF_5G[]	= "ra0";
 const char WIF_2G[]	= "rai0";
 const char WDSIF_5G[]	= "wds";
+const char APCLI_5G[]	= "apcli0";
+const char APCLI_2G[]	= "apclii0";
 #endif
 
 #if defined(RA_ESW)
 /* Read TX/RX byte count information from switch's register. */
+#if defined(RTCONFIG_RALINK_MT7620)
 int get_mt7620_wan_unit_bytecount(int unit, unsigned long *tx, unsigned long *rx)
+#elif defined(RTCONFIG_RALINK_MT7621)
+int get_mt7621_wan_unit_bytecount(int unit, unsigned long *tx, unsigned long *rx)
+#endif
 {
+#if defined(RTCONFIG_RALINK_MT7620)
 	return __mt7620_wan_bytecount(unit, tx, rx);
+#elif defined(RTCONFIG_RALINK_MT7621)
+	return __mt7621_wan_bytecount(unit, tx, rx);
+#endif
 }
 #endif
-
 uint32_t gpio_dir(uint32_t gpio, int dir)
 {
 	return ralink_gpio_init(gpio, dir);
@@ -225,18 +236,17 @@ checkcrc_end:
 	return ret;
 }
 
-
 /* 
- * 0: illegal image
- * 1: legal image
+ * 0: legal image
+ * 1: illegal image
  *
  * check product id, crc ..
  */
 
 int check_imagefile(char *fname)
 {
-	if(checkcrc(fname)==0) return 1;
-	return 0;
+	if(checkcrc(fname)==0) return 0;
+	return 1;
 }
 
 int wl_ioctl(const char *ifname, int cmd, struct iwreq *pwrq)
@@ -300,12 +310,15 @@ void set_radio(int on, int unit, int subunit)
 		snprintf(prefix, sizeof(prefix), "wl%d_", unit);
 
 	//if (nvram_match(strcat_r(prefix, "radio", tmp), "0")) return;
-
 	// TODO: replace hardcoded 
 	// TODO: handle subunit
 	if(unit==0)
 		doSystem("iwpriv %s set RadioOn=%d", WIF_2G, on);
 	else doSystem("iwpriv %s set RadioOn=%d", WIF_5G, on);
+
+#if defined(RTAC1200HP) || defined(RTN56UB1) || defined(RTN56UB2)//5G:7612E 2G:7603E
+	led_onoff(unit);
+#endif	
 }
 
 char *wif_to_vif(char *wif)
@@ -776,3 +789,51 @@ int get_channel_list_via_country(int unit, const char *country_code, char *buffe
 	return (p - buffer);
 }
 
+
+#if defined(RTAC1200HP) || defined(RTN56UB1) || defined(RTN56UB2)
+void led_onoff(int unit)
+{   
+#if defined(RTAC1200HP)
+	if(unit==1)
+#endif		
+		if(get_radio(unit, 0))
+			led_control(unit?LED_5G:LED_2G, LED_ON);	
+		else
+			led_control(unit?LED_5G:LED_2G, LED_OFF);	
+}
+#endif
+
+/* Return nvram variable name, e.g. et0macaddr, which is used to repented as LAN MAC.
+ * @return:
+ */
+char *get_lan_mac_name(void)
+{
+	/* TODO: handle exceptional model */
+	return "et0macaddr";
+}
+
+/* Return nvram variable name, e.g. et1macaddr, which is used to repented as WAN MAC.
+ * @return:
+ */
+char *get_wan_mac_name(void)
+{
+	/* TODO: handle exceptional model */
+	return "et1macaddr";
+}
+
+char *get_2g_hwaddr(void)
+{
+        return get_wan_hwaddr();
+}
+
+char *get_lan_hwaddr(void)
+{
+	/* TODO: handle exceptional model */
+        return nvram_safe_get("et0macaddr");
+}
+
+char *get_wan_hwaddr(void)
+{
+	/* TODO: handle exceptional model */
+        return nvram_safe_get("et1macaddr");
+}

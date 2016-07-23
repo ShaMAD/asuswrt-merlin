@@ -100,10 +100,10 @@ openvpn_encrypt (struct buffer *buf, struct buffer work,
 	{
 	  uint8_t iv_buf[OPENVPN_MAX_IV_LENGTH];
 	  const int iv_size = cipher_ctx_iv_length (ctx->cipher);
-	  const unsigned int mode = cipher_ctx_mode (ctx->cipher);
+	  const cipher_kt_t *cipher_kt = cipher_ctx_get_cipher_kt (ctx->cipher);
 	  int outlen;
 
-	  if (mode == OPENVPN_MODE_CBC)
+	  if (cipher_kt_mode_cbc(cipher_kt))
 	    {
 	      CLEAR (iv_buf);
 
@@ -119,7 +119,7 @@ openvpn_encrypt (struct buffer *buf, struct buffer work,
 		  ASSERT (packet_id_write (&pin, buf, BOOL_CAST (opt->flags & CO_PACKET_ID_LONG_FORM), true));
 		}
 	    }
-	  else if (mode == OPENVPN_MODE_CFB || mode == OPENVPN_MODE_OFB)
+	  else if (cipher_kt_mode_ofb_cfb(cipher_kt))
 	    {
 	      struct packet_id_net pin;
 	      struct buffer b;
@@ -166,12 +166,15 @@ openvpn_encrypt (struct buffer *buf, struct buffer work,
 
 	  /* Encrypt packet ID, payload */
 	  ASSERT (cipher_ctx_update (ctx->cipher, BPTR (&work), &outlen, BPTR (buf), BLEN (buf)));
-	  work.len += outlen;
+	  ASSERT (buf_inc_len(&work, outlen));
 
 	  /* Flush the encryption buffer */
-	  ASSERT(cipher_ctx_final(ctx->cipher, BPTR (&work) + outlen, &outlen));
-	  work.len += outlen;
-	  ASSERT (outlen == iv_size);
+	  ASSERT (cipher_ctx_final(ctx->cipher, BPTR (&work) + outlen, &outlen));
+	  ASSERT (buf_inc_len(&work, outlen));
+
+	  /* For all CBC mode ciphers, check the last block is complete */
+	  ASSERT (cipher_kt_mode (cipher_kt) != OPENVPN_MODE_CBC ||
+	      outlen == iv_size);
 
 	  /* prepend the IV to the ciphertext */
 	  if (opt->flags & CO_USE_IV)
@@ -272,8 +275,8 @@ openvpn_decrypt (struct buffer *buf, struct buffer work,
 
       if (ctx->cipher)
 	{
-	  const unsigned int mode = cipher_ctx_mode (ctx->cipher);
 	  const int iv_size = cipher_ctx_iv_length (ctx->cipher);
+	  const cipher_kt_t *cipher_kt = cipher_ctx_get_cipher_kt (ctx->cipher);
 	  uint8_t iv_buf[OPENVPN_MAX_IV_LENGTH];
 	  int outlen;
 
@@ -302,25 +305,25 @@ openvpn_decrypt (struct buffer *buf, struct buffer work,
 	    CRYPT_ERROR ("cipher init failed");
 
 	  /* Buffer overflow check (should never happen) */
-	  if (!buf_safe (&work, buf->len))
-	    CRYPT_ERROR ("buffer overflow");
+	  if (!buf_safe (&work, buf->len + cipher_ctx_block_size(ctx->cipher)))
+	    CRYPT_ERROR ("potential buffer overflow");
 
 	  /* Decrypt packet ID, payload */
 	  if (!cipher_ctx_update (ctx->cipher, BPTR (&work), &outlen, BPTR (buf), BLEN (buf)))
 	    CRYPT_ERROR ("cipher update failed");
-	  work.len += outlen;
+	  ASSERT (buf_inc_len(&work, outlen));
 
 	  /* Flush the decryption buffer */
 	  if (!cipher_ctx_final (ctx->cipher, BPTR (&work) + outlen, &outlen))
 	    CRYPT_ERROR ("cipher final failed");
-	  work.len += outlen;
+	  ASSERT (buf_inc_len(&work, outlen));
 
 	  dmsg (D_PACKET_CONTENT, "DECRYPT TO: %s",
 	       format_hex (BPTR (&work), BLEN (&work), 80, &gc));
 
 	  /* Get packet ID from plaintext buffer or IV, depending on cipher mode */
 	  {
-	    if (mode == OPENVPN_MODE_CBC)
+	    if (cipher_kt_mode_cbc(cipher_kt))
 	      {
 		if (opt->packet_id)
 		  {
@@ -329,7 +332,7 @@ openvpn_decrypt (struct buffer *buf, struct buffer work,
 		    have_pin = true;
 		  }
 	      }
-	    else if (mode == OPENVPN_MODE_CFB || mode == OPENVPN_MODE_OFB)
+	    else if (cipher_kt_mode_ofb_cfb(cipher_kt))
 	      {
 		struct buffer b;
 
@@ -400,11 +403,26 @@ crypto_adjust_frame_parameters(struct frame *frame,
 			       bool packet_id,
 			       bool packet_id_long_form)
 {
-  frame_add_to_extra_frame (frame,
-			    (packet_id ? packet_id_size (packet_id_long_form) : 0) +
-			    ((cipher_defined && use_iv) ? cipher_kt_iv_size (kt->cipher) : 0) +
-			    (cipher_defined ? cipher_kt_block_size (kt->cipher) : 0) + /* worst case padding expansion */
-			    kt->hmac_length);
+  size_t crypto_overhead = 0;
+
+  if (packet_id)
+    crypto_overhead += packet_id_size (packet_id_long_form);
+
+  if (cipher_defined)
+    {
+      if (use_iv)
+	crypto_overhead += cipher_kt_iv_size (kt->cipher);
+
+      /* extra block required by cipher_ctx_update() */
+      crypto_overhead += cipher_kt_block_size (kt->cipher);
+    }
+
+  crypto_overhead += kt->hmac_length;
+
+  frame_add_to_extra_frame (frame, crypto_overhead);
+
+  msg(D_MTU_DEBUG, "%s: Adjusting frame parameters for crypto by %zu bytes",
+      __func__, crypto_overhead);
 }
 
 /*
@@ -426,17 +444,12 @@ init_key_type (struct key_type *kt, const char *ciphername,
 
       /* check legal cipher mode */
       {
-	const unsigned int mode = cipher_kt_mode (kt->cipher);
-	if (!(mode == OPENVPN_MODE_CBC
-#ifdef ALLOW_NON_CBC_CIPHERS
-	      || (cfb_ofb_allowed && (mode == OPENVPN_MODE_CFB || mode == OPENVPN_MODE_OFB))
+	if (!(cipher_kt_mode_cbc(kt->cipher)
+#ifdef ENABLE_OFB_CFB_MODE
+	      || (cfb_ofb_allowed && cipher_kt_mode_ofb_cfb(kt->cipher))
 #endif
 	      ))
-#ifdef ENABLE_SMALL
 	  msg (M_FATAL, "Cipher '%s' mode not supported", ciphername);
-#else
-	  msg (M_FATAL, "Cipher '%s' uses a mode not supported by " PACKAGE_NAME " in your current configuration.  CBC mode is always supported, while CFB and OFB modes are supported only when using SSL/TLS authentication and key exchange mode, and when " PACKAGE_NAME " has been built with ALLOW_NON_CBC_CIPHERS.", ciphername);
-#endif
       }
     }
   else
@@ -606,18 +619,10 @@ fixup_key (struct key *key, const struct key_type *kt)
 void
 check_replay_iv_consistency (const struct key_type *kt, bool packet_id, bool use_iv)
 {
-  if (cfb_ofb_mode (kt) && !(packet_id && use_iv))
-    msg (M_FATAL, "--no-replay or --no-iv cannot be used with a CFB or OFB mode cipher");
-}
+  ASSERT(kt);
 
-bool
-cfb_ofb_mode (const struct key_type* kt)
-{
-  if (kt && kt->cipher) {
-      const unsigned int mode = cipher_kt_mode (kt->cipher);
-      return mode == OPENVPN_MODE_CFB || mode == OPENVPN_MODE_OFB;
-  }
-  return false;
+  if (cipher_kt_mode_ofb_cfb(kt->cipher) && !(packet_id && use_iv))
+    msg (M_FATAL, "--no-replay or --no-iv cannot be used with a CFB or OFB mode cipher");
 }
 
 /*
@@ -797,6 +802,7 @@ get_tls_handshake_key (const struct key_type *key_type,
 	    msg (M_INFO,
 		 "Control Channel Authentication: using '%s' as a free-form passphrase file",
 		 passphrase_file);
+	    msg (M_WARN, "DEPRECATED OPTION: Using freeform files for tls-auth is deprecated and is not  supported in OpenVPN 2.4 or newer versions");
 	  }
       }
       /* handle key direction */
@@ -1377,7 +1383,7 @@ prng_bytes (uint8_t *output, int len)
 	}
     }
   else
-    rand_bytes (output, len);
+    ASSERT (rand_bytes (output, len));
 }
 
 /* an analogue to the random() function, but use prng_bytes */

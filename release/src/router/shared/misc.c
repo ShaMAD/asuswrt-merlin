@@ -32,6 +32,9 @@
 #include "shutils.h"
 #include "shared.h"
 
+#ifndef ETHER_ADDR_LEN
+#define	ETHER_ADDR_LEN		6
+#endif
 
 extern char *read_whole_file(const char *target){
 	FILE *fp;
@@ -185,26 +188,160 @@ extern char *upper_strstr(const char *const str, const char *const target){
 	return (char *)(str+len);
 }
 
-#ifdef RTCONFIG_IPV6
-int get_ipv6_service(void)
+#ifdef HND_ROUTER
+// defined (__GLIBC__) && !defined(__UCLIBC__)
+size_t strlcpy(char *dst, const char *src, size_t size)
 {
-	const char *names[] = {	// order must be synced with def at shared.h
-		"static6",	// IPV6_NATIVE
-		"dhcp6",	// IPV6_NATIVE_DHCP
-		"6to4",		// IPV6_6TO4
-		"6in4",		// IPV6_6IN4
-		"6rd",		// IPV6_6RD
-		"other",	// IPV6_MANUAL
-		NULL
-	};
-	int i;
-	const char *p;
+	size_t srclen, len;
 
-	p = nvram_safe_get("ipv6_service");
-	for (i = 0; names[i] != NULL; ++i) {
-		if (strcmp(p, names[i]) == 0) return i + 1;
+	srclen = strlen(src);
+	if (size <= 0)
+		return srclen;
+
+	len = (srclen < size) ? srclen : size - 1;
+	memcpy(dst, src, len); /* should not overlap */
+	dst[len] = '\0';
+
+	return srclen;
+}
+
+size_t strlcat(char *dst, const char *src, size_t size)
+{
+	size_t dstlen;
+	char *null;
+
+	null = memchr(dst, '\0', size);
+	if (null == NULL)
+		null = dst + size;
+	dstlen = null - dst;
+
+	return dstlen + strlcpy(null, src, size - dstlen);
+}
+#endif
+
+in_addr_t inet_addr_(const char *addr)
+{
+	struct in_addr in;
+	return inet_aton(addr, &in) ? in.s_addr : INADDR_ANY;
+}
+
+int inet_equal(const char *addr1, const char *mask1, const char *addr2, const char *mask2)
+{
+	return ((inet_network(addr1) & inet_network(mask1)) ==
+		(inet_network(addr2) & inet_network(mask2)));
+}
+
+int inet_intersect(const char *addr1, const char *mask1, const char *addr2, const char *mask2)
+{
+	in_addr_t max_netmask = inet_network(mask1) | inet_network(mask2);
+	return ((inet_network(addr1) & max_netmask) ==
+		(inet_network(addr2) & max_netmask));
+}
+
+int inet_deconflict(const char *addr1, const char *mask1, const char *addr2, const char *mask2, struct in_addr *result)
+{
+	const static struct class {
+		in_addr_t network;
+		in_addr_t netmask;
+	} classes[] = {
+		{ 0xc0a80000, 0xffff0000 }, /* 192.168.0.0/16 */
+		{ 0xac100000, 0xfff00000 }, /* 172.16.0.0/12 */
+		{ 0x0a000000, 0xff000000 }, /* 10.0.0.0/8 */
+		{ 0, 0 }
+	};
+	struct class *class, *found;
+	in_addr_t lan_ipaddr = inet_network(addr1);
+	in_addr_t lan_netmask = inet_network(mask1);
+	in_addr_t wan_ipaddr = inet_network(addr2);
+	in_addr_t wan_netmask = inet_network(mask2);
+	in_addr_t max_netmask = lan_netmask | wan_netmask;
+
+	if ((lan_ipaddr & max_netmask) != (wan_ipaddr & max_netmask)) {
+		/* not really intersecting */
+		return 0;
+	}
+
+	found = NULL;
+	for (class = (struct class *) classes; class->network; class++) {
+		if (~lan_netmask > ~class->netmask)
+			continue;
+		if ((lan_ipaddr & class->netmask) != class->network)
+			found = found ? : class;
+		else if (~lan_netmask < ~class->netmask) {
+			found = class;
+			lan_ipaddr += ~lan_netmask + 1;
+			break;
+		}
+	}
+	if (found)
+		lan_ipaddr = found->network | (lan_ipaddr & ~found->netmask);
+	else {
+		/* non-private address or too big network mask,
+		 * address might become non-RFC1918 */
+		lan_ipaddr += ~lan_netmask + 1;
+	}
+
+	if (result)
+		result->s_addr = htonl(lan_ipaddr);
+
+	return found ? 1 : 2;
+}
+
+#ifdef RTCONFIG_IPV6
+char *ipv6_nvname_by_unit(const char *name, int unit)
+{
+	static char name_ipv6[128];
+
+	if (strncmp(name, "ipv6_", sizeof("ipv6_") - 1) != 0) {
+		_dprintf("Wrong ipv6 nvram namespace: \"%s\"\n", name);
+		return (char *)name;
+	}
+
+	if (unit == 0)
+		return (char *)name;
+
+	snprintf(name_ipv6, sizeof(name_ipv6), "ipv6%d_%s", unit, name + sizeof("ipv6_") - 1);
+
+	return name_ipv6;
+}
+
+char *ipv6_nvname(const char *name)
+{
+	return ipv6_nvname_by_unit(name, wan_primary_ifunit());
+}
+
+int get_ipv6_service_by_unit(int unit)
+{
+	static const struct {
+		char *name;
+		int service;
+	} services[] = {
+		{ "dhcp6",	IPV6_NATIVE_DHCP },
+#ifdef RTCONFIG_6RELAYD
+		{ "ipv6pt",     IPV6_PASSTHROUGH },
+		{ "flets",	IPV6_PASSTHROUGH },
+#endif
+		{ "6to4",	IPV6_6TO4 },
+		{ "6in4",	IPV6_6IN4 },
+		{ "6rd",	IPV6_6RD },
+		{ "other",	IPV6_MANUAL },
+		{ "static6",	IPV6_MANUAL }, /* legacy */
+		{ NULL }
+	};
+	char *value;
+	int i;
+
+	value = nvram_safe_get(ipv6_nvname_by_unit("ipv6_service", unit));
+	for (i = 0; services[i].name; i++) {
+		if (strcmp(value, services[i].name) == 0)
+			return services[i].service;
 	}
 	return IPV6_DISABLED;
+}
+
+int get_ipv6_service(void)
+{
+	return get_ipv6_service_by_unit(wan_primary_ifunit());
 }
 
 const char *ipv6_router_address(struct in6_addr *in6addr)
@@ -214,17 +351,15 @@ const char *ipv6_router_address(struct in6_addr *in6addr)
 	static char addr6[INET6_ADDRSTRLEN];
 
 	addr6[0] = '\0';
+	memset(&addr, 0, sizeof(addr));
 
-	if ((p = nvram_get("ipv6_rtr_addr")) && *p) {
+	if ((p = nvram_get(ipv6_nvname("ipv6_rtr_addr"))) && *p) {
 		inet_pton(AF_INET6, p, &addr);
-	}
-	else if ((p = nvram_get("ipv6_prefix")) && *p) {
+	} else if ((p = nvram_get(ipv6_nvname("ipv6_prefix"))) && *p) {
 		inet_pton(AF_INET6, p, &addr);
 		addr.s6_addr16[7] = htons(0x0001);
-	}
-	else {
+	} else
 		return addr6;
-	}
 
 	inet_ntop(AF_INET6, &addr, addr6, sizeof(addr6));
 	if (in6addr)
@@ -250,14 +385,15 @@ const char *ipv6_address(const char *ipaddr6)
 // extract prefix from configured IPv6 address
 const char *ipv6_prefix(struct in6_addr *in6addr)
 {
-	static char prefix[INET6_ADDRSTRLEN + 1];
+	static char prefix[INET6_ADDRSTRLEN];
 	struct in6_addr addr;
 	int i, r;
 
 	prefix[0] = '\0';
+	memset(&addr, 0, sizeof(addr));
 
-	if (inet_pton(AF_INET6, nvram_safe_get("ipv6_rtr_addr"), &addr) > 0) {
-		r = nvram_get_int("ipv6_prefix_length") ? : 64;
+	if (inet_pton(AF_INET6, nvram_safe_get(ipv6_nvname("ipv6_rtr_addr")), &addr) > 0) {
+		r = nvram_get_int(ipv6_nvname("ipv6_prefix_length")) ? : 64;
 		for (r = 128 - r, i = 15; r > 0; r -= 8) {
 			if (r >= 8)
 				addr.s6_addr[i--] = 0;
@@ -267,15 +403,40 @@ const char *ipv6_prefix(struct in6_addr *in6addr)
 		inet_ntop(AF_INET6, &addr, prefix, sizeof(prefix));
 	}
 
+	if (in6addr)
+		memcpy(in6addr, &addr, sizeof(addr));
+
 	return prefix;
 }
+
+#if 0 /* unused */
+const char *ipv6_prefix(const char *ifname)
+{
+	return getifaddr(ifname, AF_INET6, GIF_PREFIX) ? : "";
+}
+ 
+int ipv6_prefix_len(const char *ifname)
+{
+	const char *value;
+
+	value = getifaddr(ifname, AF_INET6, /*GIF_PREFIX |*/ GIF_PREFIXLEN);
+	if (value == NULL)
+		return 0;
+
+	value = strchr(value, '/');
+	if (value)
+		return atoi(value + 1);
+
+	return 128;
+}
+#endif
 
 void reset_ipv6_linklocal_addr(const char *ifname, int flush)
 {
 	static char buf[INET6_ADDRSTRLEN];
 	struct in6_addr addr;
 	struct ifreq ifr;
-	unsigned char *mac;
+	char *mac;
 	int fd;
 
 	if (!ifname ||
@@ -310,7 +471,7 @@ void reset_ipv6_linklocal_addr(const char *ifname, int flush)
 
 int with_ipv6_linklocal_addr(const char *ifname)
 {
-	return (getifaddr((char *) ifname, AF_INET6, GIF_LINKLOCAL) != NULL);
+	return (getifaddr(ifname, AF_INET6, GIF_LINKLOCAL) != NULL);
 }
 
 #if 1 /* temporary till httpd route table redo */
@@ -510,100 +671,97 @@ void notice_set(const char *path, const char *format, ...)
 //	#define _x_dprintf(args...)	syslog(LOG_DEBUG, args);
 #define _x_dprintf(args...)	do { } while (0);
 
-const dns_list_t *get_dns(void)
-{
-	static dns_list_t dns;
-	char s[512];
-	int n;
-	int i, j;
-	struct in_addr ia;
-	char d[4][22];
-	unsigned short port;
-	char *c;
-
-	dns.count = 0;
-
-	strlcpy(s, nvram_safe_get("wan_dns"), sizeof(s));
-	if ((nvram_get_int("dns_addget")) || (s[0] == 0)) {
-		n = strlen(s);
-		snprintf(s + n, sizeof(s) - n, " %s", nvram_safe_get("wan_get_dns"));
-	}
-
-	n = sscanf(s, "%21s %21s %21s %21s", d[0], d[1], d[2], d[3]);
-	for (i = 0; i < n; ++i) {
-		port = 53;
-
-		if ((c = strchr(d[i], ':')) != NULL) {
-			*c++ = 0;
-			if (((j = atoi(c)) < 1) || (j > 0xFFFF)) continue;
-			port = j;
-		}
-		
-		if (inet_pton(AF_INET, d[i], &ia) > 0) {
-			for (j = dns.count - 1; j >= 0; --j) {
-				if ((dns.dns[j].addr.s_addr == ia.s_addr) && (dns.dns[j].port == port)) break;
-			}
-			if (j < 0) {
-				dns.dns[dns.count].port = port;
-				dns.dns[dns.count++].addr.s_addr = ia.s_addr;
-				if (dns.count == 3) break;
-			}
-		}
-	}
-
-	return &dns;
-}
-
 // -----------------------------------------------------------------------------
+#define ACT_COMM_LEN	20
+struct action_s {
+	char comm[ACT_COMM_LEN];
+	pid_t pid;
+	int action;
+};
 
 void set_action(int a)
 {
-	_dprintf("set_action %d\n", a);
-
 	int r = 3;
-	while (f_write("/var/lock/action", &a, sizeof(a), 0, 0) != sizeof(a)) {
+	struct action_s act;
+	char *s, *p, stat[sizeof("/proc/XXXXXX/statXXXXXX")];
+
+	act.action = a;
+	act.pid = getpid();
+	snprintf(stat, sizeof(stat), "/proc/%d/stat", act.pid);
+	s = file2str(stat);
+	if (s) {
+		if ((p = strrchr(s, ')')) != NULL)
+			*p = '\0';
+		if ((p = strchr(s, '(')) != NULL)
+			snprintf(act.comm, sizeof(act.comm), "%s", ++p);
+		free(s);
+		s = (p && *act.comm) ? act.comm : NULL;
+	}
+	if (!s)
+		snprintf(act.comm, sizeof(act.comm), "%d <UNKNOWN>", act.pid);
+	_dprintf("%d: set_action %d\n", getpid(), act.action);
+	while (f_write_excl(ACTION_LOCK, &act, sizeof(act), 0, 0600) != sizeof(act)) {
 		sleep(1);
 		if (--r == 0) return;
 	}
 	if (a != ACT_IDLE) sleep(2);
 }
 
-int check_action(void)
+static int __check_action(struct action_s *pa)
 {
-	int a;
 	int r = 3;
+	struct action_s act;
 
-	while (f_read("/var/lock/action", &a, sizeof(a)) != sizeof(a)) {
+	while (f_read_excl(ACTION_LOCK, &act, sizeof(act)) != sizeof(act)) {
 		sleep(1);
 		if (--r == 0) return ACT_UNKNOWN;
 	}
-	_dprintf("check_action %d\n", a);
+	if (pa)
+		*pa = act;
+	_dprintf("%d: check_action %d\n", getpid(), act.action);
 
-	return a;
+	return act.action;
+}
+
+int check_action(void)
+{
+	return __check_action(NULL);
 }
 
 int wait_action_idle(int n)
 {
+	int r;
+	struct action_s act;
+
 	while (n-- > 0) {
-		if (check_action() == ACT_IDLE) return 1;
+		act.pid = 0;
+		if (__check_action(&act) == ACT_IDLE) return 1;
+		if (act.pid > 0 && !process_exists(act.pid)) {
+			if (!(r = unlink(ACTION_LOCK)) || errno == ENOENT) {
+				_dprintf("Terminated process, pid %d %s, hold action lock %d !!!\n",
+					act.pid, act.comm, act.action);
+				return 1;
+			}
+			_dprintf("Remove " ACTION_LOCK " failed. errno %d (%s)\n", errno, strerror(errno));
+		}
 		sleep(1);
 	}
+	_dprintf("pid %d %s hold action lock %d !!!\n", act.pid, act.comm, act.action);
 	return 0;
 }
 
 const char *get_wanip(void)
 {	
-	char tmp[100], prefix[]="wanXXXXXX_";
-	int unit=0;
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 
-	snprintf(prefix, sizeof(prefix), "wan%d_", unit);
+	snprintf(prefix, sizeof(prefix), "wan%d_", wan_primary_ifunit());
 
 	return nvram_safe_get(strcat_r(prefix, "ipaddr", tmp));
 }
 
 int get_wanstate(void)
 {
-	char tmp[100], prefix[]="wanXXXXX_";
+	char tmp[100], prefix[sizeof("wanXXXXXXXXXX_")];
 
 	snprintf(prefix, sizeof(prefix), "wan%d_", wan_primary_ifunit());
 
@@ -612,59 +770,53 @@ int get_wanstate(void)
 
 const char *get_wanface(void)
 {
-	return get_wan_ifname(0);
+	return get_wan_ifname(wan_primary_ifunit());
 }
 
 #ifdef RTCONFIG_IPV6
 const char *get_wan6face(void)
 {
-	switch (get_ipv6_service()) {
-	case IPV6_NATIVE:
-	case IPV6_NATIVE_DHCP:
-	case IPV6_MANUAL:
-		return get_wan6_ifname(0);
-	case IPV6_6TO4:
-		return "v6to4";
-	case IPV6_6IN4:
-		return "v6in4";
-	case IPV6_6RD:
-		return "6rd";
-	}
-//	return nvram_safe_get("ipv6_ifname");
-	return "";
+	return get_wan6_ifname(wan_primary_ifunit());
 }
 
 int update_6rd_info(void)
 {
-	if (get_ipv6_service() == IPV6_6RD && nvram_match("ipv6_6rd_dhcp", "1")) {
-		char addr6[INET6_ADDRSTRLEN + 1];
-		const char *prefix;
-		struct in6_addr addr;
+	char tmp[100], prefix[]="wanXXXXX_";
+	char addr6[INET6_ADDRSTRLEN + 1], *value;
+	struct in6_addr addr;
 
-		if (!nvram_invmatch("wan0_6rd_router", ""))
-			return 0;
+	if (get_ipv6_service() != IPV6_6RD || !nvram_get_int(ipv6_nvname("ipv6_6rd_dhcp")))
+		return -1;
 
+	snprintf(prefix, sizeof(prefix), "wan%d_", wan_primary_ifunit());
+
+	value = nvram_safe_get(strcat_r(prefix, "6rd_prefix", tmp));
+	if (*value ) {
 		/* try to compact IPv6 prefix */
-		prefix = nvram_safe_get("wan0_6rd_prefix");
-		if (inet_pton(AF_INET6, prefix, &addr) == 1)
-			prefix = inet_ntop(AF_INET6, &addr, addr6, sizeof(addr6));
-
-		nvram_set("ipv6_6rd_prefix", prefix);
-		nvram_set("ipv6_6rd_router", nvram_safe_get("wan0_6rd_router"));
-		nvram_set("ipv6_6rd_prefixlen", nvram_safe_get("wan0_6rd_prefixlen"));
-		nvram_set("ipv6_6rd_ip4size", nvram_safe_get("wan0_6rd_ip4size"));
+		if (inet_pton(AF_INET6, value, &addr) > 0)
+			value = (char *) inet_ntop(AF_INET6, &addr, addr6, sizeof(addr6));
+		nvram_set(ipv6_nvname("ipv6_6rd_prefix"), value);
+		nvram_set(ipv6_nvname("ipv6_6rd_router"), nvram_safe_get(strcat_r(prefix, "6rd_router", tmp)));
+		nvram_set(ipv6_nvname("ipv6_6rd_prefixlen"), nvram_safe_get(strcat_r(prefix, "6rd_prefixlen", tmp)));
+		nvram_set(ipv6_nvname("ipv6_6rd_ip4size"), nvram_safe_get(strcat_r(prefix, "6rd_ip4size", tmp)));
 		return 1;
 	}
-	else return -1;
+
+	return 0;
 }
 #endif
 
-const char *getifaddr(char *ifname, int family, int flags)
+const char *_getifaddr(const char *ifname, int family, int flags, char *buf, int size)
 {
-	static char buf[INET6_ADDRSTRLEN];
 	struct ifaddrs *ifap, *ifa;
-	unsigned char *addr, *netmask;
-	int i, maxlen = 0;
+	union {
+#ifdef RTCONFIG_IPV6
+		struct in6_addr in6;
+#endif
+		struct in_addr in;
+	} addrbuf;
+	unsigned char *addr, *netmask, *paddr, *pnetmask;
+	unsigned char len, maxlen;
 
 	if (getifaddrs(&ifap) != 0) {
 		_dprintf("getifaddrs failed: %s\n", strerror(errno));
@@ -679,35 +831,52 @@ const char *getifaddr(char *ifname, int family, int flags)
 
 		switch (ifa->ifa_addr->sa_family) {
 #ifdef RTCONFIG_IPV6
-		case AF_INET6: {
+		case AF_INET6:
 			addr = (void *) &((struct sockaddr_in6 *) ifa->ifa_addr)->sin6_addr;
-			netmask = (void *) &((struct sockaddr_in6 *) ifa->ifa_netmask)->sin6_addr;
-			maxlen = 128;
 			if (IN6_IS_ADDR_LINKLOCAL(addr) ^ !!(flags & GIF_LINKLOCAL))
 				continue;
+			netmask = (void *) &((struct sockaddr_in6 *) ifa->ifa_netmask)->sin6_addr;
+			maxlen = sizeof(struct in6_addr) * 8;
 			break;
-		}
 #endif
-		case AF_INET: {
+		case AF_INET:
 			addr = (void *) &((struct sockaddr_in *) ifa->ifa_addr)->sin_addr;
 			netmask = (void *) &((struct sockaddr_in *) ifa->ifa_netmask)->sin_addr;
-			maxlen = 32;
+			maxlen = sizeof(struct in_addr) * 8;
 			break;
-		}
 		default:
 			continue;
 		}
 
-		if (addr && inet_ntop(ifa->ifa_addr->sa_family, addr, buf, sizeof(buf)) != NULL) {
-			if (netmask && (flags & GIF_PREFIXLEN)) {
-				int len = 0;
-				for (i = 0; netmask[i] == 0xff && len < maxlen; i++)
-					len += 8;
-				for (i = netmask[i]; i && len < maxlen; i <<= 1)
-					len++;
+		if ((flags & GIF_PREFIX) && addr && netmask) {
+			paddr = addr = memcpy(&addrbuf, addr, maxlen / 8);
+			pnetmask = netmask;
+			for (len = 0; len < maxlen; len += 8)
+				*paddr++ &= *pnetmask++;
+		}
+
+		if (addr && inet_ntop(ifa->ifa_addr->sa_family, addr, buf, size) != NULL) {
+			if ((flags & GIF_PREFIXLEN) && netmask) {
+				for (len = 0; len < maxlen && *netmask == 0xff; len += 8)
+					netmask++;
+				if (len < maxlen && *netmask) {
+					switch (*netmask) {
+					case 0xfe: len += 7; break;
+					case 0xfc: len += 6; break;
+					case 0xf8: len += 5; break;
+					case 0xf0: len += 4; break;
+					case 0xe0: len += 3; break;
+					case 0xc0: len += 2; break;
+					case 0x80: len += 1; break;
+					default:
+						_dprintf("getifaddrs netmask error: %x\n", *netmask);
+						goto error;
+					}
+				}
 				if (len < maxlen) {
-					i = strlen(buf);
-					snprintf(&buf[i], sizeof(buf)-i, "/%d", len);
+					netmask = memchr(buf, 0, size);
+					if (netmask)
+						snprintf((char *) netmask, size - ((char *) netmask - buf), "/%d", len);
 				}
 			}
 			freeifaddrs(ifap);
@@ -715,8 +884,16 @@ const char *getifaddr(char *ifname, int family, int flags)
 		}
 	}
 
+error:
 	freeifaddrs(ifap);
 	return NULL;
+}
+
+const char *getifaddr(const char *ifname, int family, int flags)
+{
+	static char buf[INET6_ADDRSTRLEN];
+
+	return _getifaddr(ifname, family, flags, buf, sizeof(buf));
 }
 
 int is_intf_up(const char* ifname)
@@ -845,12 +1022,24 @@ int nvram_get_int(const char *key)
 	return atoi(nvram_safe_get(key));
 }
 
-
 int nvram_set_int(const char *key, int value)
 {
 	char nvramstr[16];
 
 	snprintf(nvramstr, sizeof(nvramstr), "%d", value);
+	return nvram_set(key, nvramstr);
+}
+
+double nvram_get_double(const char *key)
+{
+	return atof(nvram_safe_get(key));
+}
+
+int nvram_set_double(const char *key, double value)
+{
+	char nvramstr[33];
+
+	snprintf(nvramstr, sizeof(nvramstr), "%.9g", value);
 	return nvram_set(key, nvramstr);
 }
 
@@ -867,14 +1056,14 @@ int nvram_get_file(const char *key, const char *fname, int max)
 	n = strlen(p);
 	if (n <= max) {
 		if ((b = malloc(base64_decoded_len(n) + 128)) != NULL) {
-			n = base64_decode(p, b, n);
+			n = base64_decode(p, (unsigned char *) b, n);
 			if (n > 0) r = (f_write(fname, b, n, 0, 0644) == n);
 			free(b);
 		}
 	}
 	return r;
 /*
-	char b[2048];
+	char b[3500];
 	int n;
 	char *p;
 
@@ -901,7 +1090,7 @@ int nvram_set_file(const char *key, const char *fname, int max)
 	r = 0;
 	if (f_read_alloc(fname, &in, max) == max) {
 		if ((out = malloc(base64_encoded_len(max) + 128)) != NULL) {
-			n = base64_encode(in, out, max);
+			n = base64_encode((unsigned char *) in, out, max);
 			out[n] = 0;
 			nvram_set(key, out);
 			free(out);
@@ -911,8 +1100,8 @@ int nvram_set_file(const char *key, const char *fname, int max)
 	}
 	return r;
 /*
-	char a[2048];
-	char b[4096];
+	char a[3500];
+	char b[7000];
 	int n;
 
 	if (((n = f_read(fname, &a, sizeof(a))) > 0) && (n <= max)) {
@@ -1000,7 +1189,10 @@ uint32_t crc_calc(uint32_t crc, const char *buf, int len)
 void bcmvlan_models(int model, char *vlan)
 {
 	switch (model) {
+	case MODEL_DSLAC68U:
+	case MODEL_RPAC68U:
 	case MODEL_RTAC68U:
+	case MODEL_RTAC87U:
 	case MODEL_RTAC56S:
 	case MODEL_RTAC56U:
 	case MODEL_RTAC66U:
@@ -1009,6 +1201,13 @@ void bcmvlan_models(int model, char *vlan)
 	case MODEL_RTN18U:
 	case MODEL_RTN15U:
 	case MODEL_RTAC53U:
+	case MODEL_RTAC3200:
+	case MODEL_RTAC88U:
+	case MODEL_RTAC3100:
+	case MODEL_RTAC5300:
+	case MODEL_RTAC5300R:
+	case MODEL_RTAC1200G:
+	case MODEL_RTAC1200GP:
 		strcpy(vlan, "vlan1");
 		break;
 	case MODEL_RTN53:
@@ -1043,17 +1242,18 @@ char *get_productid(void)
 	return productid;
 }
 
-int backup_rx;
-int backup_tx;
+long backup_rx = 0;
+long backup_tx = 0;
+int backup_set = 0;
 
-unsigned int netdev_calc(char *ifname, char *ifname_desc, unsigned long *rx, unsigned long *tx, char *ifname_desc2, unsigned long *rx2, unsigned long *tx2)
+unsigned int netdev_calc(char *ifname, char *ifname_desc, unsigned long *rx, unsigned long *tx, char *ifname_desc2, unsigned long *rx2, unsigned long *tx2)		
 {
 	char word[100], word1[100], *next, *next1;
 	char tmp[100];
 	char modelvlan[32];
 	int i, j, model, unit;
-
 	strcpy(ifname_desc2, "");
+
 	model = get_model();
 	bcmvlan_models(model, modelvlan);
 
@@ -1106,7 +1306,7 @@ unsigned int netdev_calc(char *ifname, char *ifname_desc, unsigned long *rx, uns
 						}
 						j++;
 					}
-					sprintf(ifname_desc, "WIRELESS%d.%d", 0, j);
+				sprintf(ifname_desc, "WIRELESS%d.%d", 0, j);
 					return 1;
 				}
 				i++;
@@ -1117,18 +1317,41 @@ unsigned int netdev_calc(char *ifname, char *ifname_desc, unsigned long *rx, uns
 		// find wired interface
 		strcpy(ifname_desc, "WIRED");
 
+		if(model == MODEL_DSLAC68U)
+			return 1;
+
+#ifdef RTCONFIG_BCM5301X_TRAFFIC_MONITOR
+			return 1;
+#endif
+
 		// special handle for non-tag wan of broadcom solution
 		// pretend vlanX is must called after ethX
 		if(nvram_match("switch_wantag", "none")) { //Don't calc if select IPTV
-			if(strlen(modelvlan) && strcmp(ifname, modelvlan)==0) {
+			if(backup_set && strlen(modelvlan) && strcmp(ifname, modelvlan)==0) {
+				backup_set  = 0;
 				backup_rx -= *rx;
 				backup_tx -= *tx;
 
 				*rx2 = backup_rx;
 				*tx2 = backup_tx;				
-				strcpy(ifname_desc2, "INTERNET");
+				/* Cherry Cho modified for RT-AC3200 Bug#202 in 2014/11/4. */	
+				unit = get_wan_unit("eth0");
+
+#ifdef RTCONFIG_DUALWAN			
+				if ( (unit == wan_primary_ifunit()) || ( !strstr(nvram_safe_get("wans_dualwan"), "none") && nvram_match("wans_mode", "lb")) )
+				{
+					if (unit == WAN_UNIT_FIRST)
+						strcpy(ifname_desc2, "INTERNET");
+					else
+						sprintf(ifname_desc2,"INTERNET%d", unit);
+				}									
+#else
+				if(unit == wan_primary_ifunit())
+					strcpy(ifname_desc2, "INTERNET");					
+#endif	/* RTCONFIG_DUALWAN */
 			}
 		}//End of switch_wantag
+
 		return 1;
 	}
 	// find bridge interface
@@ -1138,27 +1361,64 @@ unsigned int netdev_calc(char *ifname, char *ifname_desc, unsigned long *rx, uns
 		return 1;
 	}
 	// find in WAN interface
-	else if (ifname && (unit = get_wan_unit(ifname)) >= 0)
-	{
+	else if (ifname && (unit = get_wan_unit(ifname)) >= 0)	{
 		if (dualwan_unit__nonusbif(unit)) {
 #if defined(RA_ESW)
+#if defined(RTCONFIG_RALINK_MT7620)
 			get_mt7620_wan_unit_bytecount(unit, tx, rx);
+#elif defined(RTCONFIG_RALINK_MT7621)
+			get_mt7621_wan_unit_bytecount(unit, tx, rx);
+#endif			
 #endif
-
+#ifndef RTCONFIG_BCM5301X_TRAFFIC_MONITOR
 			if(strlen(modelvlan) && strcmp(ifname, "eth0")==0) {
 				backup_rx = *rx;
 				backup_tx = *tx;
+				backup_set  = 1;
 			}
-			else if (unit == wan_primary_ifunit()) {
-				strcpy(ifname_desc, "INTERNET");
-				return 1;
+			else{
+#endif
+#ifdef RTCONFIG_DUALWAN
+				if ( (unit == wan_primary_ifunit()) || ( !strstr(nvram_safe_get("wans_dualwan"), "none") && nvram_match("wans_mode", "lb")) )
+				{
+					if (unit == WAN_UNIT_FIRST) {	
+						strcpy(ifname_desc, "INTERNET");
+						return 1;
+					}
+					else {
+						sprintf(ifname_desc,"INTERNET%d", unit);
+						return 1;
+					}
+				}
+#else
+				if(unit == wan_primary_ifunit()){
+					strcpy(ifname_desc, "INTERNET");
+					return 1;
+				}			
+#endif	/* RTCONFIG_DUALWAN */
+#ifndef RTCONFIG_BCM5301X_TRAFFIC_MONITOR
 			}
+#endif
 		}
 		else if (dualwan_unit__usbif(unit)) {
-			if (unit == wan_primary_ifunit()) {
+#ifdef RTCONFIG_DUALWAN
+			if ( (unit == wan_primary_ifunit()) || ( !strstr(nvram_safe_get("wans_dualwan"), "none") && nvram_match("wans_mode", "lb")) )
+			{
+				if(unit == WAN_UNIT_FIRST){//Cherry Cho modified in 2014/11/4.
+					strcpy(ifname_desc, "INTERNET");
+					return 1;
+				}
+				else{
+					sprintf(ifname_desc,"INTERNET%d", unit);
+					return 1;
+				}
+			}					
+#else
+			if(unit == wan_primary_ifunit()){
 				strcpy(ifname_desc, "INTERNET");
 				return 1;
-			}
+			}	
+#endif	/* RTCONFIG_DUALWAN */
 		}
 		else {
 			_dprintf("%s: unknown ifname %s\n", __func__, ifname);
@@ -1259,13 +1519,17 @@ _dprintf("%s: Finish.\n", __FUNCTION__);
 void logmessage_normal(char *logheader, char *fmt, ...){
   va_list args;
   char buf[512];
+  int level;
 
   va_start(args, fmt);
 
   vsnprintf(buf, sizeof(buf), fmt, args);
 
+  level = nvram_get_int("message_loglevel");
+  if (level > 7) level = 7;
+
   openlog(logheader, 0, 0);
-  syslog(0, buf);
+  syslog(level, buf);
   closelog();
   va_end(args);
 }
@@ -1310,15 +1574,30 @@ char *get_syslog_fname(unsigned int idx)
 	return buf;
 }
 
+#ifdef RTCONFIG_USB_MODEM
+char *get_modemlog_fname(void){
+	char prefix[] = "/tmpXXXXXX";
+	static char buf[PATH_MAX];
+
+	strcpy(prefix, "/tmp");
+	sprintf(buf, "%s/3ginfo.txt", prefix);
+
+	return buf;
+}
+#endif
+
 #ifdef RTCONFIG_BCMWL6
 #ifdef RTCONFIG_PROXYSTA
 int is_psta(int unit)
 {
 	if (unit < 0) return 0;
-
 	if ((nvram_get_int("sw_mode") == SW_MODE_AP) &&
 		(nvram_get_int("wlc_psta") == 1) &&
-		(nvram_get_int("wlc_band") == unit))
+		((nvram_get_int("wlc_band") == unit)
+#ifdef PXYSTA_DUALBAND
+		|| (nvram_match("exband", "1") && nvram_get_int("wlc_band_ex") == unit)
+#endif
+		))
 		return 1;
 
 	return 0;
@@ -1327,11 +1606,73 @@ int is_psta(int unit)
 int is_psr(int unit)
 {
 	if (unit < 0) return 0;
-
+#ifdef RTCONFIG_QTN
+	if (unit == 1) return 0;
+#endif
 	if ((nvram_get_int("sw_mode") == SW_MODE_AP) &&
 		(nvram_get_int("wlc_psta") == 2) &&
-		(nvram_get_int("wlc_band") == unit))
+		((nvram_get_int("wlc_band") == unit)
+#ifdef PXYSTA_DUALBAND
+		||  (nvram_match("exband", "1") && nvram_get_int("wlc_band_ex") == unit)
+#endif
+		))
 		return 1;
+
+	return 0;
+}
+
+int psta_exist()
+{
+	char word[256], *next;
+	int idx = 0;
+
+	foreach (word, nvram_safe_get("wl_ifnames"), next) {
+		if (is_psta(idx)) return 1;
+		idx++;
+	}
+
+	return 0;
+}
+
+int psta_exist_except(int unit)
+{
+	char word[256], *next;
+	int idx = 0;
+
+	foreach (word, nvram_safe_get("wl_ifnames"), next) {
+		if (idx == unit) goto END;
+		if (is_psta(idx)) return 1;
+END:
+		idx++;
+	}
+
+	return 0;
+}
+
+int psr_exist()
+{
+	char word[256], *next;
+	int idx = 0;
+
+	foreach (word, nvram_safe_get("wl_ifnames"), next) {
+		if (is_psr(idx)) return 1;
+		idx++;
+	}
+
+	return 0;
+}
+
+int psr_exist_except(int unit)
+{
+	char word[256], *next;
+	int idx = 0;
+
+	foreach (word, nvram_safe_get("wl_ifnames"), next) {
+		if (idx == unit) goto END;
+		if (is_psr(idx)) return 1;
+END:
+		idx++;
+	}
 
 	return 0;
 }
@@ -1339,29 +1680,89 @@ int is_psr(int unit)
 #endif
 
 #ifdef RTCONFIG_OPENVPN
-char *get_parsed_crt(const char *name, char *buf)
+char *get_parsed_crt(const char *name, char *buf, size_t buf_len)
 {
 	char *value;
 	int len, i;
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+	FILE *fp;
+	char tmpBuf[256] = {0};
+	char *p = buf;
+#endif
 
 	value = nvram_safe_get(name);
-
 	len = strlen(value);
 
-	for (i=0; (i < len); i++) {
-		if (value[i] == '>')
-			buf[i] = '\n';
-		else
-			buf[i] = value[i];
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+	if(!check_if_dir_exist(OVPN_FS_PATH))
+		mkdir(OVPN_FS_PATH, S_IRWXU);
+	snprintf(tmpBuf, sizeof(tmpBuf) -1, "%s/%s", OVPN_FS_PATH, name);
+#endif
+
+	if(len) {
+		for (i=0; (i < len); i++) {
+			if (value[i] == '>')
+				buf[i] = '\n';
+			else
+				buf[i] = value[i];
+		}
+		buf[i] = '\0';
+
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+		//save to file and then clear nvram value
+		fp = fopen(tmpBuf, "w");
+		if(fp) {
+			chmod(tmpBuf, S_IRUSR|S_IWUSR);
+			fprintf(fp, "%s", buf);
+			fclose(fp);
+			nvram_set(name, "");
+		}
+#endif
 	}
-
-	buf[i] = '\0';
-
+	else {
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+		//nvram value cleard, get from file
+		fp = fopen(tmpBuf, "r");
+		if(fp) {
+			while(fgets(buf, buf_len, fp)) {
+				if(!strncmp(buf, "-----BEGIN", 10))
+					break;
+			}
+			if(feof(fp)) {
+				fclose(fp);
+				memset(buf, 0, buf_len);
+				return buf;
+			}
+			p += strlen(buf);
+			memset(tmpBuf, 0, sizeof(tmpBuf));
+			while(fgets(tmpBuf, sizeof(tmpBuf), fp)) {
+				strncpy(p, tmpBuf, strlen(tmpBuf));
+				p += strlen(tmpBuf);
+			}
+			*p = '\0';
+			fclose(fp);
+		}
+#endif
+	}
 	return buf;
 }
 
 int set_crt_parsed(const char *name, char *file_path)
 {
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+	char target_file_path[128] ={0};
+
+	if(!check_if_dir_exist(OVPN_FS_PATH))
+		mkdir(OVPN_FS_PATH, S_IRWXU);
+
+	if(check_if_file_exist(file_path)) {
+		snprintf(target_file_path, sizeof(target_file_path) -1, "%s/%s", OVPN_FS_PATH, name);
+		return eval("cp", file_path, target_file_path);
+	}
+	else {
+		return -1;
+	}
+#else
 	FILE *fp=fopen(file_path, "r");
 	char buffer[4000] = {0};
 	char buffer2[256] = {0};
@@ -1380,13 +1781,13 @@ int set_crt_parsed(const char *name, char *file_path)
 			return -EINVAL;
 		}
 		p += strlen(buffer);
-		if( *(p-1) == '\n' )
-			*(p-1) = '>';
+		//if( *(p-1) == '\n' )
+			//*(p-1) = '>';
 		while(fgets(buffer2, sizeof(buffer2), fp)) {
 			strncpy(p, buffer2, strlen(buffer2));
 			p += strlen(buffer2);
-			if( *(p-1) == '\n' )
-				*(p-1) = '>';
+			//if( *(p-1) == '\n' )
+				//*(p-1) = '>';
 		}
 		*p = '\0';
 		nvram_set(name, buffer);
@@ -1395,6 +1796,42 @@ int set_crt_parsed(const char *name, char *file_path)
 	}
 	else
 		return -ENOENT;
+#endif
+}
+
+int ovpn_crt_is_empty(const char *name)
+{
+	char file_path[128] ={0};
+	struct stat st;
+
+	if( nvram_is_empty(name) ) {
+#if defined(RTCONFIG_JFFS2) || defined(RTCONFIG_BRCM_NAND_JFFS2) || defined(RTCONFIG_UBIFS)
+		//check file
+		if(d_exists(OVPN_FS_PATH)) {
+			snprintf(file_path, sizeof(file_path) -1, "%s/%s", OVPN_FS_PATH, name);
+			if(stat(file_path, &st) == 0) {
+				if( !S_ISDIR(st.st_mode) && st.st_size ) {
+					return 0;
+				}
+				else {
+					return 1;
+				}
+			}
+			else {
+				return 1;
+			}
+		}
+		else {
+			mkdir(OVPN_FS_PATH, S_IRWXU);
+			return 1;
+		}
+#else
+		return 1;
+#endif
+	}
+	else {
+		return 0;
+	}
 }
 #endif
 
@@ -1448,3 +1885,399 @@ int get_primaryif_dualwan_unit(void)
 	return unit;
 }
 #endif
+
+/* Return WiFi unit number in accordance with interface name.
+ * @wif:	pointer to WiFi interface name.
+ * @return:
+ * 	< 0:	invalid
+ *  otherwise:	unit
+ */
+int get_wifi_unit(char *wif)
+{
+	int i;
+	char word[256], *next, *ifn, nv[20];
+
+	if (!wif || *wif == '\0')
+		return -1;
+	foreach (word, nvram_safe_get("wl_ifnames"), next) {
+		if (strncmp(word, wif, strlen(word)))
+			continue;
+
+		for (i = 0; i <= 1; ++i) {
+			sprintf(nv, "wl%d_ifname", i);
+			ifn = nvram_safe_get(nv);
+			if (!strncmp(word, ifn, strlen(word)))
+				return i;
+		}
+	}
+	return -1;
+}
+
+
+#ifdef RTCONFIG_YANDEXDNS
+int get_yandex_dns(int family, int mode, char **server, int max_count)
+{
+	static const struct {
+		int mode;
+		int family;
+		char *server;
+	} table[] = {
+		{ YADNS_BASIC, AF_INET, "77.88.8.8" },			/* dns.yandex.ru  */
+		{ YADNS_BASIC, AF_INET, "77.88.8.1" },			/* secondary.dns.yandex.ru */
+		{ YADNS_SAFE, AF_INET, "77.88.8.88" },			/* safe.dns.yandex.ru */
+		{ YADNS_SAFE, AF_INET, "77.88.8.2" },			/* secondary.safe.dns.yandex.ru */
+		{ YADNS_FAMILY, AF_INET, "77.88.8.7" },			/* family.dns.yandex.ru */
+		{ YADNS_FAMILY, AF_INET, "77.88.8.3" },			/* secondary.family.dns.yandex.ru */
+#ifdef RTCONFIG_IPV6
+		{ YADNS_BASIC, AF_INET6, "2a02:6b8::feed:0ff" },	/* dns.yandex.ru  */
+		{ YADNS_BASIC, AF_INET6, "2a02:6b8:0:1::feed:0ff" },	/* secondary.dns.yandex.ru */
+		{ YADNS_SAFE, AF_INET6, "2a02:6b8::feed:bad" },		/* safe.dns.yandex.ru */
+		{ YADNS_SAFE, AF_INET6, "2a02:6b8:0:1::feed:bad" },	/* secondary.safe.dns.yandex.ru */
+		{ YADNS_FAMILY, AF_INET6, "2a02:6b8::feed:a11" },	/* family.dns.yandex.ru */
+		{ YADNS_FAMILY, AF_INET6, "2a02:6b8:0:1::feed:a11" },	/* secondary.family.dns.yandex.ru */
+#endif
+	};
+	int i, count = 0;
+
+	if (mode < YADNS_FIRST || mode >= YADNS_COUNT)
+		return -1;
+
+	for (i = 0; i < sizeof(table)/sizeof(table[0]) && count < max_count; i++) {
+		if ((mode == table[i].mode) &&
+		    (family == AF_UNSPEC || family == table[i].family))
+			server[count++] = table[i].server;
+	}
+
+	return count;
+}
+#endif
+
+#ifdef RTCONFIG_BWDPI
+/*
+	usage in rc or bwdpi for checking service
+*/
+int check_bwdpi_nvram_setting()
+{
+	int enabled = 1;
+	int debug = nvram_get_int("bwdpi_debug");
+
+	// check no qos service
+	if(nvram_get_int("wrs_enable") == 0 && nvram_get_int("wrs_app_enable") == 0 && 
+		nvram_get_int("wrs_vp_enable") == 0 && nvram_get_int("wrs_cc_enable") == 0 &&
+		nvram_get_int("wrs_mals_enable") == 0 &&
+		nvram_get_int("bwdpi_db_enable") == 0 &&
+		nvram_get_int("apps_analysis") == 0 &&
+		nvram_get_int("bwdpi_wh_enable") == 0 &&
+		nvram_get_int("qos_enable") == 0)
+		enabled = 0;
+
+	// check qos service (not adaptive qos)
+	if(nvram_get_int("wrs_enable") == 0 && nvram_get_int("wrs_app_enable") == 0 && 
+		nvram_get_int("wrs_vp_enable") == 0 && nvram_get_int("wrs_cc_enable") == 0 &&
+		nvram_get_int("wrs_mals_enable") == 0 &&
+		nvram_get_int("bwdpi_db_enable") == 0 &&
+		nvram_get_int("apps_analysis") == 0 &&
+		nvram_get_int("bwdpi_wh_enable") == 0 &&
+		nvram_get_int("qos_enable") == 1 && nvram_get_int("qos_type") != 1)
+		enabled = 0;
+
+	if(debug) dbg("[check_bwdpi_nvram_setting] enabled= %d\n", enabled);
+
+	return enabled;
+}
+#endif
+
+/*
+	transfer timestamp into date
+	ex. date = 2014-07-14 19:20:10
+*/
+void StampToDate(unsigned long timestamp, char *date)
+{
+	struct tm *local;
+	time_t now;
+	
+	now = timestamp;
+	local = localtime(&now);
+	strftime(date, 30, "%Y-%m-%d %H:%M:%S", local);
+}
+
+/*
+	check filesize is over or not
+	if over size, return 1, else return 0
+*/
+int check_filesize_over(char *path, long int size)
+{
+	struct stat st;
+	off_t cursize;
+
+	stat(path, &st);
+	cursize = st.st_size;
+
+	size = size * 1024; // KB
+
+	if(cursize > size)
+		return 1;
+	else
+		return 0;
+}
+
+/*
+	get last month's timestamp
+	ex.
+	now = 1445817600
+	tm  = 2015/10/26 00:00:00
+	t   = 2015/10/01 00:00:00
+	t_t = 1443628800
+*/
+time_t get_last_month_timestamp()
+{
+	struct tm local, t;
+	time_t now, t_t = 0;
+			
+	// get timestamp and tm
+	time(&now);
+	localtime_r(&now, &local);
+
+	// copy t from local
+	t.tm_year = local.tm_year;
+	t.tm_mon = local.tm_mon;
+	t.tm_mday = 1;
+	t.tm_hour = 0;
+	t.tm_min = 0;
+	t.tm_sec = 0;
+
+	// transfer tm to timestamp
+	t_t = mktime(&t);
+
+	return t_t;
+}
+
+int get_iface_hwaddr(char *name, unsigned char *hwaddr)
+{
+	struct ifreq ifr;
+	int ret = 0;
+	int s;
+
+	/* open socket to kernel */
+	if ((s = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		perror("socket");
+		return errno;
+	}
+
+	/* do it */
+	strncpy(ifr.ifr_name, name, sizeof(ifr.ifr_name)-1);
+	ifr.ifr_name[sizeof(ifr.ifr_name)-1] = '\0';
+	if ((ret = ioctl(s, SIOCGIFHWADDR, &ifr)) == 0)
+		memcpy(hwaddr, ifr.ifr_hwaddr.sa_data, ETHER_ADDR_LEN);
+
+	/* cleanup */
+	close(s);
+	return ret;
+}
+
+int _xstart(const char *cmd, ...)
+{
+        va_list ap;
+        char *argv[16];
+        int argc;
+        int pid;
+
+        argv[0] = (char *)cmd;
+        argc = 1;
+        va_start(ap, cmd);
+        while ((argv[argc++] = va_arg(ap, char *)) != NULL) {
+                //
+        }
+        va_end(ap);
+
+        return _eval(argv, NULL, 0, &pid);
+}
+
+long fappend(FILE *out, const char *fname)
+{
+	FILE *in;
+	char buf[1024];
+	int n;
+	long r;
+
+	if ((in = fopen(fname, "r")) == NULL) return -1;
+	r = 0;
+	while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+		if (fwrite(buf, 1, n, out) != n) {
+			r = -1;
+			break;
+		}
+		else {
+			r += n;
+		}
+	}
+	fclose(in);
+	return r;
+}
+
+
+int internet_ready(void)
+{
+	if(nvram_get_int("ntp_ready") == 1)
+		return 1;
+	return 0;
+}
+
+#ifdef RTCONFIG_TRAFFIC_LIMITER
+static char *traffic_limiter_get_path(const char *type)
+{
+	if (type == NULL)
+		return NULL;
+	else if (strcmp(type, "limit") == 0)
+		return "/jffs/tld/tl_limit";
+	else if (strcmp(type, "alert") == 0)
+		return "/jffs/tld/tl_alert";
+	else if (strcmp(type, "count") == 0)
+		return "/jffs/tld/tl_count";
+
+	return NULL;
+}
+
+unsigned int traffic_limiter_read_bit(const char *type)
+{
+	char *path;
+	char buf[sizeof("4294967295")];
+	unsigned int val = 0;
+
+	path = traffic_limiter_get_path(type);
+	if (path && f_read_string(path, buf, sizeof(buf)) > 0)
+		val = strtoul(buf, NULL, 10);
+
+	TL_DBG("path = %s, val=%u\n", path ? : "NULL", val);
+	return val;
+}
+
+void traffic_limiter_set_bit(const char *type, int unit)
+{
+	char *path;
+	char buf[sizeof("4294967295")];
+	unsigned int val = 0;
+
+	path = traffic_limiter_get_path(type);
+	if (path) {
+		val = traffic_limiter_read_bit(type);
+		val |= (1U << unit);
+		snprintf(buf, sizeof(buf), "%u", val);
+		f_write_string(path, buf, 0, 0);
+	}
+
+	TL_DBG("path = %s, val=%u\n", path ? : "NULL", val);
+}
+
+void traffic_limiter_clear_bit(const char *type, int unit)
+{
+	char *path;
+	char buf[sizeof("4294967295")];
+	unsigned int val = 0;
+
+	path = traffic_limiter_get_path(type);
+	if (path) {
+		val = traffic_limiter_read_bit(type);
+		val &= ~(1U << unit);
+		snprintf(buf, sizeof(buf), "%u", val);
+		f_write_string(path, buf, 0, 0);
+	}
+
+	TL_DBG("path = %s, val=%u\n", path ? : "NULL", val);
+}
+
+double traffic_limiter_get_realtime(int unit)
+{
+	char path[PATH_MAX];
+	char buf[32];
+	double val = 0;
+
+	snprintf(path, sizeof(path), "/tmp/tl%d_realtime", unit);
+	if (f_read_string(path, buf, sizeof(buf)) > 0)
+		val = atof(buf);
+
+	return val;
+}
+#endif
+
+void run_custom_script(char *name, char *args)
+{
+	char script[120];
+
+	snprintf(script, sizeof(script), "/jffs/scripts/%s", name);
+
+	if(f_exists(script)) {
+		if (nvram_match("jffs2_scripts", "0")) {
+			logmessage("custom script", "Found %s, but custom script execution is disabled!", name);
+			return;
+		}
+		if (args)
+			logmessage("custom script" ,"Running %s (args: %s)", script, args);
+		else
+			logmessage("custom script" ,"Running %s", script);
+		xstart(script, args);
+	}
+}
+
+void run_custom_script_blocking(char *name, char *args)
+{
+	char script[120];
+
+	snprintf(script, sizeof(script), "/jffs/scripts/%s", name);
+
+	if(f_exists(script)) {
+		if (nvram_match("jffs2_scripts", "0")) {
+			logmessage("custom script", "Found %s, but custom script execution is disabled!", name);
+			return;
+		}
+		if (args)
+			logmessage("custom script" ,"Running %s (args: %s)", script, args);
+		else
+			logmessage("custom script" ,"Running %s", script);
+		eval(script, args);
+	}
+
+}
+
+void run_postconf(char *name, char *config)
+{
+	char filename[64];
+
+	snprintf(filename, sizeof (filename), "%s.postconf", name);
+	run_custom_script_blocking(filename, config);
+}
+
+
+void use_custom_config(char *config, char *target)
+{
+        char filename[256];
+
+        snprintf(filename, sizeof(filename), "/jffs/configs/%s", config);
+
+	if (check_if_file_exist(filename)) {
+		if (nvram_match("jffs2_scripts", "0")) {
+			logmessage("custom config", "Found %s, but custom configs are disabled!", filename);
+			return;
+		}
+		logmessage("custom config", "Using custom %s config file.", filename);
+		eval("cp", filename, target, NULL);
+	}
+}
+
+
+void append_custom_config(char *config, FILE *fp)
+{
+	char filename[256];
+
+	snprintf(filename, sizeof(filename), "/jffs/configs/%s.add", config);
+
+	if (check_if_file_exist(filename)) {
+		if (nvram_match("jffs2_scripts", "0")) {
+			logmessage("custom config", "Found %s, but custom configs are disabled!", filename);
+			return;
+		}
+		logmessage("custom config", "Appending content of %s.", filename);
+		fappend(fp, filename);
+	}
+}
+

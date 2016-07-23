@@ -25,7 +25,9 @@ CFLAGS  += -DNAS_WKSP_BUILD_NAS_SUPPL
 #CFLAGS  += -DNAS_GTK_PER_STA
 CFLAGS  += -DNAS_RADIUS
 CFLAGS  += -DNAS_WKSP_ON_DEMAND
-
+ifeq ($(RTCONFIG_IPV6),y)
+CFLAGS += -DNAS_IPV6
+endif
 
 CFLAGS	+= -DBCMSUPPL
 
@@ -46,7 +48,7 @@ UTLOBJS = bcmwpa.o bcmutils.o
 
 ifeq ($(wildcard ../*.c), )
 all:
-	-cp ./prebuild/nas .
+	-cp ./prebuilt/nas .
 else
 all: nas
 endif

@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -10,56 +10,39 @@
 <title><#Network_Tools#> - <#NetworkTools_WOL#></title>
 <link rel="stylesheet" type="text/css" href="index_style.css"> 
 <link rel="stylesheet" type="text/css" href="form_style.css">
+<link rel="stylesheet" type="text/css" href="/device-map/device-map.css">
 <style>
-#ClientList_Block_PC{
-	border:1px outset #999;
-	background-color:#576D73;
-	position:absolute;
-	*margin-top:26px;	
-	margin-left:53px;
-	*margin-left:-189px;
-	width:255px;
-	text-align:left;	
-	height:auto;
-	overflow-y:auto;
-	z-index:200;
-	padding: 1px;
-	display:none;
-}
-#ClientList_Block_PC div{
-	background-color:#576D73;
-	height:auto;
-	*height:20px;
-	line-height:20px;
-	text-decoration:none;
-	font-family: Lucida Console;
-	padding-left:2px;
-}
 
-#ClientList_Block_PC a{
-	background-color:#EFEFEF;
-	color:#FFF;
-	font-size:12px;
-	font-family:Arial, Helvetica, sans-serif;
-	text-decoration:none;	
-}
-#ClientList_Block_PC div:hover, #ClientList_Block a:hover{
-	background-color:#3366FF;
-	color:#FFFFFF;
-	cursor:default;
-}	
 </style>	
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
-<script type="text/javascript" language="JavaScript" src="/detect.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.js"></script>
+<script language="JavaScript" type="text/javascript" src="/validator.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
+<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 <script>
+var wollist_array = '<% nvram_get("wollist"); %>';
+var manually_wol_list_array = new Array();
+Object.prototype.getKey = function(value) {
+	for(var key in this) {
+		if(this[key] == value) {
+			return key;
+		}
+	}
+	return null;
+};
 function initial(){
 	show_menu();
+
+	var wollist_row = wollist_array.split('&#60');
+	for(var i = 1; i < wollist_row.length; i += 1) {
+		var wollist_col = wollist_row[i].split('&#62');
+		manually_wol_list_array[wollist_col[1]] = wollist_col[0];
+	}
+
 	showwollist();
-	showLANIPList();
+	setTimeout("showDropdownClientList('setClientIP', 'mac', 'all', 'ClientList_Block_PC', 'pull_arrow', 'all');", 1000);
 }
 
 function onSubmitCtrl(o, s) {
@@ -80,7 +63,7 @@ function onSubmitCtrl(o, s) {
 }
 
 function updateOptions(){
-	document.form.SystemCmd.value = "ether-wake -i br0 " + document.form.destIP.value;
+	document.form.SystemCmd.value = "ether-wake -i br0 -b " + document.form.destIP.value;
 	document.form.submit();
 	document.getElementById("cmdBtn").disabled = true;
 	document.getElementById("cmdBtn").style.color = "#666";
@@ -88,11 +71,11 @@ function updateOptions(){
 	setTimeout("checkCmdRet();", 500);
 }
 
-var $j = jQuery.noConflict();
+
 var _responseLen;
 var noChange = 0;
 function checkCmdRet(){
-	$j.ajax({
+	$.ajax({
 		url: '/cmdRet_check.htm',
 		dataType: 'html',
 		
@@ -130,48 +113,75 @@ function checkCmdRet(){
 	});
 }
 
-var wollist_array = '<% nvram_get("wollist"); %>';
+
 function showwollist(){
-	var wollist_row = wollist_array.split('&#60');
 	var code = "";
 
 	code +='<table width="100%" cellspacing="0" cellpadding="4" align="center" class="list_table" id="wollist_table">';
-	if(wollist_row.length == 1)
+	if(Object.keys(manually_wol_list_array).length == 0)
 		code +='<tr><td style="color:#FFCC00;" colspan="6"><#IPConnection_VSList_Norule#></td></tr>';
 	else{
-		for(var i = 1; i < wollist_row.length; i++){
-			code +='<tr id="row'+i+'">';
-			var wollist_col = wollist_row[i].split('&#62');
-				for(var j = 0; j < wollist_col.length; j++){
-					if(j == 0)
-						code +='<td width="40%">'+ wollist_col[j] +'</td>';
-					else
-						code +='<td width="40%" style="font-weight:bold;cursor:pointer;text-decoration:underline;font-family:Lucida Console;" onclick="document.form.destIP.value=this.innerHTML;">'+ wollist_col[j] +'</td>';
+		//user icon
+		var userIconBase64 = "NoIcon";
+		var clientName, deviceType, deviceVender;
+		Object.keys(manually_wol_list_array).forEach(function(key) {
+			clientName = manually_wol_list_array[key];
+			if(clientList[key]) {
+				clientName = (clientList[key].nickName == "") ? clientList[key].name : clientList[key].nickName;
+				manually_wol_list_array[key] = clientName;
+			}
+			var clientMac = key;
+			code +='<tr>';
+			code +='<td width="80%" align="center">';
+			if(clientList[clientMac]) {
+				deviceType = clientList[clientMac].type;
+				deviceVender = clientList[clientMac].vendor;
+			}
+			else {
+				deviceType = 0;
+				deviceVender = "";
+			}
+			code += '<table style="width:100%;"><tr><td style="width:40%;height:56px;border:0px;float:right;">';	
+			if(clientList[clientMac] == undefined) {
+				code += '<div class="clientIcon type0" onClick="popClientListEditTable(&quot;' + clientMac + '&quot;, this, &quot;' + clientName + '&quot;, &quot;&quot;, &quot;WOL&quot;)"></div>';
+			}
+			else {
+				if(usericon_support) {
+					userIconBase64 = getUploadIcon(clientMac.replace(/\:/g, ""));
 				}
-				code +='<td width="20%">';
-				code +='<input class="remove_btn" onclick="del_Row(this);" value=""/></td></tr>';
-		}
+				if(userIconBase64 != "NoIcon") {
+					code += '<div style="text-align:center;" onClick="popClientListEditTable(&quot;' + clientMac + '&quot;, this, &quot;' + clientName + '&quot;, &quot;&quot;, &quot;WOL&quot;)"><img class="imgUserIcon_card" src="' + userIconBase64 + '"></div>';
+				}
+				else if(deviceType != "0" || deviceVender == "") {
+					code += '<div class="clientIcon type' + deviceType + '" onClick="popClientListEditTable(&quot;' + clientMac + '&quot;, this, &quot;' + clientName + '&quot;, &quot;&quot;, &quot;WOL&quot;)"></div>';
+				}
+				else if(deviceVender != "" ) {
+					var venderIconClassName = getVenderIconClassName(deviceVender.toLowerCase());
+					if(venderIconClassName != "" && !downsize_4m_support) {
+						code += '<div class="venderIcon ' + venderIconClassName + '" onClick="popClientListEditTable(&quot;' + clientMac + '&quot;, this, &quot;' + clientName + '&quot;, &quot;&quot;, &quot;WOL&quot;)"></div>';
+					}
+					else {
+						code += '<div class="clientIcon type' + deviceType + '" onClick="popClientListEditTable(&quot;' + clientMac + '&quot;, this, &quot;' + clientName + '&quot;, &quot;&quot;, &quot;WOL&quot;)"></div>';
+					}
+				}
+			}
+			code += '</td><td style="width:60%;border:0px;">';
+			code += '<div>' + clientName + '</div>';
+			code += '<div style="font-weight:bold;cursor:pointer;text-decoration:underline;font-family:Lucida Console;" onclick="document.form.destIP.value=this.innerHTML;">' + clientMac + '</div>';
+			code += '</td></tr></table>';
+			code +='</td>';
+			code +='<td width="20%">';
+			code +='<input class="remove_btn" onclick="del_Row(this, &quot;' + clientMac + '&quot;);" value=""/></td></tr>';
+		});
 	}
 
-  code +='</table>';
-	$("wollist_Block").innerHTML = code;
-}
-
-function addRow(obj, head){
-
-	if(head == 1)
-		wollist_array += "&#60" /*&#60*/
-	else
-		wollist_array += "&#62" /*&#62*/
-			
-	wollist_array += obj.value;
-
-	obj.value = "";
+  	code +='</table>';
+	document.getElementById("wollist_Block").innerHTML = code;
 }
 
 function addRow_Group(upper){
-	var rule_num = $('wollist_table').rows.length;
-	var item_num = $('wollist_table').rows[0].cells.length;		
+	var rule_num = document.getElementById('wollist_table').rows.length;
+	var item_num = document.getElementById('wollist_table').rows[0].cells.length;		
 	if(rule_num >= upper){
 		alert("<#JS_itemlimit1#> " + upper + " <#JS_itemlimit2#>");
 		return false;	
@@ -190,17 +200,22 @@ function addRow_Group(upper){
 	
 	if(item_num >=2){
 		for(i=0; i<rule_num; i++){	
-				if(document.form.wollist_macAddr.value.toLowerCase() == $('wollist_table').rows[i].cells[1].innerHTML.toLowerCase()){
-					alert("<#JS_duplicate#>");
-					document.form.wollist_macAddr.focus();
-					document.form.wollist_macAddr.select();
-					return false;
-				}	
+			if(manually_wol_list_array[document.form.wollist_macAddr.value] != null){
+				alert("<#JS_duplicate#>");
+				document.form.wollist_macAddr.focus();
+				document.form.wollist_macAddr.select();
+				return false;
+			}
 		}
 	}		
 	
-	addRow(document.form.wollist_deviceName ,1);
-	addRow(document.form.wollist_macAddr, 0);
+	var clientObj = clientList[document.form.wollist_macAddr.value.toUpperCase()];
+	var clientName = "New device";
+	if(clientObj) {
+		clientName = (clientObj.nickName == "") ? clientObj.name : clientObj.nickName;
+	}
+	manually_wol_list_array[document.form.wollist_macAddr.value.toUpperCase()] = clientName;
+	document.form.wollist_macAddr.value = "";
 	showwollist();				
 }
 
@@ -210,108 +225,63 @@ function check_macaddr(obj,flag){ //control hint of input mac address
 		childsel.setAttribute("id","check_mac");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
-		$("check_mac").style.display = "";
+		document.getElementById("check_mac").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
+		document.getElementById("check_mac").style.display = "";
 		return false;
 	}else if(flag ==2){
 		var childsel=document.createElement("div");
 		childsel.setAttribute("id","check_mac");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac").innerHTML="<#IPConnection_x_illegal_mac#>";
-		$("check_mac").style.display = "";
+		document.getElementById("check_mac").innerHTML="<#IPConnection_x_illegal_mac#>";
+		document.getElementById("check_mac").style.display = "";
 		return false;		
 	}else{	
-		$("check_mac") ? $("check_mac").style.display="none" : true;
+		document.getElementById("check_mac") ? document.getElementById("check_mac").style.display="none" : true;
 		return true;
 	}	
 }
 
-function del_Row(r){
-  var i=r.parentNode.parentNode.rowIndex;
-  $('wollist_table').deleteRow(i);
-  
-  var wollist_value = "";
-	for(k=0; k<$('wollist_table').rows.length; k++){
-		for(j=0; j<$('wollist_table').rows[k].cells.length-1; j++){
-			if(j == 0)	
-				wollist_value += "&#60";
-			else{
-			wollist_value += $('wollist_table').rows[k].cells[0].innerHTML;
-			wollist_value += "&#62";
-			wollist_value += $('wollist_table').rows[k].cells[1].innerHTML;
-			}
-		}
-	}
+function del_Row(r, delMac){
+	var i = r.parentNode.parentNode.rowIndex;
+	delete manually_wol_list_array[delMac];
+	document.getElementById('wollist_table').deleteRow(i);
 
-	wollist_array = wollist_value;
-	if(wollist_array == "")
+	if(Object.keys(manually_wol_list_array).length == 0)
 		showwollist();
 }
 
-function showLANIPList(){
-	var code = "";
-	var show_name = "";
-	var client_list_array = '<% get_client_detail_info(); %>';	
-	var client_list_row = client_list_array.split('<');	
-
-	for(var i = 1; i < client_list_row.length; i++){
-		var client_list_col = client_list_row[i].split('>');
-		if(client_list_col[1] && client_list_col[1].length > 20)
-			show_name = client_list_col[1].substring(0, 16) + "..";
-		else
-			show_name = client_list_col[1];	
-
-		code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP(\''+client_list_col[1]+'\', \''+client_list_col[3]+'\');"><strong>'+client_list_col[3]+'</strong> ';
-		
-		if(show_name && show_name.length > 0)
-				code += '( '+show_name+')';
-		code += ' </div></a>';
-	}
-
-	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
-	$("ClientList_Block_PC").innerHTML = code;
-}
-
-function setClientIP(_name, _macaddr){
-	document.form.wollist_deviceName.value = _name;
+function setClientIP(_macaddr){
 	document.form.wollist_macAddr.value = _macaddr;
 	hideClients_Block();
-	over_var = 0;
 }
 
-var over_var = 0;
-var isMenuopen = 0;
 function hideClients_Block(){
-	$("pull_arrow").src = "/images/arrow-down.gif";
-	$('ClientList_Block_PC').style.display='none';
-	isMenuopen = 0;
+	document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
+	document.getElementById('ClientList_Block_PC').style.display='none';
 }
 
 function pullLANIPList(obj){
+	var element = document.getElementById('ClientList_Block_PC');
+	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
 	if(isMenuopen == 0){		
 		obj.src = "/images/arrow-top.gif"
-		$("ClientList_Block_PC").style.display = 'block';		
-		document.form.wollist_deviceName.focus();		
-		isMenuopen = 1;
+		element.style.display = 'block';		
+		document.form.wollist_macAddr.focus();		
 	}
 	else
 		hideClients_Block();
 }
 
 function applyRule(){
-	var rule_num = $('wollist_table').rows.length;
-	var item_num = $('wollist_table').rows[0].cells.length;
+	var rule_num = document.getElementById('wollist_table').rows.length;
+	var item_num = document.getElementById('wollist_table').rows[0].cells.length;
 	var tmp_value = "";
 
-	for(i=0; i<rule_num; i++){
-		tmp_value += "<"		
-		for(j=0; j<item_num-1; j++){	
-			tmp_value += $('wollist_table').rows[i].cells[j].innerHTML;
-			if(j != item_num-2)	
-				tmp_value += ">";
-		}
-	}
+	Object.keys(manually_wol_list_array).forEach(function(key) {
+		tmp_value += "<" + manually_wol_list_array[key] + ">"  + key;
+	});
+
 	if(tmp_value == "<"+"<#IPConnection_VSList_Norule#>" || tmp_value == "<")
 		tmp_value = "";	
 
@@ -326,8 +296,8 @@ function applyRule(){
 <div id="Loading" class="popup_bg"></div>
 <iframe name="hidden_frame" id="hidden_frame" src="" width="0" height="0" frameborder="0"></iframe>
 <form method="GET" name="form" action="/apply.cgi" target="hidden_frame"> 
-<input type="hidden" name="current_page" value="Main_Netstat_Content.asp">
-<input type="hidden" name="next_page" value="Main_Netstat_Content.asp">
+<input type="hidden" name="current_page" value="Main_WOL_Content.asp">
+<input type="hidden" name="next_page" value="Main_WOL_Content.asp">
 <input type="hidden" name="group_id" value="">
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="action_mode" value="">
@@ -356,14 +326,13 @@ function applyRule(){
 									<div>&nbsp;</div>
 									<div class="formfonttitle"><#Network_Tools#> - <#NetworkTools_WOL#></div>
 									<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
-									<div class="formfontdesc">
-										<#NetworkTools_WOL_desc#>
-									</div>
+									<div class="formfontdesc"><#smart_access2#></div>	
+									<div class="formfontdesc"><#smart_access3#></div>	
 									<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3" class="FormTable">
 										<tr>
 											<th width="20%"><#NetworkTools_target#></th>
 											<td>
-												<input type="text" class="input_20_table" maxlength="17" name="destIP" value="" placeholder="ex: <% nvram_get("et0macaddr"); %>" onKeyPress="return is_hwaddr(this,event);">
+												<input type="text" class="input_20_table" maxlength="17" name="destIP" value="" placeholder="ex: <% nvram_get("lan_hwaddr"); %>" onKeyPress="return validator.isHWAddr(this,event);" autocorrect="off" autocapitalize="off">
 												<input class="button_gen" id="cmdBtn" onClick="onSubmitCtrl(this, ' Refresh ')" type="button" value="<#NetworkTools_WOL_btn#>">
 												<img id="loadingIcon" style="display:none;" src="/images/InternetScan.gif"></span>
 											</td>										
@@ -373,30 +342,26 @@ function applyRule(){
 									<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" class="FormTable_table" style="margin-top:8px;">
 									  	<thead>
 									  		<tr>
-												<td colspan="3" id="GWStatic"><#NetworkTools_Offline#>&nbsp;(<#List_limit#>&nbsp;32)</td>
+												<td colspan="2" id="GWStatic"><#NetworkTools_Offline#>&nbsp;(<#List_limit#>&nbsp;32)</td>
 									  		</tr>
 									  	</thead>
 						
 									  	<tr>
-						        		<th><#ShareNode_DeviceName_itemname#></th>
-								  			<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(5,10);"><#MAC_Address#></a></th>
+								  		<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(5,10);">Client Name (MAC address)<!--untranslated--></a></th>
 						        		<th><#list_add_delete#></th>
 									  	</tr>			  
 									  	<tr>
 									  			<!-- client info -->
 																					  		
-				            			<td width="40%">
-				            				<input type="text" class="input_20_table" maxlength="15" name="wollist_deviceName" onClick="hideClients_Block();" onkeypress="return is_alphanum(this,event);">
-											<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>" onmouseover="over_var=1;" onmouseout="over_var=0;">
-											<div id="ClientList_Block_PC" class="ClientList_Block_PC"></div>	
+				            			<td width="80%">
+											<input type="text" class="input_20_table" maxlength="17" name="wollist_macAddr" onClick="hideClients_Block();" autocorrect="off" autocapitalize="off" style="margin-left:-12px;width:255px;" onKeyPress="return validator.isHWAddr(this,event)" placeholder="ex: <% nvram_get("lan_hwaddr"); %>">
+											<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>">
+											<div id="ClientList_Block_PC" class="clientlist_dropdown"></div>	
 				            			</td>
-				            			<td width="40%">
-				                		<input type="text" class="input_20_table" maxlength="17" name="wollist_macAddr" style="" onKeyPress="return is_hwaddr(this,event)">
-		                			</td>
 				            			<td width="20%">
-														<div> 
-															<input type="button" class="add_btn" onClick="addRow_Group(32);" value="">
-														</div>
+											<div> 
+												<input type="button" class="add_btn" onClick="addRow_Group(32);" value="">
+											</div>
 				            			</td>
 									  	</tr>	 			  
 									  </table>        			

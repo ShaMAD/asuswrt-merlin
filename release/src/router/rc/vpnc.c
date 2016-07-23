@@ -40,53 +40,19 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <net/if_arp.h>
-#include <signal.h>
+
+#define L2TP_VPNC_PID	"/var/run/l2tpd-vpnc.pid"
+#define L2TP_VPNC_CTRL	"/var/run/l2tpctrl-vpnc"
+#define L2TP_VPNC_CONF	"/tmp/l2tp-vpnc.conf"
 
 int vpnc_unit = 5;
 
-static int
-handle_special_char_for_vpnclient(char *buf, size_t buf_size, char *src)
-{
-	const char special_chars[] = "'\\";
-	char *p, *q;
-	size_t len;
-
-	if (!buf || !src || buf_size <= 1)
-		return -1;
-
-	for (p = src, q = buf, len = buf_size; *p != '\0' && len > 1; ++p, --len) {
-		if (strchr(special_chars, *p))
-			*q++ = '\\';
-
-		*q++ = *p;
-	}
-
-	*q++ = '\0';
-
-	return 0;
-}
-
 int vpnc_pppstatus(void)
 {
-	FILE *fp;
-	char sline[128], buf[128], *p;
+	char statusfile[sizeof("/var/run/ppp-vpnXXXXXXXXXX.status")];
 
-	if ((fp=fopen("/tmp/vpncstatus.log", "r")) && fgets(sline, sizeof(sline), fp))
-	{
-		p = strstr(sline, ",");
-		strcpy(buf, p+1);
-	}
-	else
-	{
-		strcpy(buf, "unknown reason");
-	}
-
-	if(fp) fclose(fp);
-
-	if(strstr(buf, "No response from ISP.")) return WAN_STOPPED_REASON_PPP_NO_ACTIVITY;
-	else if(strstr(buf, "Failed to authenticate ourselves to peer")) return WAN_STOPPED_REASON_PPP_AUTH_FAIL;
-	else if(strstr(buf, "Terminating connection due to lack of activity")) return WAN_STOPPED_REASON_PPP_LACK_ACTIVITY;
-	else return WAN_STOPPED_REASON_NONE;
+	snprintf(statusfile, sizeof(statusfile), "/var/run/ppp-vpn%d.status", vpnc_unit);
+	return _pppstatus(statusfile);
 }
 
 int
@@ -100,20 +66,23 @@ start_vpnc(void)
 	mode_t mask;
 	int ret = 0;
 
-//	_dprintf("%s: unit=%d.\n", __FUNCTION__, unit);
-
-//	snprintf(prefix, sizeof(prefix), "vpn%d_", unit);
 	snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
-
+#if 0
 	if (nvram_match(strcat_r(wan_prefix, "proto", tmp), "pptp") || nvram_match(strcat_r(wan_prefix, "proto", tmp), "l2tp"))
 		return 0;
-
+#endif
 	if (nvram_match(strcat_r(prefix, "proto", tmp), "pptp"))
 		sprintf(options, "/tmp/ppp/vpnc_options.pptp");
 	else if (nvram_match(strcat_r(prefix, "proto", tmp), "l2tp"))
 		sprintf(options, "/tmp/ppp/vpnc_options.l2tp");
 	else
 		return 0;
+
+	/* shut down previous instance if any */
+	stop_vpnc();
+
+	/* unset vpnc_dut_disc */
+	nvram_unset(strcat_r(prefix, "dut_disc", tmp));
 
 	update_vpnc_state(prefix, WAN_STATE_INITIALIZING, 0);
 
@@ -128,13 +97,19 @@ start_vpnc(void)
 
 	umask(mask);
 
+	/* route for pptp/l2tp's server */
+	if (nvram_match(strcat_r(wan_prefix, "proto", tmp), "pptp") || nvram_match(strcat_r(wan_prefix, "proto", tmp), "l2tp")) {
+		char *wan_ifname = nvram_safe_get(strcat_r(wan_prefix, "pppoe_ifname", tmp));
+		route_add(wan_ifname, 0, nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0", "255.255.255.255");
+	}
+
 	/* do not authenticate peer and do not use eap */
 	fprintf(fp, "noauth\n");
 	fprintf(fp, "refuse-eap\n");
-	handle_special_char_for_vpnclient(buf, sizeof(buf), nvram_safe_get(strcat_r(prefix, "pppoe_username", tmp)));
-	fprintf(fp, "user '%s'\n", buf);
-	handle_special_char_for_vpnclient(buf, sizeof(buf), nvram_safe_get(strcat_r(prefix, "pppoe_passwd", tmp)));
-	fprintf(fp, "password '%s'\n", buf);
+	fprintf(fp, "user '%s'\n",
+		ppp_safe_escape(nvram_safe_get(strcat_r(prefix, "pppoe_username", tmp)), buf, sizeof(buf)));
+	fprintf(fp, "password '%s'\n",
+		ppp_safe_escape(nvram_safe_get(strcat_r(prefix, "pppoe_passwd", tmp)), buf, sizeof(buf)));
 
 	if (nvram_match(strcat_r(prefix, "proto", tmp), "pptp")) {
 		fprintf(fp, "plugin pptp.so\n");
@@ -144,14 +119,16 @@ start_vpnc(void)
 			nvram_safe_get(strcat_r(prefix, "gateway_x", tmp)));
 		fprintf(fp, "vpnc 1\n");
 		/* see KB Q189595 -- historyless & mtu */
-		fprintf(fp, "nomppe-stateful mtu 1400\n");
+		if (nvram_match(strcat_r(wan_prefix, "proto", tmp), "pptp") || nvram_match(strcat_r(wan_prefix, "proto", tmp), "l2tp"))
+			fprintf(fp, "nomppe-stateful mtu 1300\n");
+		else
+			fprintf(fp, "nomppe-stateful mtu 1400\n");
+
 		if (nvram_match(strcat_r(prefix, "pptp_options_x", tmp), "-mppc")) {
 			fprintf(fp, "nomppe nomppc\n");
 		} else
 		if (nvram_match(strcat_r(prefix, "pptp_options_x", tmp), "+mppe-40")) {
-			fprintf(fp, "nomppe-56\n"
-                                    "nomppe-128\n"
-				    "require-mppe\n"
+			fprintf(fp, "require-mppe\n"
 				    "require-mppe-40\n");
 		} else
 		if (nvram_match(strcat_r(prefix, "pptp_options_x", tmp), "+mppe-56")) {
@@ -168,6 +145,11 @@ start_vpnc(void)
 		}
 	} else {
 		fprintf(fp, "nomppe nomppc\n");
+
+		if (nvram_match(strcat_r(wan_prefix, "proto", tmp), "pptp") || nvram_match(strcat_r(wan_prefix, "proto", tmp), "l2tp"))
+			fprintf(fp, "mtu 1300\n");
+		else
+			fprintf(fp, "mtu 1400\n");			
 	}
 
 	if (nvram_invmatch(strcat_r(prefix, "proto", tmp), "l2tp")) {
@@ -214,14 +196,15 @@ start_vpnc(void)
 	fprintf(fp, "ip-pre-up-script %s\n", "/tmp/ppp/vpnc-ip-pre-up");
 	fprintf(fp, "auth-fail-script %s\n", "/tmp/ppp/vpnc-auth-fail");
 
+#if 0 /* unsupported */
 #ifdef RTCONFIG_IPV6
 	switch (get_ipv6_service()) {
-		case IPV6_NATIVE:
 		case IPV6_NATIVE_DHCP:
 		case IPV6_MANUAL:
 			fprintf(fp, "+ipv6\n");
 			break;
         }
+#endif
 #endif
 
 	/* user specific options */
@@ -230,12 +213,16 @@ start_vpnc(void)
 
 	fclose(fp);
 
+#if 0
 	/* shut down previous instance if any */
 	stop_vpnc();
 
+	nvram_unset(strcat_r(prefix, "dut_disc", tmp));
+#endif
+
 	if (nvram_match(strcat_r(prefix, "proto", tmp), "l2tp"))
 	{
-		if (!(fp = fopen("/tmp/l2tp.conf", "w"))) {
+		if (!(fp = fopen(L2TP_VPNC_CONF, "w"))) {
 			perror(options);
 			return -1;
 		}
@@ -256,7 +243,8 @@ start_vpnc(void)
 			"maxfail %d\n"
 			"holdoff %d\n"
 			"hide-avps no\n"
-			"section cmd\n\n",
+			"section cmd\n"
+			"socket-path " L2TP_VPNC_CTRL "\n\n",
 			options,
                         nvram_invmatch(strcat_r(prefix, "heartbeat_x", tmp), "") ?
                                 nvram_safe_get(strcat_r(prefix, "heartbeat_x", tmp)) :
@@ -269,7 +257,7 @@ start_vpnc(void)
 		fclose(fp);
 
 		/* launch l2tp */
-		eval("/usr/sbin/l2tpd");
+		eval("/usr/sbin/l2tpd", "-c", L2TP_VPNC_CONF, "-p", L2TP_VPNC_PID);
 
 		ret = 3;
 		do {
@@ -278,7 +266,7 @@ start_vpnc(void)
 		} while (!pids("l2tpd") && ret--);
 
 		/* start-session */
-		ret = eval("/usr/sbin/l2tp-control", "start-session 0.0.0.0");
+		ret = eval("/usr/sbin/l2tp-control", "-s", L2TP_VPNC_CTRL, "start-session 0.0.0.0");
 
 		/* pppd sync nodetach noaccomp nobsdcomp nodeflate */
 		/* nopcomp novj novjccomp file /tmp/ppp/options.l2tp */
@@ -292,30 +280,27 @@ start_vpnc(void)
 }
 
 void
-//stop_vpnclient(int unit)
 stop_vpnc(void)
 {
 	char pidfile[sizeof("/var/run/ppp-vpnXXXXXXXXXX.pid")];
-	char tmp[100], wan_prefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[] = "vpnc_";
 	
-	snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
+	snprintf(pidfile, sizeof(pidfile), "/var/run/ppp-vpn%d.pid", vpnc_unit);
 
-	if (nvram_match(strcat_r(wan_prefix, "proto", tmp), "pptp") || nvram_match(strcat_r(wan_prefix, "proto", tmp), "l2tp"))
-		return;
+	/* Reset the state of vpnc_dut_disc */
+	nvram_set_int(strcat_r(prefix, "dut_disc", tmp), 1);
 
 	/* Stop l2tp */
-	//if (nvram_match(strcat_r(prefix, "proto", tmp), "l2tp"))
-	if(check_if_file_exist("/var/run/l2tpd.pid"))
+	if(check_if_file_exist(L2TP_VPNC_PID))
 	{
-		kill_pidfile_tk("/var/run/l2tpd.pid");
-		//usleep(1000*10000);
+		kill_pidfile_tk(L2TP_VPNC_PID);
+		usleep(1000*10000);
 	}
 
 	/* Stop pppd */
-	snprintf(pidfile, sizeof(pidfile), "/var/run/ppp-vpn%d.pid", vpnc_unit);
 	if (kill_pidfile_s(pidfile, SIGHUP) == 0 &&
 	    kill_pidfile_s(pidfile, SIGTERM) == 0) {
-		usleep(1000*1000);
+		usleep(3000*1000);
 		kill_pidfile_tk(pidfile);
 	}
 }
@@ -347,8 +332,9 @@ void update_vpnc_state(char *prefix, int state, int reason)
 		// keep ip info if it is stopped from connected
 		nvram_set_int(strcat_r(prefix, "sbstate_t", tmp), reason);
 	}
-	else if(state == WAN_STATE_STOPPING){
-		unlink("/tmp/vpncstatus.log");
+	else if(state == WAN_STATE_STOPPING) {
+		snprintf(tmp, sizeof(tmp), "/var/run/ppp-vpn%d.status", vpnc_unit);
+		unlink(tmp);
 	}
 }
 
@@ -369,17 +355,17 @@ int vpnc_update_resolvconf(void)
 		return errno;
 	}
 
-#if 0
+#if 0 /* unsupported */
 #ifdef RTCONFIG_IPV6
 	/* Handle IPv6 DNS before IPv4 ones */
 	if (ipv6_enabled()) {
-		if ((get_ipv6_service() == IPV6_NATIVE_DHCP) && nvram_get_int("ipv6_dnsenable")) {
-			foreach(word, nvram_safe_get("ipv6_get_dns"), next)
+		if ((get_ipv6_service() == IPV6_NATIVE_DHCP) && nvram_get_int(ipv6_nvname("ipv6_dnsenable"))) {
+			foreach(word, nvram_safe_get(ipv6_nvname("ipv6_get_dns")), next)
 				fprintf(fp, "nameserver %s\n", word);
 		} else
 		for (unit = 1; unit <= 3; unit++) {
 			sprintf(tmp, "ipv6_dns%d", unit);
-			next = nvram_safe_get(tmp);
+			next = nvram_safe_get(ipv6_nvname(tmp));
 			if (*next && strcmp(next, "0.0.0.0") != 0)
 				fprintf(fp, "nameserver %s\n", next);
 		}
@@ -397,11 +383,7 @@ int vpnc_update_resolvconf(void)
 
 	file_unlock(lock);
 
-#ifdef RTCONFIG_DNSMASQ
 	reload_dnsmasq();
-#else
-	restart_dns();
-#endif
 
 	return 0;
 }
@@ -420,10 +402,12 @@ void vpnc_add_firewall_rule()
 		snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
 		wan_proto = nvram_safe_get(strcat_r(wan_prefix, "proto", tmp));
 		if (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static"))
-			eval("iptables", "-I", "FORWARD", "-p", "tcp", "--syn", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
-#ifdef CONFIG_BCMWL5
+			//eval("iptables", "-I", "FORWARD", "-p", "tcp", "--syn", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
+			eval("iptables", "-I", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
+#ifdef RTCONFIG_BCMARM
 		else	/* mark tcp connection to bypass CTF */
-			eval("iptables", "-t", "mangle", "-A", "FORWARD", "-p", "tcp", "-j", "MARK", "--set-mark", "0x01");
+			eval("iptables", "-t", "mangle", "-A", "FORWARD", "-p", "tcp", 
+				"-m", "state", "--state", "NEW","-j", "MARK", "--set-mark", "0x01/0x7");
 #endif
 
 		eval("iptables", "-A", "FORWARD", "-o", vpnc_ifname, "!", "-i", lan_if, "-j", "DROP");
@@ -449,9 +433,25 @@ vpnc_up(char *vpnc_ifname)
 		wan_ifname = nvram_safe_get(strcat_r(wan_prefix, "pppoe_ifname", tmp));
 
 	/* Reset default gateway route via PPPoE interface */
-	route_del(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
-	route_add(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+	if (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static")) {
+		route_del(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+		route_add(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+	}
+	else if (!strcmp(wan_proto, "pppoe") || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto,  "l2tp"))
+	{
+		char *wan_xgateway = nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp));
 
+		route_del(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+		route_add(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+
+		if (strlen(wan_xgateway) > 0 && strcmp(wan_xgateway, "0.0.0.0")) {
+			char *wan_xifname =  nvram_safe_get(strcat_r(wan_prefix, "ifname", tmp));
+
+			route_del(wan_xifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp)), "0.0.0.0");
+			route_add(wan_xifname, 3, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp)), "0.0.0.0");
+		}
+	}
+	
 	/* Add the default gateway of VPN client */
 	route_add(vpnc_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(prefix, "gateway", tmp)), "0.0.0.0");
 
@@ -495,7 +495,7 @@ vpnc_ipup_main(int argc, char **argv)
 	if ((value = getenv("IPLOCAL"))) {
 		if (nvram_invmatch(strcat_r(prefix, "ipaddr", tmp), value))
 			ifconfig(vpnc_ifname, IFUP, "0.0.0.0", NULL);
-		_ifconfig(vpnc_ifname, IFUP, value, "255.255.255.255", getenv("IPREMOTE"));
+		_ifconfig(vpnc_ifname, IFUP, value, "255.255.255.255", getenv("IPREMOTE"), 0);
 		nvram_set(strcat_r(prefix, "ipaddr", tmp), value);
 		nvram_set(strcat_r(prefix, "netmask", tmp), "255.255.255.255");
 	}
@@ -534,10 +534,12 @@ void vpnc_del_firewall_rule()
 	snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
 	wan_proto = nvram_safe_get(strcat_r(wan_prefix, "proto", tmp));
 	if (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static"))
-		eval("iptables", "-D", "FORWARD", "-p", "tcp", "--syn", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
-#ifdef CONFIG_BCMWL5
+		//eval("iptables", "-D", "FORWARD", "-p", "tcp", "--syn", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
+		eval("iptables", "-D", "FORWARD", "-p", "tcp", "--tcp-flags", "SYN,RST", "SYN", "-j", "TCPMSS", "--clamp-mss-to-pmtu");
+#ifdef RTCONFIG_BCMARM
 	else
-		eval("iptables", "-t", "mangle", "-D", "FORWARD", "-p", "tcp", "-j", "MARK", "--set-mark", "0x01");
+		eval("iptables", "-t", "mangle", "-D", "FORWARD", "-p", "tcp", 
+			"-m", "state", "--state", "NEW","-j", "MARK", "--set-mark", "0x01/0x7");
 #endif
 
 	eval("iptables", "-D", "FORWARD", "-o", vpnc_ifname, "!", "-i", lan_if, "-j", "DROP");
@@ -550,7 +552,7 @@ void vpnc_del_firewall_rule()
 void
 vpnc_down(char *vpnc_ifname)
 {
-	char tmp[100], wan_prefix[] = "wanXXXXXXXXXX_";
+	char tmp[100], prefix[] = "vpnc_", wan_prefix[] = "wanXXXXXXXXXX_";
 	char *wan_ifname = NULL, *wan_proto = NULL;
 
 	snprintf(wan_prefix, sizeof(wan_prefix), "wan%d_", wan_primary_ifunit());
@@ -562,8 +564,28 @@ vpnc_down(char *vpnc_ifname)
 		wan_ifname = nvram_safe_get(strcat_r(wan_prefix, "pppoe_ifname", tmp));
 
 	/* Reset default gateway route */
-	route_del(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
-	route_add(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+	if (!strcmp(wan_proto, "dhcp") || !strcmp(wan_proto, "static")) {
+		route_del(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+		route_add(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+	}
+	else if (!strcmp(wan_proto, "pppoe") || !strcmp(wan_proto, "pptp") || !strcmp(wan_proto, "l2tp"))
+	{
+		char *wan_xgateway = nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp));
+
+		route_del(wan_ifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+		route_add(wan_ifname, 0, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0");
+
+		if (strlen(wan_xgateway) > 0 && strcmp(wan_xgateway, "0.0.0.0")) {
+			char *wan_xifname = nvram_safe_get(strcat_r(wan_prefix, "ifname", tmp));
+
+			route_del(wan_xifname, 3, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp)), "0.0.0.0");
+			route_add(wan_xifname, 2, "0.0.0.0", nvram_safe_get(strcat_r(wan_prefix, "xgateway", tmp)), "0.0.0.0");	
+		}
+
+		/* Delete route to pptp/l2tp's server */
+		if (nvram_get_int(strcat_r(prefix, "dut_disc", tmp)) && strcmp(wan_proto, "pppoe"))
+			route_del(wan_ifname, 0, nvram_safe_get(strcat_r(wan_prefix, "gateway", tmp)), "0.0.0.0", "255.255.255.255");
+	}
 
 	/* Delete firewall rules for VPN client */
 	vpnc_del_firewall_rule();

@@ -97,7 +97,7 @@ ez_ipupdate_LDFLAGS =
 
 # 2007.03.14 Yau add for ASUS DDNS
 ez_ipupdate_OBJECTS += asus_ddns.o
-CFLAGS += -I$(SRCBASE)/include -I$(TOP)/shared -DASUS_DDNS
+CFLAGS += -I$(SRCBASE)/include -I$(TOP)/shared -DASUS_DDNS -DHAVE_STRING_H -D_LIBC
 LDFLAGS += -L$(TOP)/shared -lshared -L$(TOP)/nvram${BCMEX} -lnvram 
 #end of Yau add
 ifeq ($(RTCONFIG_BCMARM),y)
@@ -106,6 +106,11 @@ endif
 
 # Just copying what ASUS did here. This should be in Makefile.in instead.
 ez_ipupdate_OBJECTS += namecheap.o
+
+ifeq ($(RTCONFIG_QTN),y)
+CFLAGS += -I$(TOP)/libqcsapi_client -I$(TOP)/httpd -I./sysdeps/qtn
+LDFLAGS += -L$(TOP)/libqcsapi_client -lqcsapi_client
+endif
 
 COMPILE = $(CC) $(DEFS) $(INCLUDES) $(AM_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
 CCLD = $(CC)
@@ -219,7 +224,7 @@ ez-ipupdate: $(ez_ipupdate_OBJECTS) $(ez_ipupdate_DEPENDENCIES)
 md5_check:
 	rm -f test_hmac_md5
 	$(CC) $(CFLAGS) -Wall -c -o test_hmac_md5.o -DTEST_HMAC_MD5 -DUSE_MD5 asus_ddns.c
-	$(CC) -Wall -c -o md5_x86.o -DTEST_HMAC_MD5 -DUSE_MD5 md5.c
+	$(CC) $(CFLAGS) -Wall -c -o md5_x86.o -DTEST_HMAC_MD5 -DUSE_MD5 md5.c
 	$(CC) -Wall -o test_hmac_md5 test_hmac_md5.o md5_x86.o
 
 tags: TAGS

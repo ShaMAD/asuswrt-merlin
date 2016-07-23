@@ -1,6 +1,6 @@
 #CC	= gcc
 COPTS	= -O2 -g
-CFLAGS	= $(COPTS) -I.. -I../../include -fPIC
+CFLAGS	= $(COPTS) -I.. -I../../include -fPIC $(EXTRACFLAGS)
 LDFLAGS	= -shared
 INSTALL	= install
 
@@ -14,13 +14,20 @@ SUBDIRS := rp-pppoe pppoatm pppol2tp pptp
 SUBDIRS += radius
 PLUGINS := minconn.so passprompt.so passwordfd.so winbind.so
 
+# This setting should match the one in ../Makefile.linux
+MPPE=y
+
+ifdef MPPE
+CFLAGS   += -DMPPE=1
+endif
+
 # include dependencies if present
 ifeq (.depend,$(wildcard .depend))
 include .depend
 endif
 
 all:	$(PLUGINS)
-	for d in $(SUBDIRS); do $(MAKE) $(MFLAGS) -C $$d all; done
+	for d in $(SUBDIRS); do $(MAKE) $(MFLAGS) -C $$d all || exit $$?; done
 
 %.so: %.c
 	$(CC) -o $@ $(LDFLAGS) $(CFLAGS) $^
@@ -30,7 +37,7 @@ VERSION = $(shell awk -F '"' '/VERSION/ { print $$2; }' ../patchlevel.h)
 install: $(PLUGINS)
 	$(INSTALL) -d $(LIBDIR)
 	$(INSTALL) $? $(LIBDIR)
-	for d in $(SUBDIRS); do $(MAKE) $(MFLAGS) -C $$d install; done
+	for d in $(SUBDIRS); do $(MAKE) $(MFLAGS) -C $$d install || exit $$?; done
 
 clean:
 	rm -f *.o *.so *.a

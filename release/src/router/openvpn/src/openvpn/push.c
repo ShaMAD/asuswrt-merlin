@@ -48,6 +48,9 @@
 void
 receive_auth_failed (struct context *c, const struct buffer *buffer)
 {
+	//Sam.B	2014/12/08
+	update_nvram_status(RCV_AUTH_FAILED_ERROR);
+	//Sam.E	2014/12/08
   msg (M_VERB0, "AUTH: Received control message: %s", BSTR(buffer));
   connection_list_set_no_advance(&c->options);
   if (c->options.pull)
@@ -74,8 +77,11 @@ receive_auth_failed (struct context *c, const struct buffer *buffer)
 	  if (buf_string_compare_advance (&buf, "AUTH_FAILED,") && BLEN (&buf))
 	    reason = BSTR (&buf);
 	  management_auth_failure (management, UP_TYPE_AUTH, reason);
-	} else
+	}
 #endif
+      /*
+       * Save the dynamic-challenge text even when management is defined
+       */
 	{
 #ifdef ENABLE_CLIENT_CR
 	  struct buffer buf = *buffer;
@@ -103,6 +109,7 @@ server_pushed_signal (struct context *c, const struct buffer *buffer, const bool
 	m = BSTR (&buf);
 
       /* preserve cached passwords? */
+      /* advance to next server? */
       {
 	bool purge = true;
 
@@ -113,6 +120,12 @@ server_pushed_signal (struct context *c, const struct buffer *buffer, const bool
 	      {
 		if (m[i] == 'P')
 		  purge = false;
+		else if (m[i] == 'N')
+		  {
+		    /* next server? */
+		    if (c->options.connection_list)
+		      c->options.connection_list->no_advance = false;
+		  }
 	      }
 	  }
 	if (purge)
@@ -202,8 +215,10 @@ incoming_push_message (struct context *c, const struct buffer *buffer)
     msg (D_PUSH_ERRORS, "WARNING: Received bad push/pull message: %s", sanitize_control_message(BSTR(buffer), &gc));
   else if (status == PUSH_MSG_REPLY || status == PUSH_MSG_CONTINUATION)
     {
+      c->options.push_option_types_found |= option_types_found;
+
       if (status == PUSH_MSG_REPLY)
-	do_up (c, true, option_types_found); /* delay bringing tun/tap up until --push parms received from remote */
+	do_up (c, true, c->options.push_option_types_found ); /* delay bringing tun/tap up until --push parms received from remote */
       event_timeout_clear (&c->c2.push_request_interval);
     }
 

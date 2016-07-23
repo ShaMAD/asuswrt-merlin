@@ -3,7 +3,7 @@
  *
  * This file implements the chip-specific routines for the GMAC core.
  *
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2015, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- * $Id: etcgmac.c 427480 2013-10-03 19:09:47Z $
+ * $Id: etcgmac.c 542850 2015-03-21 04:06:48Z $
  */
 
 #include <et_cfg.h>
@@ -351,7 +351,10 @@ chipattach(etc_info_t *etc, void *osh, void *regsva)
 
 #ifndef _CFE_
 	/* override dma parameters, corerev 4 dma channel 1,2 and 3 default burstlen is 0. */
-	if (etc->corerev >= 4) {
+	/* corerev 4,5: NS Ax; corerev 6: BCM43909 no HW prefetch; corerev 7: NS B0 */
+	if (etc->corerev == 4 ||
+	    etc->corerev == 5 ||
+	    etc->corerev == 7) {
 #define DMA_CTL_TX 0
 #define DMA_CTL_RX 1
 
@@ -366,12 +369,20 @@ chipattach(etc_info_t *etc, void *osh, void *regsva)
 		};
 
 		dmactl[DMA_CTL_TX][DMA_CTL_MR] = (TXMR == 2 ? DMA_MR_2 : DMA_MR_1);
-		dmactl[DMA_CTL_TX][DMA_CTL_PT] = (TXPREFTHRESH == 8 ? DMA_PT_8 :
-		                                  TXPREFTHRESH == 4 ? DMA_PT_4 :
-		                                  TXPREFTHRESH == 2 ? DMA_PT_2 : DMA_PT_1);
-		dmactl[DMA_CTL_TX][DMA_CTL_PC] = (TXPREFCTL == 16 ? DMA_PC_16 :
-		                                  TXPREFCTL == 8 ? DMA_PC_8 :
-		                                  TXPREFCTL == 4 ? DMA_PC_4 : DMA_PC_0);
+
+		if (etc->corerev == 7) {
+			/* NS B0 can only be configured to DMA_PT_1 and DMA_PC_4 */
+			dmactl[DMA_CTL_TX][DMA_CTL_PT] = DMA_PT_1;
+			dmactl[DMA_CTL_TX][DMA_CTL_PC] = DMA_PC_4;
+		} else {
+			dmactl[DMA_CTL_TX][DMA_CTL_PT] = (TXPREFTHRESH == 8 ? DMA_PT_8 :
+				TXPREFTHRESH == 4 ? DMA_PT_4 :
+				TXPREFTHRESH == 2 ? DMA_PT_2 : DMA_PT_1);
+			dmactl[DMA_CTL_TX][DMA_CTL_PC] = (TXPREFCTL == 16 ? DMA_PC_16 :
+				TXPREFCTL == 8 ? DMA_PC_8 :
+				TXPREFCTL == 4 ? DMA_PC_4 : DMA_PC_0);
+		}
+
 		dmactl[DMA_CTL_TX][DMA_CTL_BL] = (TXBURSTLEN == 1024 ? DMA_BL_1024 :
 		                                  TXBURSTLEN == 512 ? DMA_BL_512 :
 		                                  TXBURSTLEN == 256 ? DMA_BL_256 :
@@ -1152,8 +1163,9 @@ chipinreset:
 		}
 	}
 
-	/* 3GMAC: for BCM4707, only do core reset at chipattach */
-	if (CHIPID(ch->sih->chip) != BCM4707_CHIP_ID) {
+	/* 3GMAC: for BCM4707 and BCM47094, only do core reset at chipattach */
+	if ((CHIPID(ch->sih->chip) != BCM4707_CHIP_ID) &&
+	    (CHIPID(ch->sih->chip) != BCM47094_CHIP_ID)) {
 		/* reset core */
 		si_core_reset(ch->sih, flagbits, 0);
 	}
@@ -1359,6 +1371,10 @@ chipinit(ch_t *ch, uint options)
 	} else if (etc->advertise && etc->needautoneg)
 		chipphyadvertise(ch, etc->phyaddr);
 
+	/* NS B0 only enables 4 entries x 4 channels */
+	if (etc->corerev == 7)
+		OR_REG(ch->osh, &regs->pwrctl, 0x1);
+
 	/* enable the overflow continue feature and disable parity */
 	dma_ctrlflags(ch->di[0], DMA_CTRL_ROC | DMA_CTRL_PEN | DMA_CTRL_RXSINGLE /* mask */,
 	              DMA_CTRL_ROC | DMA_CTRL_RXSINGLE /* value */);
@@ -1419,8 +1435,14 @@ chiptx(ch_t *ch, void *p0)
 		PKTSETLEN(ch->osh, p0, GMAC_MIN_FRAMESIZE);
 
 	/* queue the packet based on its priority */
-	if (ch->etc->qos)
-		q = etc_up2tc(PKTPRIO(p0));
+	if (ch->etc->qos) {
+		if (ch->etc->corerev != 4 && ch->etc->corerev != 5) {
+			q = etc_up2tc(PKTPRIO(p0));
+		}
+		else {
+			q = TC_BE;
+		}
+	}
 
 	ASSERT(q < NUMTXQ);
 

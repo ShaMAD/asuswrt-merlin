@@ -90,12 +90,8 @@ function goWireless(){
 	
 	<div id="ConnFail" style="display:none;">
 		<p class="QISGeneralFont" style="line-height:25px"><#qis_fail_desc5#></p>
-		<div>
-			<p class='QISGeneralFont' style="line-height:25px">
-				<#qis_fail_desc3#>
-				<#qis_fail_desc4#>
-			</p>
-		</div>
+		<p class='QISGeneralFont' style="line-height:25px"><#qis_fail_desc4#></p>
+		<p class='QISGeneralFont' style="line-height:25px"><#qis_fail_desc3#></p>
 	
 		<div class="apply_gen" style="margin-top:30px;">
 			<div style="text-align:center">
@@ -107,12 +103,9 @@ function goWireless(){
 	
 	<div id="AuthFail" style="display:none;">
 		<p class="QISGeneralFont"><#qis_fail_desc2#></p>
-		<div>
-			<p class='QISGeneralFont'>
-				<#qis_fail_desc3#>
-				<#qis_fail_desc4#>
-			</p>
-		</div>
+		<p class='QISGeneralFont'><#qis_fail_desc4#></p>		
+		<p class='QISGeneralFont'><#qis_fail_desc3#></p>
+		
 	
 		<div class="apply_gen" style="margin-top:30px">
 			<input type="button" id="nextButton" value="<#QIS_type_title#>" onclick="redirect_page('internet_type');" class="button_gen_long" >
@@ -124,17 +117,17 @@ function goWireless(){
 		<p class="QISGeneralFont"><#qis_fail_desc6#></p>
 		<table class="QISform_finish" width="400" border=0 align="center" cellpadding="5" cellspacing="0">
 			<tr>
-		  <th width="180"><span>Internet Type</span></th>
+		  <th width="180"><span><#Connectiontype#></span></th>
 		  <td class="QISformtd"><span id="wanproto"></span></td>
 			</tr>
 	
 			<tr>
-		  <th width="180"><span>Account Name</span></th>
+		  <th width="180"><span><#PPPConnection_UserName_itemname#></span></th>
 		  <td class="QISformtd"><span><% nvram_get("wan_pppoe_username"); %></span></td>
 			</tr>
 		
 			<tr>
-		  <th width="180"><span>Password</span></th>
+		  <th width="180"><span><#PPPConnection_Password_itemname#></span></th>
 		  <td class="QISformtd"><span><% nvram_get("wan_pppoe_passwd"); %></span></td>
 			</tr>
 		
@@ -149,17 +142,13 @@ function goWireless(){
 			</tr>
 		
 			<tr>
-		  <th width="180"><span>MAC</span></th>
-		  <td class="QISformtd"><span><% nvram_get("et0macaddr"); %></span></td>
+		  <th width="180"><span><#MAC_Address#></span></th>
+		  <td class="QISformtd"><span><% nvram_get("lan_hwaddr"); %></span></td>
 			</tr>
 		</table>
 		<br>
-		<div>
-			<p class='QISGeneralFont'>
-				<#qis_fail_desc3#>
-				<#qis_fail_desc4#>
-			</p>
-		</div>
+		<p class='QISGeneralFont'><#qis_fail_desc4#></p>
+		<p class='QISGeneralFont'><#qis_fail_desc3#></p>
 	
 		<div class="apply_gen" style="margin-top:30px">
 			<input type="button" id="nextButton" value="<#QIS_type_title#>" onclick="redirect_page('internet_type');" class="button_gen_long" >

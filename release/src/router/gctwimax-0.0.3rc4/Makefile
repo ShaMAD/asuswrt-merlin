@@ -37,7 +37,7 @@ ifeq ($(RTCONFIG_BCMARM),y)
 LDFLAGS += -lpthread
 endif
 LDFLAGS += -L$(TOP)/libusb10/libusb/.libs -lusb-1.0
-LDFLAGS += -L$(TOP)/openssl -lcrypto -lssl
+LDFLAGS += -L$(TOP)/openssl-1.0.0q -lcrypto-1.0.0q -lssl-1.0.0q -lpthread -ldl
 LDFLAGS += -L$(TOP)/zlib -lz
 #LDFLAGS += -ldbus-1
 
@@ -45,7 +45,7 @@ LDFLAGS += -L$(TOP)/zlib -lz
 OBJS_ex = src/wimax.o src/protocol.o src/logging.o src/tap_dev.o src/eap_auth.o src/config.o
 
 gctwimax: $(OBJS_ex)
-	$(LDO) $(LDFLAGS) -o gctwimax $(OBJS_ex) $(LDFLAGS)
+	$(LDO) $(LDFLAGS) -o gctwimax $(OBJS_ex) $(CFLAGS)
 
 install:
 	cp ./gctwimax /sbin/gctwimax

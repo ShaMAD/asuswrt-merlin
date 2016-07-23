@@ -144,6 +144,8 @@ function updateSVG(){
 			E('xunitfq2').setAttribute('x', "46%");	////Tune position: 552
 		}else if(top.snr.length == 512)
 			X_array = 64;
+		else if(top.snr.length == 4096)
+			X_array = 512;
 		else
 			X_array = 0;
 		
@@ -167,11 +169,7 @@ function setText(e, text){
 	if(e.firstChild)
 		e.removeChild(e.firstChild);
 	e.appendChild(document.createTextNode(text));
-}
-
-
-
-]]></script>
+}]]></script>
 
 <rect x="0" y="0" width="100%" height="100%" fill="#111" id="background"/>
 

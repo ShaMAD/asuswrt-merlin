@@ -1,19 +1,30 @@
 include ../common.mak
+include $(SRCBASE)/.config
 
 OBJS = usb_info.o disk_io_tools.o disk_initial.o disk_share.o
 PROGS = libdisk.so write_smb_conf test_of_var_files
+ifneq ($(BUILD_NAME),RT-N10U)
 PROGS += test_disk1 test_disk2
+endif
 PROGS += test_share
 ifeq ($(RTCONFIG_WEBDAV),y)
 PROGS += write_webdav_conf
 endif
 
+ifeq ($(BCM_MMC),y)
+CFLAGS += -DBCM_MMC
+endif
 CFLAGS += -fPIC $(EXTRACFLAGS)
-CFLAGS += -I. -I$(TOP)/shared -I$(SRCBASE)/include -I$(LINUXDIR)/include -Wall
+CFLAGS += -I. -I$(TOP)/shared -I$(SRCBASE)/include -I$(KERNEL_HEADER_DIR) -Wall
 LDFLAGS_SO = -L$(TOP)/nvram${BCMEX} -lnvram -L$(TOP)/shared -lshared
 LDFLAGS += $(LDFLAGS_SO) -L. -ldisk
 ifeq ($(RTCONFIG_BCMARM),y)
+CFLAGS += -I$(SRCBASE)/common/include
 LDFLAGS += -lgcc_s
+endif
+
+ifeq ($(RTCONFIG_QTN),y)
+LDFLAGS += -L$(TOP)/libqcsapi_client -lqcsapi_client
 endif
 
 CFLAGS += -I$(TOP)/busybox/include
@@ -50,7 +61,7 @@ test_disk1: test_disk1.o libdisk.so
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 test_disk2: test_disk2.o $(ID_OBJS)
-	$(CC) $(CFLAGS) -L$(TOP)/nvram${BCMEX} -lnvram -L$(TOP)/shared -lshared -lgcc_s -o $@ $^
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^
 
 ifeq ($(SHARE_STATIC),y)
 test_share: test_share.o disk_share.o
@@ -64,8 +75,10 @@ endif
 
 install: all
 	$(STRIP) $(PROGS)
+ifneq ($(BUILD_NAME),RT-N10U)
 	install -D test_disk1 $(INSTALLDIR)/sbin/test_disk1
 	install -D test_disk2 $(INSTALLDIR)/sbin/test_disk2
+endif
 	install -D test_share $(INSTALLDIR)/sbin/test_share
 
 	install -D libdisk.so $(INSTALLDIR)/lib/libdisk.so

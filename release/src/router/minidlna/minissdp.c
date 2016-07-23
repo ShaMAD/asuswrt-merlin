@@ -57,17 +57,31 @@
 #define SSDP_MCAST_ADDR ("239.255.255.250")
 
 static int
-AddMulticastMembership(int s, in_addr_t ifaddr)
+AddMulticastMembership(int s, struct lan_addr_s *iface)
 {
-	struct ip_mreq imr;	/* Ip multicast membership */
-
+	int ret;
+#ifdef HAVE_STRUCT_IP_MREQN
+	struct ip_mreqn imr;	/* Ip multicast membership */
 	/* setting up imr structure */
+	memset(&imr, '\0', sizeof(imr));
 	imr.imr_multiaddr.s_addr = inet_addr(SSDP_MCAST_ADDR);
-	imr.imr_interface.s_addr = ifaddr;
-	
-	if (setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&imr, sizeof(struct ip_mreq)) < 0)
+	imr.imr_ifindex = iface->ifindex;
+#else
+	struct ip_mreq imr;	/* Ip multicast membership */
+	/* setting up imr structure */
+	memset(&imr, '\0', sizeof(imr));
+	imr.imr_multiaddr.s_addr = inet_addr(SSDP_MCAST_ADDR);
+	imr.imr_interface.s_addr = iface->addr.s_addr;
+#endif
+	/* Setting the socket options will guarantee, tha we will only receive
+	 * multicast traffic on a specific Interface.
+	 * In addition the kernel is instructed to send an igmp message (choose
+	 * mcast group) on the specific interface/subnet. */
+	ret = setsockopt(s, IPPROTO_IP, IP_ADD_MEMBERSHIP, (void *)&imr, sizeof(imr));
+	if (ret < 0 && errno != EADDRINUSE)
 	{
-		DPRINTF(E_ERROR, L_SSDP, "setsockopt(udp, IP_ADD_MEMBERSHIP): %s\n", strerror(errno));
+		DPRINTF(E_ERROR, L_SSDP, "setsockopt(udp, IP_ADD_MEMBERSHIP): %s\n",
+			strerror(errno));
 		return -1;
 	}
 
@@ -92,12 +106,18 @@ OpenAndConfSSDPReceiveSocket(void)
 
 	if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &i, sizeof(i)) < 0)
 		DPRINTF(E_WARN, L_SSDP, "setsockopt(udp, SO_REUSEADDR): %s\n", strerror(errno));
-	
+#ifdef __linux__
+	if (setsockopt(s, IPPROTO_IP, IP_PKTINFO, &i, sizeof(i)) < 0)
+		DPRINTF(E_WARN, L_SSDP, "setsockopt(udp, IP_PKTINFO): %s\n", strerror(errno));
+#endif
 	memset(&sockname, 0, sizeof(struct sockaddr_in));
 	sockname.sin_family = AF_INET;
 	sockname.sin_port = htons(SSDP_PORT);
-	/* NOTE : it seems it doesnt work when binding on the specific address */
-	sockname.sin_addr.s_addr = htonl(INADDR_ANY);
+	/* NOTE: Binding a socket to a UDP multicast address means, that we just want
+	 * to receive datagramms send to this multicast address.
+	 * To specify the local nics we want to use we have to use setsockopt,
+	 * see AddMulticastMembership(...). */
+	sockname.sin_addr.s_addr = inet_addr(SSDP_MCAST_ADDR);
 
 	if (bind(s, (struct sockaddr *)&sockname, sizeof(struct sockaddr_in)) < 0)
 	{
@@ -106,30 +126,22 @@ OpenAndConfSSDPReceiveSocket(void)
 		return -1;
 	}
 
-	i = n_lan_addr;
-	while (i > 0)
-	{
-		i--;
-		if (AddMulticastMembership(s, lan_addr[i].addr.s_addr) < 0)
-		{
-			DPRINTF(E_WARN, L_SSDP,
-			       "Failed to add multicast membership for address %s\n", 
-			       lan_addr[i].str );
-		}
-	}
-
 	return s;
 }
 
 /* open the UDP socket used to send SSDP notifications to
  * the multicast group reserved for them */
-static int
-OpenAndConfSSDPNotifySocket(in_addr_t addr)
+int
+OpenAndConfSSDPNotifySocket(struct lan_addr_s *iface)
 {
 	int s;
 	unsigned char loopchar = 0;
+	/* no need
 	int bcast = 1;
-	uint8_t ttl = 4;
+	*/
+	uint8_t ttl = 2; /* UDA v1.1 says :
+		The TTL for the IP packet SHOULD default to 2 and
+		SHOULD be configurable. */
 	struct in_addr mc_if;
 	struct sockaddr_in sockname;
 	
@@ -140,7 +152,7 @@ OpenAndConfSSDPNotifySocket(in_addr_t addr)
 		return -1;
 	}
 
-	mc_if.s_addr = addr;	/*inet_addr(addr);*/
+	mc_if.s_addr = iface->addr.s_addr;
 
 	if (setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, (char *)&loopchar, sizeof(loopchar)) < 0)
 	{
@@ -157,17 +169,19 @@ OpenAndConfSSDPNotifySocket(in_addr_t addr)
 	}
 
 	setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
-	
+
+	/* no need
 	if (setsockopt(s, SOL_SOCKET, SO_BROADCAST, &bcast, sizeof(bcast)) < 0)
 	{
 		DPRINTF(E_ERROR, L_SSDP, "setsockopt(udp_notify, SO_BROADCAST): %s\n", strerror(errno));
 		close(s);
 		return -1;
 	}
+	*/
 
 	memset(&sockname, 0, sizeof(struct sockaddr_in));
 	sockname.sin_family = AF_INET;
-	sockname.sin_addr.s_addr = addr;	/*inet_addr(addr);*/
+	sockname.sin_addr.s_addr = iface->addr.s_addr;
 
 	if (bind(s, (struct sockaddr *)&sockname, sizeof(struct sockaddr_in)) < 0)
 	{
@@ -176,27 +190,13 @@ OpenAndConfSSDPNotifySocket(in_addr_t addr)
 		return -1;
 	}
 
-	return s;
-}
-
-int
-OpenAndConfSSDPNotifySockets(int *sockets)
-{
-	int i, j;
-	for (i = 0; i < n_lan_addr; i++)
+	if (AddMulticastMembership(sssdp, iface) < 0)
 	{
-		sockets[i] = OpenAndConfSSDPNotifySocket(lan_addr[i].addr.s_addr);
-		if (sockets[i] < 0)
-		{
-			for (j = 0; j < i; j++)
-			{
-				close(sockets[j]);
-				sockets[j] = -1;
-			}
-			return -1;
-		}
+		DPRINTF(E_WARN, L_SSDP, "Failed to add multicast membership for address %s\n", 
+			iface->str);
 	}
-	return 0;
+
+	return s;
 }
 
 static const char * const known_service_types[] =
@@ -223,7 +223,7 @@ _usleep(long usecs)
 /* not really an SSDP "announce" as it is the response
  * to a SSDP "M-SEARCH" */
 static void
-SendSSDPAnnounce2(int s, struct sockaddr_in sockname, int st_no,
+SendSSDPResponse(int s, struct sockaddr_in sockname, int st_no,
                   const char *host, unsigned short port)
 {
 	int l, n;
@@ -252,31 +252,35 @@ SendSSDPAnnounce2(int s, struct sockaddr_in sockname, int st_no,
 		(runtime_vars.notify_interval<<1)+10,
 		tmstr,
 		known_service_types[st_no],
-		(st_no>1?"1":""),
+		(st_no > 1 ? "1" : ""),
 		uuidvalue,
 		(st_no > 0 ? "::" : ""),
 		(st_no > 0 ? known_service_types[st_no] : ""),
 		(st_no > 1 ? "1" : ""),
 		host, (unsigned int)port);
-	//DEBUG DPRINTF(E_DEBUG, L_SSDP, "Sending M-SEARCH response:\n%s", buf);
+	DPRINTF(E_DEBUG, L_SSDP, "Sending M-SEARCH response to %s:%d ST: %s\n",
+		inet_ntoa(sockname.sin_addr), ntohs(sockname.sin_port),
+		known_service_types[st_no]);
 	n = sendto(s, buf, l, 0,
 	           (struct sockaddr *)&sockname, sizeof(struct sockaddr_in) );
 	if (n < 0)
 		DPRINTF(E_ERROR, L_SSDP, "sendto(udp): %s\n", strerror(errno));
 }
 
-static void
+void
 SendSSDPNotifies(int s, const char *host, unsigned short port,
-                 unsigned int lifetime)
+                 unsigned int interval)
 {
 	struct sockaddr_in sockname;
 	int l, n, dup, i=0;
+	unsigned int lifetime;
 	char bufr[512];
 
 	memset(&sockname, 0, sizeof(struct sockaddr_in));
 	sockname.sin_family = AF_INET;
 	sockname.sin_port = htons(SSDP_PORT);
 	sockname.sin_addr.s_addr = inet_addr(SSDP_MCAST_ADDR);
+	lifetime = (interval << 1) + 10;
 
 	for (dup = 0; dup < 2; dup++)
 	{
@@ -309,7 +313,7 @@ SendSSDPNotifies(int s, const char *host, unsigned short port,
 				DPRINTF(E_WARN, L_SSDP, "SendSSDPNotifies(): truncated output\n");
 				l = sizeof(bufr);
 			}
-			//DEBUG DPRINTF(E_DEBUG, L_SSDP, "Sending NOTIFY:\n%s", bufr);
+			DPRINTF(E_MAXDEBUG, L_SSDP, "Sending ssdp:alive [%d]\n", s);
 			n = sendto(s, bufr, l, 0,
 				(struct sockaddr *)&sockname, sizeof(struct sockaddr_in));
 			if (n < 0)
@@ -319,21 +323,7 @@ SendSSDPNotifies(int s, const char *host, unsigned short port,
 	}
 }
 
-void
-SendSSDPNotifies2(int *sockets,
-                  unsigned short port,
-                  unsigned int lifetime)
-{
-	int i;
-
-	DPRINTF(E_DEBUG, L_SSDP, "Sending SSDP notifies\n");
-	for (i = 0; i < n_lan_addr; i++)
-	{
-		SendSSDPNotifies(sockets[i], lan_addr[i].str, port, lifetime);
-	}
-}
-
-void
+static void
 ParseUPnPClient(char *location)
 {
 	char buf[8192];
@@ -345,7 +335,7 @@ ParseUPnPClient(char *location)
 	char *off = NULL, *p;
 	int content_len = sizeof(buf);
 	struct NameValueParserData xml;
-	int client;
+	struct client_cache_s *client;
 	int type = 0;
 	char *model, *serial, *name;
 
@@ -392,7 +382,7 @@ ParseUPnPClient(char *location)
 	{
 		nread += n;
 		buf[nread] = '\0';
-		n = nread;
+		n = nread - 4;
 		p = buf;
 
 		while (!off && (n-- > 0))
@@ -484,14 +474,14 @@ close:
 		return;
 	/* Add this client to the cache if it's not there already. */
 	client = SearchClientCache(dest.sin_addr, 1);
-	if (client < 0)
+	if (!client)
 	{
 		AddClientCache(dest.sin_addr, type);
 	}
 	else
 	{
-		clients[client].type = type;
-		clients[client].age = time(NULL);
+		client->type = &client_types[type];
+		client->age = uptime();
 	}
 }
 
@@ -502,15 +492,32 @@ ProcessSSDPRequest(int s, unsigned short port)
 {
 	int n;
 	char bufr[1500];
-	socklen_t len_r;
 	struct sockaddr_in sendername;
 	int i;
 	char *st = NULL, *mx = NULL, *man = NULL, *mx_end = NULL;
 	int man_len = 0;
-	len_r = sizeof(struct sockaddr_in);
+#ifdef __linux__
+	char cmbuf[CMSG_SPACE(sizeof(struct in_pktinfo))];
+	struct iovec iovec = {
+		.iov_base = bufr,
+		.iov_len = sizeof(bufr)-1
+	};
+	struct msghdr mh = {
+		.msg_name = &sendername,
+		.msg_namelen = sizeof(struct sockaddr_in),
+		.msg_iov = &iovec,
+		.msg_iovlen = 1,
+		.msg_control = cmbuf,
+		.msg_controllen = sizeof(cmbuf)
+	};
+
+	n = recvmsg(s, &mh, 0);
+#else
+	socklen_t len_r = sizeof(struct sockaddr_in);
 
 	n = recvfrom(s, bufr, sizeof(bufr)-1, 0,
 	             (struct sockaddr *)&sendername, &len_r);
+#endif
 	if (n < 0)
 	{
 		DPRINTF(E_ERROR, L_SSDP, "recvfrom(udp): %s\n", strerror(errno));
@@ -572,13 +579,13 @@ ProcessSSDPRequest(int s, unsigned short port)
 		    (strstrc(srv, "DigiOn DiXiM", '\r') != NULL)) /* Marantz Receiver */
 		{
 			/* Check if the client is already in cache */
-			i = SearchClientCache(sendername.sin_addr, 1);
-			if (i >= 0)
+			struct client_cache_s *client = SearchClientCache(sendername.sin_addr, 1);
+			if (client)
 			{
-				if (clients[i].type < EStandardDLNA150 &&
-				    clients[i].type != ESamsungSeriesA)
+				if (client->type->type < EStandardDLNA150 &&
+				    client->type->type != ESamsungSeriesA)
 				{
-					clients[i].age = time(NULL);
+					client->age = uptime();
 					return;
 				}
 			}
@@ -618,7 +625,7 @@ ProcessSSDPRequest(int s, unsigned short port)
 					mx++;
 				while (mx[mx_len]!='\r' && mx[mx_len]!='\n')
 					mx_len++;
-        			mx_val = strtol(mx, &mx_end, 10);
+				mx_val = strtol(mx, &mx_end, 10);
 			}
 			else if (strncasecmp(bufr+i, "MAN:", 4) == 0)
 			{
@@ -631,8 +638,7 @@ ProcessSSDPRequest(int s, unsigned short port)
 			}
 		}
 		/*DPRINTF(E_INFO, L_SSDP, "SSDP M-SEARCH packet received from %s:%d\n",
-	           inet_ntoa(sendername.sin_addr),
-	           ntohs(sendername.sin_port) );*/
+			inet_ntoa(sendername.sin_addr), ntohs(sendername.sin_port) );*/
 		if (GETFLAG(DLNA_STRICT_MASK) && (ntohs(sendername.sin_port) <= 1024 || ntohs(sendername.sin_port) == 1900))
 		{
 			DPRINTF(E_INFO, L_SSDP, "WARNING: Ignoring invalid SSDP M-SEARCH from %s [bad source port %d]\n",
@@ -651,14 +657,34 @@ ProcessSSDPRequest(int s, unsigned short port)
 		else if (st && (st_len > 0))
 		{
 			int l;
-			int lan_addr_index = 0;
+#ifdef __linux__
+			char host[40] = "127.0.0.1";
+			struct cmsghdr *cmsg;
+
+			/* find the interface we received the msg from */
+			for (cmsg = CMSG_FIRSTHDR(&mh); cmsg; cmsg = CMSG_NXTHDR(&mh, cmsg))
+			{
+				struct in_addr addr;
+				struct in_pktinfo *pi;
+				/* ignore the control headers that don't match what we want */
+				if (cmsg->cmsg_level != IPPROTO_IP ||
+				    cmsg->cmsg_type != IP_PKTINFO)
+					continue;
+
+				pi = (struct in_pktinfo *)CMSG_DATA(cmsg);
+				addr = pi->ipi_spec_dst;
+				inet_ntop(AF_INET, &addr, host, sizeof(host));
+			}
+#else
+			const char *host;
+			int iface = 0;
 			/* find in which sub network the client is */
 			for (i = 0; i < n_lan_addr; i++)
 			{
 				if((sendername.sin_addr.s_addr & lan_addr[i].mask.s_addr) ==
 				   (lan_addr[i].addr.s_addr & lan_addr[i].mask.s_addr))
 				{
-					lan_addr_index = i;
+					iface = i;
 					break;
 				}
 			}
@@ -668,7 +694,9 @@ ProcessSSDPRequest(int s, unsigned short port)
 					inet_ntoa(sendername.sin_addr));
 				return;
 			}
-			DPRINTF(E_INFO, L_SSDP, "SSDP M-SEARCH from %s:%d ST: %.*s, MX: %.*s, MAN: %.*s\n",
+			host = lan_addr[iface].str;
+#endif
+			DPRINTF(E_DEBUG, L_SSDP, "SSDP M-SEARCH from %s:%d ST: %.*s, MX: %.*s, MAN: %.*s\n",
 				inet_ntoa(sendername.sin_addr),
 				ntohs(sendername.sin_port),
 				st_len, st, mx_len, mx, man_len, man);
@@ -676,31 +704,34 @@ ProcessSSDPRequest(int s, unsigned short port)
 			for (i = 0; known_service_types[i]; i++)
 			{
 				l = strlen(known_service_types[i]);
-				if ((l <= st_len) && (memcmp(st, known_service_types[i], l) == 0))
+				if ((l > st_len) || (memcmp(st, known_service_types[i], l) != 0))
+					continue;
+				if (st_len != l)
 				{
-					if (st_len != l)
+					/* Check version number - we only support 1. */
+					if ((st[l-1] == ':') && (st[l] == '1'))
+						l++;
+					while (l < st_len)
 					{
-						/* Check version number - must always be 1 currently. */
-						if ((st[l-1] == ':') && (st[l] == '1'))
-							l++;
-						while (l < st_len)
-						{
-							if (!isspace(st[l]))
-							{
-								DPRINTF(E_DEBUG, L_SSDP, "Ignoring SSDP M-SEARCH with bad extra data [%s]\n",
-									inet_ntoa(sendername.sin_addr));
-								break;
-							}
-							l++;
-						}
-						if (l != st_len)
+						if (isdigit(st[l]))
 							break;
+						if (isspace(st[l]))
+						{
+							l++;
+							continue;
+						}
+						DPRINTF(E_MAXDEBUG, L_SSDP,
+							"Ignoring SSDP M-SEARCH with bad extra data '%c' [%s]\n",
+							st[l], inet_ntoa(sendername.sin_addr));
+						break;
 					}
-					_usleep(random()>>20);
-					SendSSDPAnnounce2(s, sendername, i,
-					                  lan_addr[lan_addr_index].str, port);
-					break;
+					if (l != st_len)
+						break;
 				}
+				_usleep(random()>>20);
+				SendSSDPResponse(s, sendername, i,
+						host, port);
+				return;
 			}
 			/* Responds to request with ST: ssdp:all */
 			/* strlen("ssdp:all") == 8 */
@@ -709,8 +740,8 @@ ProcessSSDPRequest(int s, unsigned short port)
 				for (i=0; known_service_types[i]; i++)
 				{
 					l = strlen(known_service_types[i]);
-					SendSSDPAnnounce2(s, sendername, i,
-					                  lan_addr[lan_addr_index].str, port);
+					SendSSDPResponse(s, sendername, i,
+							host, port);
 				}
 			}
 		}
@@ -720,21 +751,25 @@ ProcessSSDPRequest(int s, unsigned short port)
 				inet_ntoa(sendername.sin_addr), ntohs(sendername.sin_port));
 		}
 	}
+	else if (memcmp(bufr, "YOUKU-NOTIFY", 12) == 0)
+	{
+		return;
+	}
 	else
 	{
 		DPRINTF(E_WARN, L_SSDP, "Unknown udp packet received from %s:%d\n",
-		       inet_ntoa(sendername.sin_addr), ntohs(sendername.sin_port));
+			inet_ntoa(sendername.sin_addr), ntohs(sendername.sin_port));
 	}
 }
 
 /* This will broadcast ssdp:byebye notifications to inform 
  * the network that UPnP is going down. */
 int
-SendSSDPGoodbye(int *sockets, int n_sockets)
+SendSSDPGoodbyes(int s)
 {
 	struct sockaddr_in sockname;
 	int n, l;
-	int i, j;
+	int i;
 	int dup, ret = 0;
 	char bufr[512];
 
@@ -745,29 +780,29 @@ SendSSDPGoodbye(int *sockets, int n_sockets)
 
 	for (dup = 0; dup < 2; dup++)
 	{
-		for (j = 0; j < n_sockets; j++)
+		for (i = 0; known_service_types[i]; i++)
 		{
-			for (i = 0; known_service_types[i]; i++)
+			l = snprintf(bufr, sizeof(bufr),
+					"NOTIFY * HTTP/1.1\r\n"
+					"HOST:%s:%d\r\n"
+					"NT:%s%s\r\n"
+					"USN:%s%s%s%s\r\n"
+					"NTS:ssdp:byebye\r\n"
+					"\r\n",
+					SSDP_MCAST_ADDR, SSDP_PORT,
+					known_service_types[i],
+					(i > 1 ? "1" : ""), uuidvalue,
+					(i > 0 ? "::" : ""),
+					(i > 0 ? known_service_types[i] : ""),
+					(i > 1 ? "1" : ""));
+			DPRINTF(E_MAXDEBUG, L_SSDP, "Sending ssdp:byebye [%d]\n", s);
+			n = sendto(s, bufr, l, 0,
+			           (struct sockaddr *)&sockname, sizeof(struct sockaddr_in) );
+			if (n < 0)
 			{
-				l = snprintf(bufr, sizeof(bufr),
-				             "NOTIFY * HTTP/1.1\r\n"
-				             "HOST:%s:%d\r\n"
-				             "NT:%s%s\r\n"
-				             "USN:%s%s%s%s\r\n"
-			        	     "NTS:ssdp:byebye\r\n"
-				             "\r\n",
-				             SSDP_MCAST_ADDR, SSDP_PORT,
-				             known_service_types[i], (i>1?"1":""),
-				             uuidvalue, (i>0?"::":""), (i>0?known_service_types[i]:""), (i>1?"1":"") );
-				//DEBUG DPRINTF(E_DEBUG, L_SSDP, "Sending NOTIFY:\n%s", bufr);
-				n = sendto(sockets[j], bufr, l, 0,
-				           (struct sockaddr *)&sockname, sizeof(struct sockaddr_in) );
-				if (n < 0)
-				{
-					DPRINTF(E_ERROR, L_SSDP, "sendto(udp_shutdown=%d): %s\n", sockets[j], strerror(errno));
-					ret = -1;
-					break;
-				}
+				DPRINTF(E_ERROR, L_SSDP, "sendto(udp_shutdown=%d): %s\n", s, strerror(errno));
+				ret = -1;
+				break;
 			}
 		}
 	}
@@ -794,11 +829,12 @@ SubmitServicesToMiniSSDPD(const char *host, unsigned short port)
 		return -1;
 	}
 	addr.sun_family = AF_UNIX;
-	strncpy(addr.sun_path, minissdpdsocketpath, sizeof(addr.sun_path));
+	strncpyt(addr.sun_path, minissdpdsocketpath, sizeof(addr.sun_path));
 	if (connect(s, (struct sockaddr *)&addr, sizeof(struct sockaddr_un)) < 0)
 	{
 		DPRINTF(E_ERROR, L_SSDP, "connect(\"%s\"): %s",
-		        minissdpdsocketpath, strerror(errno));
+			minissdpdsocketpath, strerror(errno));
+		close(s);
 		return -1;
 	}
 	for (i = 0; known_service_types[i]; i++)
@@ -830,10 +866,11 @@ SubmitServicesToMiniSSDPD(const char *host, unsigned short port)
 		if(write(s, buffer, p - buffer) < 0)
 		{
 			DPRINTF(E_ERROR, L_SSDP, "write(): %s", strerror(errno));
+			close(s);
 			return -1;
 		}
 	}
- 	close(s);
+	close(s);
 	return 0;
 }
 

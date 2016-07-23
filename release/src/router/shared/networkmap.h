@@ -5,10 +5,14 @@
 #include <linux/if_ether.h>
 #include <net/if.h>
 */
+#include <syslog.h>
+#include "../shared/version.h"
+
 #define FALSE   0
 #define TRUE    1
 #define INTERFACE 	"br0"
-#define MODEL_NAME 	"RT-N16"
+#define MODEL_NAME 	RT_BUILD_NAME
+#define ARP_BUFFER_SIZE	512
 
 // Hardware type field in ARP message
 #define DIX_ETHERNET            1
@@ -40,7 +44,7 @@
 #define SET_UINT16( num, buff) num = htons(*(uint16*)buff); buff += 2
 
 //for UPNP
-#define LINE_SIZE               50
+#define LINE_SIZE               200
 #define SERVICE_NUM             10
 #define UPNP_BUFSIZE            1500
 #define MIN_SEARCH_TIME         3
@@ -61,12 +65,14 @@
 
 #ifdef DEBUG
 	#define NMP_DEBUG(fmt, args...) printf(fmt, ## args)
+	//#define NMP_DEBUG(fmt, args...) syslog(LOG_NOTICE, fmt, ## args)
 #else
 	#define NMP_DEBUG(fmt, args...)
 #endif
 
 #ifdef DEBUG_MORE
         #define NMP_DEBUG_M(fmt, args...) printf(fmt, ## args)
+	//#define NMP_DEBUG_M(fmt, args...) syslog(LOG_NOTICE, fmt, ## args)
 #else
         #define NMP_DEBUG_M(fmt, args...)
 #endif
@@ -79,11 +85,14 @@ typedef unsigned long ULONG;
 typedef struct {
         unsigned char   ip_addr[255][4];
         unsigned char   mac_addr[255][6];
-	unsigned char   device_name[255][16];
+	unsigned char   user_define[255][16];
+	unsigned char   device_name[255][32];
+	unsigned char	apl_dev[255][16];
         int             type[255];
         int             http[255];
         int             printer[255];
         int             itune[255];
+	int		exist[255];
         int             ip_mac_num;
 	int 		detail_info_num;
 } CLIENT_DETAIL_INFO_TABLE, *P_CLIENT_DETAIL_INFO_TABLE;

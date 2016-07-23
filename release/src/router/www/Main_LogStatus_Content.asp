@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -14,12 +14,8 @@
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<!--script language="JavaScript" type="text/javascript" src="/jquery.js"></script-->
+<!--script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script-->
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
 function showclock(){
 	JS_timeObj.setTime(systime_millsec);
 	systime_millsec += 1000;
@@ -32,11 +28,11 @@ function showclock(){
 				  /*JS_timeObj.getFullYear() + " GMT" +
 				  timezone;*/ // Viz remove GMT timezone 2011.08
 				  JS_timeObj.getFullYear();
-	$("system_time").value = JS_timeObj2;
+	document.getElementById("system_time").value = JS_timeObj2;
 	setTimeout("showclock()", 1000);
 	if(navigator.appName.indexOf("Microsoft") >= 0)
 		document.getElementById("textarea").style.width = "99%";
-    //$("banner3").style.height = "13";
+    //document.getElementById("banner3").style.height = "13";
 }
 
 function showbootTime(){
@@ -45,10 +41,10 @@ function showbootTime(){
 	Minutes = Math.floor(boottime % 3600 / 60);
 	Seconds = Math.floor(boottime % 60);
 	
-	$("boot_days").innerHTML = Days;
-	$("boot_hours").innerHTML = Hours;
-	$("boot_minutes").innerHTML = Minutes;
-	$("boot_seconds").innerHTML = Seconds;
+	document.getElementById("boot_days").innerHTML = Days;
+	document.getElementById("boot_hours").innerHTML = Hours;
+	document.getElementById("boot_minutes").innerHTML = Minutes;
+	document.getElementById("boot_seconds").innerHTML = Seconds;
 	boottime += 1;
 	setTimeout("showbootTime()", 1000);
 }
@@ -63,7 +59,7 @@ function showDST(){
 	var system_timezone_dut = "<% nvram_get("time_zone"); %>";
 	if(system_timezone_dut.search("DST") >= 0 && "<% nvram_get("time_zone_dst"); %>" == "1"){
 		document.getElementById('dstzone').style.display = "";
-		document.getElementById('dstzone').innerHTML = "* Daylight saving time is implemented in this time zone.";
+		document.getElementById('dstzone').innerHTML = "<#General_x_SystemTime_dst#>";
 	}
 }
 
@@ -72,7 +68,8 @@ function initial(){
 	showclock();
 	showbootTime();
 	showDST();
-	document.getElementById('textarea').scrollTop = 9999999;//make Scroll_y bottom
+	var retArea = document.getElementById('textarea');
+	retArea.scrollTop = retArea.scrollHeight - retArea.clientHeight;
 }
 </script>
 </head>
@@ -118,7 +115,7 @@ function initial(){
 										<tr>
 											<th width="20%"><#General_x_SystemTime_itemname#></th>
 											<td>
-												<input type="text" id="system_time" name="system_time" size="40" class="devicepin" value="" readonly="1" style="font-size:12px;">
+												<input type="text" id="system_time" name="system_time" size="40" class="devicepin" value="" readonly="1" style="font-size:12px;" autocorrect="off" autocapitalize="off">
 												<br><span id="dstzone" style="display:none;margin-left:5px;color:#FFFFFF;"></span>
 											</td>										
 										</tr>

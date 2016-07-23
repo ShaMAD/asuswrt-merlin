@@ -7,6 +7,7 @@
 */
 #include <syslog.h>
 #include "../shared/version.h"
+#include "../shared/shared.h"
 
 #define FALSE   0
 #define TRUE    1
@@ -29,7 +30,7 @@
 #define MAXDATASIZE             512
 #define LPR                     0x02
 #define LPR_RESPONSE            0x00
-                                                                                                                                             
+
 //Service Port
 #define HTTP_PORT               80
 #define NBNS_PORT               137
@@ -63,18 +64,45 @@
 #define SMB_SESSON_ANDX_REQ     5
 #define SMB_SESSON_ANDX_RSP     6
 
+//for Notification Center trigger flag
+#ifdef RTCONFIG_NOTIFICATION_CENTER
+enum
+{
+	FLAG_SAMBA_INLAN = 0,
+	FLAG_OSX_INLAN,
+	FLAG_XBOX_PS,
+	FLAG_UPNP_RENDERER
+};
+#endif
+
+#define USERAGENT "Asuswrt/networkmap"
+
+#if (defined(RTCONFIG_JFFS2) || defined(RTCONFIG_JFFSV1) || defined(RTCONFIG_BRCM_NAND_JFFS2))
+#define NMP_CLIENT_LIST_FILENAME        "/jffs/nmp_client_list"
+#else
+#define NMP_CLIENT_LIST_FILENAME        "/tmp/nmp_client_list"
+#endif
+#define NCL_LIMIT 524288   //nmp_client_list limit size(512KB)
+
 #ifdef DEBUG
-	#define NMP_DEBUG(fmt, args...) printf(fmt, ## args)
+	#define NMP_DEBUG(fmt, args...) _dprintf(fmt, ## args)
 	//#define NMP_DEBUG(fmt, args...) syslog(LOG_NOTICE, fmt, ## args)
 #else
 	#define NMP_DEBUG(fmt, args...)
 #endif
 
 #ifdef DEBUG_MORE
-        #define NMP_DEBUG_M(fmt, args...) printf(fmt, ## args)
+        #define NMP_DEBUG_M(fmt, args...) _dprintf(fmt, ## args)
 	//#define NMP_DEBUG_M(fmt, args...) syslog(LOG_NOTICE, fmt, ## args)
 #else
         #define NMP_DEBUG_M(fmt, args...)
+#endif
+
+#ifdef DEBUG_FUNCTION
+        #define NMP_DEBUG_F(fmt, args...) _dprintf(fmt, ## args)
+        //#define NMP_DEBUG_FUN(fmt, args...) syslog(LOG_NOTICE, fmt, ## args)
+#else
+        #define NMP_DEBUG_F(fmt, args...)
 #endif
 
 typedef unsigned char UCHAR;
@@ -85,33 +113,46 @@ typedef unsigned long ULONG;
 typedef struct {
         unsigned char   ip_addr[255][4];
         unsigned char   mac_addr[255][6];
-	unsigned char   device_name[255][16];
+	unsigned char   user_define[255][16];
+	unsigned char   device_name[255][32];
+	unsigned char	apple_model[255][16];
+	char		pad[2];
         int             type[255];
         int             http[255];
         int             printer[255];
         int             itune[255];
+	int		exist[255];
+#ifdef RTCONFIG_BWDPI
+	char		bwdpi_host[255][32];
+	char		bwdpi_vendor[255][100];
+	char		bwdpi_type[255][100];
+	char		bwdpi_device[255][100];
+#endif
         int             ip_mac_num;
 	int 		detail_info_num;
+	char		delete_mac[13];
+	char		pad1[3];
 } CLIENT_DETAIL_INFO_TABLE, *P_CLIENT_DETAIL_INFO_TABLE;
 
 typedef struct Raw_socket {
         int raw_sockfd;
         int raw_buflen;
         char device;
+	char pad[3];
         unsigned char *raw_buffer;
 }r_socket;
 
 // walf test
 typedef struct
 {
-	unsigned short  hardware_type; 
-   	unsigned short  protocol_type;           
+	unsigned short  hardware_type;
+   	unsigned short  protocol_type;
    	unsigned char hwaddr_len;
-   	unsigned char ipaddr_len;               
+   	unsigned char ipaddr_len;
    	unsigned short  message_type;
-   	unsigned char source_hwaddr[6];              
+   	unsigned char source_hwaddr[6];
    	unsigned char source_ipaddr[4];
-   	unsigned char dest_hwaddr[6];    
+   	unsigned char dest_hwaddr[6];
    	unsigned char dest_ipaddr[4];
 } ARP_HEADER;
 
@@ -120,6 +161,7 @@ typedef struct
   	unsigned char dest_hwaddr[6];
   	unsigned char source_hwaddr[6];
   	unsigned short  frame_type;
+	char		pad[2];
 } ETH_HEADER;
 
 /* NetBIOS Datagram header: 14 Bytes */
@@ -132,8 +174,9 @@ typedef struct
   unsigned short src_port;
   unsigned short datagram_len;
   unsigned short packet_off;
+  char		 pad[2];
 } NETBIOS_D_HEADER;
-                                                                                                                                              
+
 /* NetBIOS Datagram data section */
 typedef struct
 {
@@ -170,6 +213,7 @@ typedef struct
   unsigned char name_flags6[2];
   unsigned char mac_addr[6];
   unsigned char name_info[58];
+  char		pad[3];
 } NBNS_RESPONSE;
 
 struct LPDProtocol
@@ -177,6 +221,7 @@ struct LPDProtocol
     unsigned char cmd_code;  	/* command code */
     unsigned char options[32];  /* Queue name */
     unsigned char lf;
+    char	  pad[2];
 };
 
 //for itune
@@ -195,7 +240,7 @@ struct service
         char name[LINE_SIZE];
         char url[LINE_SIZE];
 };
-                                                                                                                                             
+
 struct device_info
 {
         // name:                <friendlyName>
@@ -221,7 +266,7 @@ typedef struct {
        unsigned char flags;
        unsigned short length;
 } NBSS_HEADER;
-                                                                                                                                             
+
 union {
         struct {
             UCHAR  ErrorClass;        // Error class
@@ -230,7 +275,7 @@ union {
         } DosError;
         ULONG Status;                 // 32-bit error code
 } Status;
-                                                                                                                                             
+
 union {
         USHORT Pad[6];                // Ensure section is 12 bytes long
         struct {
@@ -270,7 +315,7 @@ typedef struct
     ULONG  Reserved;                      // must be 0
     ULONG  Capabilities;                  // Client capabilities
 } SMB_SESSION_SETUPX_REQ;
-                                                                                                                                             
+
 typedef struct
 {
     USHORT ByteCount;                     //Count of data bytes;    min = 0
@@ -298,5 +343,6 @@ typedef struct
         USHORT nativeLanMan_len;
 } MY_DEVICE_INFO;
 
-int FindAllApp( unsigned char *src_ip, P_CLIENT_DETAIL_INFO_TABLE p_client_detail_info_tab);
-int FindHostname( P_CLIENT_DETAIL_INFO_TABLE p_client_detail_info_tab);
+int FindHostname(P_CLIENT_DETAIL_INFO_TABLE p_client_detail_info_tab);
+int FindAllApp( unsigned char *src_ip, P_CLIENT_DETAIL_INFO_TABLE p_client_detail_info_tab, int i);
+int asusdiscovery();

@@ -19,7 +19,7 @@ include ../.config
 #SIZE := $(CROSS_COMPILE)size
 #endif
 
-PROGS	= u2ec
+PROG	= u2ec
 OBJS	= usbsock.o testusb.o
 DEBUG	= n
 
@@ -40,7 +40,7 @@ endif
 	CFLAGS = -DSUPPORT_LPRng
 	CFLAGS += -I. -I$(TOP)/shared
 	CFLAGS += -I$(TOP)/kernel_header/include -I$(SRCBASE)/include
-	LDFLAGS = -lpthread
+	LDFLAGS = -lpthread -ldl
 #	LDFLAGS += -L$(TOP)/libusb10/libusb/.libs -lusb-1.0
 #	LDFLAGS += -L$(TOP)/libusb/libusb/.libs -lusb
 #	LDFLAGS += -L$(TOP)/libusb-0.1.12/.libs -lusb
@@ -52,17 +52,29 @@ ifeq ($(RTCONFIG_BCMARM),y)
 LDFLAGS += -lgcc_s
 endif
 
+ifeq ($(RTCONFIG_QTN),y)
+LDFLAGS += -L$(TOP)/libqcsapi_client -lqcsapi_client
+endif
+
 CFLAGS += -Wall -I.
 CFLAGS += $(DEBFLAGS)
 
-all: $(PROGS)
-	$(STRIP) $(PROGS)
 
-$(PROGS): $(OBJS) $(TOP)/libusb-0.1.12/.libs/libusb.a
+ifneq ($(wildcard ./prebuild$(BCMEX)),)
+all:
+	cp prebuild$(BCMEX)/$(PROG) .
+
+$(PROG): 
+else
+all: $(PROG)
+	$(STRIP) $(PROG)
+
+$(PROG): $(OBJS) $(TOP)/libusb-0.1.12/.libs/libusb.a
 	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@
+endif
 
-install: $(PROGS)
-	install -D $(PROGS) $(INSTALLDIR)/usr/sbin/$(PROGS)
+install: $(PROG)
+	install -D $(PROG) $(INSTALLDIR)/usr/sbin/$(PROG)
 
 clean:
-	rm -f $(PROGS) *.o *~
+	rm -f $(PROG) *.o *~

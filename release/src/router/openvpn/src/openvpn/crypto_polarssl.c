@@ -46,6 +46,7 @@
 #include "misc.h"
 
 #include <polarssl/des.h>
+#include <polarssl/error.h>
 #include <polarssl/md5.h>
 #include <polarssl/cipher.h>
 #include <polarssl/havege.h>
@@ -85,6 +86,32 @@ void
 crypto_clear_error (void)
 {
 }
+
+bool polar_log_err(unsigned int flags, int errval, const char *prefix)
+{
+  if (0 != errval)
+    {
+      char errstr[256];
+      polarssl_strerror(errval, errstr, sizeof(errstr));
+
+      if (NULL == prefix) prefix = "PolarSSL error";
+      msg (flags, "%s: %s", prefix, errstr);
+    }
+
+  return 0 == errval;
+}
+
+bool polar_log_func_line(unsigned int flags, int errval, const char *func,
+    int line)
+{
+  char prefix[256];
+
+  if (!openvpn_snprintf(prefix, sizeof(prefix), "%s:%d", func, line))
+    return polar_log_err(flags, errval, func);
+
+  return polar_log_err(flags, errval, prefix);
+}
+
 
 #ifdef DMALLOC
 void
@@ -234,7 +261,8 @@ ctr_drbg_context * rand_ctx_get()
       /* Initialise PolarSSL RNG, and built-in entropy sources */
       entropy_init(&ec);
 
-      if (0 != ctr_drbg_init(&cd_ctx, entropy_func, &ec, BPTR(&pers_string), BLEN(&pers_string)))
+      if (!polar_ok(ctr_drbg_init(&cd_ctx, entropy_func, &ec,
+		    BPTR(&pers_string), BLEN(&pers_string))))
         msg (M_FATAL, "Failed to initialize random generator");
 
       gc_free(&gc);
@@ -416,6 +444,19 @@ cipher_kt_mode (const cipher_info_t *cipher_kt)
   return cipher_kt->mode;
 }
 
+bool
+cipher_kt_mode_cbc(const cipher_kt_t *cipher)
+{
+  return cipher && cipher_kt_mode(cipher) == OPENVPN_MODE_CBC;
+}
+
+bool
+cipher_kt_mode_ofb_cfb(const cipher_kt_t *cipher)
+{
+  return cipher && (cipher_kt_mode(cipher) == OPENVPN_MODE_OFB ||
+	  cipher_kt_mode(cipher) == OPENVPN_MODE_CFB);
+}
+
 
 /*
  *
@@ -432,10 +473,10 @@ cipher_ctx_init (cipher_context_t *ctx, uint8_t *key, int key_len,
 
   CLEAR (*ctx);
 
-  if (0 != cipher_init_ctx(ctx, kt))
+  if (!polar_ok(cipher_init_ctx(ctx, kt)))
     msg (M_FATAL, "PolarSSL cipher context init #1");
 
-  if (0 != cipher_setkey(ctx, key, key_len*8, enc))
+  if (!polar_ok(cipher_setkey(ctx, key, key_len*8, enc)))
     msg (M_FATAL, "PolarSSL cipher set key");
 
   /* make sure we used a big enough key */
@@ -444,7 +485,7 @@ cipher_ctx_init (cipher_context_t *ctx, uint8_t *key, int key_len,
 
 void cipher_ctx_cleanup (cipher_context_t *ctx)
 {
-  cipher_free_ctx(ctx);
+  cipher_free(ctx);
 }
 
 int cipher_ctx_iv_length (const cipher_context_t *ctx)
@@ -464,33 +505,48 @@ int cipher_ctx_mode (const cipher_context_t *ctx)
   return cipher_kt_mode(ctx->cipher_info);
 }
 
+const cipher_kt_t *
+cipher_ctx_get_cipher_kt (const cipher_ctx_t *ctx)
+{
+  ASSERT(NULL != ctx);
+
+  return ctx->cipher_info;
+}
+
 int cipher_ctx_reset (cipher_context_t *ctx, uint8_t *iv_buf)
 {
-  return 0 == cipher_reset(ctx, iv_buf);
+  if (!polar_ok(cipher_reset(ctx)))
+    return 0;
+
+  if (!polar_ok(cipher_set_iv(ctx, iv_buf, ctx->cipher_info->iv_size)))
+    return 0;
+
+  return 1;
 }
 
 int cipher_ctx_update (cipher_context_t *ctx, uint8_t *dst, int *dst_len,
     uint8_t *src, int src_len)
 {
-  int retval = 0;
   size_t s_dst_len = *dst_len;
 
-  retval = cipher_update(ctx, src, (size_t)src_len, dst, &s_dst_len);
+  if (!polar_ok(cipher_update(ctx, src, (size_t)src_len, dst, &s_dst_len)))
+    return 0;
 
   *dst_len = s_dst_len;
 
-  return 0 == retval;
+  return 1;
 }
 
 int cipher_ctx_final (cipher_context_t *ctx, uint8_t *dst, int *dst_len)
 {
-  int retval = 0;
   size_t s_dst_len = *dst_len;
 
-  retval = cipher_finish(ctx, dst, &s_dst_len);
+  if (!polar_ok(cipher_finish(ctx, dst, &s_dst_len)))
+    return 0;
+
   *dst_len = s_dst_len;
 
-  return 0 == retval;
+  return 1;
 }
 
 void
@@ -500,8 +556,8 @@ cipher_des_encrypt_ecb (const unsigned char key[DES_KEY_LENGTH],
 {
     des_context ctx;
 
-    des_setkey_enc(&ctx, key);
-    des_crypt_ecb(&ctx, src, dst);
+    ASSERT (polar_ok(des_setkey_enc(&ctx, key)));
+    ASSERT (polar_ok(des_crypt_ecb(&ctx, src, dst)));
 }
 
 
@@ -593,7 +649,7 @@ void
 md_ctx_final (md_context_t *ctx, uint8_t *dst)
 {
   ASSERT(0 == md_finish(ctx, dst));
-  ASSERT(0 == md_free_ctx(ctx));
+  md_free(ctx);
 }
 
 
@@ -624,7 +680,7 @@ hmac_ctx_init (md_context_t *ctx, const uint8_t *key, int key_len, const md_info
 void
 hmac_ctx_cleanup(md_context_t *ctx)
 {
-  ASSERT(0 == md_free_ctx(ctx));
+  md_free(ctx);
 }
 
 int

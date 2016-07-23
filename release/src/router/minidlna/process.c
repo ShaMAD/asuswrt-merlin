@@ -38,33 +38,95 @@
 #include <signal.h>
 #include <sys/wait.h>
 
+#include "upnpglobalvars.h"
 #include "process.h"
 #include "config.h"
 #include "log.h"
+#include "utils.h"
 
-static const int max_number_of_children = 5;
-static int number_of_children = 0;
+struct child *children = NULL;
+int number_of_children = 0;
+
+static int
+add_process_info(pid_t pid, struct client_cache_s *client)
+{
+	struct child *child;
+	int i;
+
+	for (i = 0; i < runtime_vars.max_connections; i++)
+	{
+		child = children+i;
+		if (child->pid)
+			continue;
+		child->pid = pid;
+		child->client = client;
+		child->age = uptime();
+		return 1;
+	}
+
+	return 0;
+}
+
+static inline int
+remove_process_info(pid_t pid)
+{
+	struct child *child;
+	int i;
+
+	for (i = 0; i < runtime_vars.max_connections; i++)
+	{
+		child = children+i;
+		if (child->pid != pid)
+			continue;
+		child->pid = 0;
+		if (child->client)
+			child->client->connections--;
+		return 1;
+	}
+
+	return 0;
+}
 
 pid_t
-process_fork(void)
+process_fork(struct client_cache_s *client)
 {
-	if (number_of_children >= max_number_of_children)
+	if (number_of_children >= runtime_vars.max_connections)
 	{
+		DPRINTF(E_WARN, L_GENERAL, "Exceeded max connections [%d], not forking\n",
+			runtime_vars.max_connections);
 		errno = EAGAIN;
 		return -1;
 	}
 
 	pid_t pid = fork();
 	if (pid > 0)
-		++number_of_children;
+	{
+		if (client)
+			client->connections++;
+		if (add_process_info(pid, client))
+			number_of_children++;
+	}
+
 	return pid;
 }
 
 void
 process_handle_child_termination(int signal)
 {
-	waitpid(-1, NULL, WNOHANG);
-	--number_of_children;
+	pid_t pid;
+
+	while ((pid = waitpid(-1, NULL, WNOHANG)))
+	{
+		if (pid == -1)
+		{
+			if (errno == EINTR)
+				continue;
+			else
+				break;
+		}
+		if (remove_process_info(pid))
+			number_of_children--;
+	}
 }
 
 int
@@ -74,7 +136,7 @@ process_daemonize(void)
 #ifndef USE_DAEMON
 	int i;
 
-	switch(process_fork())
+	switch(fork())
 	{
 		/* fork error */
 		case -1:
@@ -128,7 +190,7 @@ process_check_if_running(const char *fname)
 
 	memset(buffer, 0, 64);
 
-	if(read(pidfile, buffer, 63))
+	if(read(pidfile, buffer, 63) > 0)
 	{
 		if( (pid = atol(buffer)) > 0)
 		{
@@ -143,4 +205,18 @@ process_check_if_running(const char *fname)
 	close(pidfile);
 
 	return 0;
+}
+
+void
+process_reap_children(void)
+{
+	struct child *child;
+	int i;
+
+	for (i = 0; i < runtime_vars.max_connections; i++)
+	{
+		child = children+i;
+		if (child->pid)
+			kill(child->pid, SIGKILL);
+	}
 }

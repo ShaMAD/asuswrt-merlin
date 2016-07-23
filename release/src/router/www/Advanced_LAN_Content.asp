@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -16,17 +16,10 @@
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 
-<script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-<% wanlink(); %>
+<script><% wanlink(); %>
 
-
-<% login_state_hook(); %>
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
 var origin_lan_ip = '<% nvram_get("lan_ipaddr"); %>';
 if(pptpd_support){	
 	var pptpd_clients = '<% nvram_get("pptpd_clients"); %>';
@@ -42,16 +35,16 @@ function initial(){
 	show_menu();
 	
 	if(sw_mode == "1"){
-		 $("table_proto").style.display = "none";
-		 $("table_gateway").style.display = "none";
-		 $("table_dnsenable").style.display = "none";
-		 $("table_dns1").style.display = "none";
-		 $("table_dns2").style.display = "none";
+		 document.getElementById("table_proto").style.display = "none";
+		 document.getElementById("table_gateway").style.display = "none";
+		 document.getElementById("table_dnsenable").style.display = "none";
+		 document.getElementById("table_dns1").style.display = "none";
+		 document.getElementById("table_dns2").style.display = "none";
 		 /*  Not needed to show out. Viz 2012.04
 		 if(pptpd_support){
 		 	var chk_vpn = check_vpn();
 			 if(chk_vpn){
-		 		$("VPN_conflict").style.display = "";	
+		 		document.getElementById("VPN_conflict").style.display = "";	
 			 }
 		 }*/
 	}
@@ -91,16 +84,20 @@ function valid_IP(obj_name, obj_flag){
 			return true;
 		}
 
-		if(ip_num > A_class_start && ip_num < A_class_end)
+		if(ip_num > A_class_start && ip_num < A_class_end){
+		   obj_name.value = ipFilterZero(ip_obj.value);
 			return true;
+		}
 		else if(ip_num > B_class_start && ip_num < B_class_end){
 			alert(ip_obj.value+" <#JS_validip#>");
 			ip_obj.focus();
 			ip_obj.select();
 			return false;
 		}
-		else if(ip_num > C_class_start && ip_num < C_class_end)
+		else if(ip_num > C_class_start && ip_num < C_class_end){
+			obj_name.value = ipFilterZero(ip_obj.value);
 			return true;
+		}
 		else{
 			alert(ip_obj.value+" <#JS_validip#>");
 			ip_obj.focus();
@@ -151,7 +148,7 @@ function validForm(){
 	if(wanip_obj != "0.0.0.0"){				
 		if(sw_mode == 1 && document.form.wan_ipaddr_x.value != "0.0.0.0" && document.form.wan_ipaddr_x.value != "" 
 				&& document.form.wan_netmask_x.value != "0.0.0.0" && document.form.wan_netmask_x.value != ""){
-			if(matchSubnet2(document.form.wan_ipaddr_x.value, document.form.wan_netmask_x, document.form.lan_ipaddr.value, document.form.lan_netmask)){
+			if(validator.matchSubnet2(document.form.wan_ipaddr_x.value, document.form.wan_netmask_x, document.form.lan_ipaddr.value, document.form.lan_netmask)){
 						document.form.lan_ipaddr.focus();
 						document.form.lan_ipaddr.select();
 						alert("<#IPConnection_x_WAN_LAN_conflict#>");
@@ -233,8 +230,8 @@ function done_validating(action){
 // step1. check IP changed. // step2. check Subnet is the same 
 function changed_DHCP_IP_pool(){
 	if(document.form.lan_ipaddr.value != origin_lan_ip){ // IP changed
-		if(!matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_start.value, 3) ||
-				!matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_end.value, 3)){ // Different Subnet
+		if(!validator.matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_start.value, 3) ||
+				!validator.matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_end.value, 3)){ // Different Subnet
 				document.form.dhcp_start.value = subnetPrefix(document.form.lan_ipaddr.value, document.form.dhcp_start.value, 3);
 				document.form.dhcp_end.value = subnetPrefix(document.form.lan_ipaddr.value, document.form.dhcp_end.value, 3);				
 		}
@@ -263,22 +260,28 @@ function changed_DHCP_IP_pool(){
 
 // Viz add 2011.10 default DHCP pool range{
 	for(i=0;i<nm.length;i++){
-				 if(post_lan_netmask==nm[i]){
-							gap=256-Number(nm[i]);							
-							subnet_set = 256/gap;
-							for(j=1;j<=subnet_set;j++){
-									if(post_lan_ipaddr < 1*gap && post_lan_ipaddr == 1){		//Viz add to avoid default (1st) LAN ip in DHCP pool (start)2011.11
-												pool_start=2;
-												pool_end=1*gap-2;
-												break;										//Viz add to avoid default (1st) LAN ip in DHCP pool (end)2011.11
-									}else if(post_lan_ipaddr < j*gap){
-												pool_start=(j-1)*gap+1;
-												pool_end=j*gap-2;
-												break;						
-									}
-							}																	
-							break;
-				 }
+		if(post_lan_netmask==nm[i]){
+			gap=256-Number(nm[i]);							
+			subnet_set = 256/gap;
+			for(j=1;j<=subnet_set;j++){
+				if(post_lan_ipaddr < j*gap && post_lan_ipaddr == (j-1)*gap+1){	//Viz add to avoid default (1st) LAN ip in DHCP pool
+					pool_start=(j-1)*gap+2;
+					pool_end=j*gap-2;
+					break;
+				}
+				else if(post_lan_ipaddr < j*gap && post_lan_ipaddr == j*gap-2){    //Viz add to avoid default (last) LAN ip in DHCP pool
+					pool_start=(j-1)*gap+1;
+					pool_end=j*gap-3;
+					break;
+				}
+				else if(post_lan_ipaddr < j*gap){
+					pool_start=(j-1)*gap+1;
+					pool_end=j*gap-2;
+					break;						
+				}
+			}																	
+			break;
+		 }
 	}
 	
 		var update_pool_start = subnetPostfix(document.form.dhcp_start.value, pool_start, 3);
@@ -291,9 +294,9 @@ function changed_DHCP_IP_pool(){
 						return false;	
 				}
 		}	
-			
-	return true;	
+				
 	//alert(document.form.dhcp_start.value+" , "+document.form.dhcp_end.value);//Viz
+	return true;
 	// } Viz add 2011.10 default DHCP pool range	
 	
 }
@@ -430,7 +433,7 @@ function check_vpn(){		//true: lAN ip & VPN client ip conflict
 			  <a class="hintstyle" href="javascript:void(0);" onClick="openHint(4,1);"><#IPConnection_ExternalIPAddress_itemname#></a>
 			</th>			
 			<td>
-			  <input type="text" maxlength="15" class="input_15_table" id="lan_ipaddr" name="lan_ipaddr" value="<% nvram_get("lan_ipaddr"); %>" onKeyPress="return is_ipaddr(this, event);">
+			  <input type="text" maxlength="15" class="input_15_table" id="lan_ipaddr" name="lan_ipaddr" value="<% nvram_get("lan_ipaddr"); %>" onKeyPress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off">
 			</td>
 		  </tr>
 		  
@@ -439,7 +442,7 @@ function check_vpn(){		//true: lAN ip & VPN client ip conflict
 			  <a class="hintstyle"  href="javascript:void(0);" onClick="openHint(4,2);"><#IPConnection_x_ExternalSubnetMask_itemname#></a>
 			</th>
 			<td>
-				<input type="text" maxlength="15" class="input_15_table" name="lan_netmask" value="<% nvram_get("lan_netmask"); %>" onkeypress="return is_ipaddr(this, event);" >
+				<input type="text" maxlength="15" class="input_15_table" name="lan_netmask" value="<% nvram_get("lan_netmask"); %>" onkeypress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off">
 			  <input type="hidden" name="dhcp_start" value="<% nvram_get("dhcp_start"); %>">
 			  <input type="hidden" name="dhcp_end" value="<% nvram_get("dhcp_end"); %>">
 			</td>
@@ -448,7 +451,7 @@ function check_vpn(){		//true: lAN ip & VPN client ip conflict
 			<tr id="table_gateway">
 			<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,3);"><#IPConnection_x_ExternalGateway_itemname#></a></th>
 			<td>
-				<input type="text" name="lan_gateway" maxlength="15" class="input_15_table" value="<% nvram_get("lan_gateway"); %>" onKeyPress="return is_ipaddr(this, event);">
+				<input type="text" name="lan_gateway" maxlength="15" class="input_15_table" value="<% nvram_get("lan_gateway"); %>" onKeyPress="return validator.isIPAddr(this, event);" autocorrect="off" autocapitalize="off">
 			</td>
 			</tr>
 
@@ -465,7 +468,7 @@ function check_vpn(){		//true: lAN ip & VPN client ip conflict
 				<a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,13);"><#IPConnection_x_DNSServer1_itemname#></a>
 			</th>
       <td>
-				<input type="text" maxlength="15" class="input_15_table" name="lan_dns1_x" value="<% nvram_get("lan_dns1_x"); %>" onkeypress="return is_ipaddr(this, event)" >
+				<input type="text" maxlength="15" class="input_15_table" name="lan_dns1_x" value="<% nvram_get("lan_dns1_x"); %>" onkeypress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off">
 			</td>
       </tr>
 
@@ -474,7 +477,7 @@ function check_vpn(){		//true: lAN ip & VPN client ip conflict
 				<a class="hintstyle" href="javascript:void(0);" onClick="openHint(7,14);"><#IPConnection_x_DNSServer2_itemname#></a>
 			</th>
       <td>
-				<input type="text" maxlength="15" class="input_15_table" name="lan_dns2_x" value="<% nvram_get("lan_dns2_x"); %>" onkeypress="return is_ipaddr(this, event)" >
+				<input type="text" maxlength="15" class="input_15_table" name="lan_dns2_x" value="<% nvram_get("lan_dns2_x"); %>" onkeypress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off" >
 			</td>
       </tr>  
 

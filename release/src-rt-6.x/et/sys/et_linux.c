@@ -1994,12 +1994,20 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 	int32 i = 0, cidx = 0;
 	bool chaining = PKTC_ENAB(et);
 #endif
+	uint16 ether_type;
 
 	/* read the buffers first */
 	while ((p = (*chops->rx)(ch))) {
 #ifdef PKTC
 		ASSERT(PKTCLINK(p) == NULL);
 		evh = PKTDATA(et->osh, p) + HWRXOFF;
+
+		ether_type = ((struct ether_header *) evh)->ether_type;
+		if (ether_type == HTON16(ETHER_TYPE_BRCM)) {
+			PKTFREE(osh, p, FALSE);
+			continue;
+		}
+
 		prio = IP_TOS46(evh + ETHERVLAN_HDR_LEN) >> IPV4_TOS_PREC_SHIFT;
 		if (cd[0].h_da == NULL) {
 			cd[0].h_da = evh; cd[0].h_sa = evh + ETHER_ADDR_LEN;
@@ -2046,6 +2054,12 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 		} else
 			PKTCENQTAIL(h, t, p);
 #else /* PKTC */
+		ether_type = ((struct ether_header *) PKTDATA(et->osh, p))->ether_type;
+		if (ether_type == HTON16(ETHER_TYPE_BRCM)) {
+			PKTFREE(osh, p, FALSE);
+			continue;
+		}
+
 		PKTSETLINK(p, NULL);
 		if (t == NULL)
 			h = t = p;
@@ -2291,12 +2305,18 @@ static inline int32
 et_ctf_forward(et_info_t *et, struct sk_buff *skb)
 {
 #ifdef CONFIG_IP_NF_DNSMQ
-	if (dnsmq_hit_hook&&dnsmq_hit_hook(skb))
-		return (BCME_ERROR);
+	bool dnsmq_hit = FALSE;
+
+	if (dnsmq_hit_hook && dnsmq_hit_hook(skb))
+		dnsmq_hit = TRUE;
 #endif
 #ifdef HNDCTF
 	/* try cut thru first */
-	if (CTF_ENAB(et->cih) && ctf_forward(et->cih, skb, skb->dev) != BCME_ERROR)
+	if (CTF_ENAB(et->cih) &&
+#ifdef CONFIG_IP_NF_DNSMQ
+		!dnsmq_hit &&
+#endif
+		ctf_forward(et->cih, skb, skb->dev) != BCME_ERROR)
 		return (BCME_OK);
 
 	/* clear skipct flag before sending up */

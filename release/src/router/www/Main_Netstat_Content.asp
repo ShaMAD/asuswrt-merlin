@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7">
+<meta http-equiv="X-UA-Compatible" content="IE=Edge">
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -10,63 +10,20 @@
 <title><#Network_Tools#> - Netstat</title>
 <link rel="stylesheet" type="text/css" href="index_style.css"> 
 <link rel="stylesheet" type="text/css" href="form_style.css">
-
+<link rel="stylesheet" type="text/css" href="device-map/device-map.css">
 <script language="JavaScript" type="text/javascript" src="/state.js"></script>
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script language="JavaScript" type="text/javascript" src="/jquery.js"></script>
-<style>
-#ClientList_Block_PC{
-	border:1px outset #999;
-	background-color:#576D73;
-	position:absolute;
-	*margin-top:26px;
-	margin-left:3px;
-	*margin-left:-129px;
-	width:255px;
-	text-align:left;	
-	height:auto;
-	overflow-y:auto;
-	z-index:200;
-	padding: 1px;
-	display:none;
-}
-#ClientList_Block_PC div{
-	background-color:#576D73;
-	height:auto;
-	*height:20px;
-	line-height:20px;
-	text-decoration:none;
-	font-family: Lucida Console;
-	padding-left:2px;
-}
-
-#ClientList_Block_PC a{
-	background-color:#EFEFEF;
-	color:#FFF;
-	font-size:12px;
-	font-family:Arial, Helvetica, sans-serif;
-	text-decoration:none;	
-}
-#ClientList_Block_PC div:hover, #ClientList_Block a:hover{
-	background-color:#3366FF;
-	color:#FFFFFF;
-	cursor:default;
-}	
-</style>	
+<script language="JavaScript" type="text/javascript" src="/validator.js"></script>
+<script language="JavaScript" type="text/javascript" src="/js/jquery.js"></script>
+<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 <script>
-option_netstat = new Array("Display all sockets","TCP sockets","UDP sockets","RAW sockets","UNIX sockets","Display listening server sockets","Display routing table");
+option_netstat = new Array("<#sockets_all#>","<#sockets_TCP#>","<#sockets_UDP#>","<#sockets_RAW#>","<#sockets_UNIX#>","<#sockets_listening#>","<#Display_routingtable#>");
 optval_netstat = new Array("-a","-t","-u","-w","-x","-l","-r");
-option_netstat_nat = new Array("Connections to NAT", "By source IP", "SNAT connections");
+option_netstat_nat = new Array("<#Netstatnat_option1#>", "<#Netstatnat_option2#>", "<#Netstatnat_option3#>");
 optval_netstat_nat = new Array("-L","-s","-S");
-	
-function key_event(evt){
-	if(evt.keyCode != 27 || isMenuopen == 0) 
-		return false;
-	pullLANIPList(document.getElementById("pull_arrow"));
-}	
-	
+
 function onSubmitCtrl(o, s) {
 	if(validForm()){
 			document.form.action_mode.value = s;
@@ -75,17 +32,17 @@ function onSubmitCtrl(o, s) {
 }
 
 function init(){
-		show_menu();
-		showLANIPList();
+	show_menu();
+	showDropdownClientList('setClientIP', 'ip', 'all', 'ClientList_Block_PC', 'pull_arrow', 'online');
 
-		if(downsize_4m_support){	// rm cmd for downsize //downsize_8m_support
-			for (var i = 0; i < document.form.cmdMethod.options.length; i++) {
-					if (document.form.cmdMethod.options[i].value == "netstat-nat") {
-							document.form.cmdMethod.options.remove(i);
-							break;
-					}
-			}	
+	if(downsize_4m_support){
+		for (var i = 0; i < document.form.cmdMethod.options.length; i++) {
+			if (document.form.cmdMethod.options[i].value == "netstat-nat") {
+				document.form.cmdMethod.options.remove(i);
+				break;
+			}
 		}	
+	}	
 }
 
 function updateOptions(){
@@ -107,7 +64,7 @@ function updateOptions(){
 	setTimeout("checkCmdRet();", 500);
 }
 
-var $j = jQuery.noConflict();
+
 var _responseLen;
 var noChange = 0;
 function checkCmdRet(){
@@ -117,7 +74,7 @@ function checkCmdRet(){
 	else
 		waitLimit = 10;
 
-	$j.ajax({
+	$.ajax({
 		url: '/cmdRet_check.htm',
 		dataType: 'html',
 		
@@ -164,17 +121,17 @@ function checkCmdRet(){
 
 function hideCNT(obj){
 	if(obj.value == "netstat-nat"){		
-		$("cmdDesc").innerHTML = "Display NAT connections.";
+		document.getElementById("cmdDesc").innerHTML = "Display NAT connections.";
 		addNetOption(document.form.NetOption, option_netstat_nat, optval_netstat_nat);
 		append_value(document.form.NetOption);
-		$('ExtOption_tr').style.display = "";
-		$('resolvename').style.display = "none";
+		document.getElementById('ExtOption_tr').style.display = "";
+		document.getElementById('resolvename').style.display = "none";
 	}
 	else{
-		$("cmdDesc").innerHTML = "<#NetworkTools_Info#>";	
+		document.getElementById("cmdDesc").innerHTML = "<#NetworkTools_Info#>";	
 		addNetOption(document.form.NetOption, option_netstat, optval_netstat);
-		$('ExtOption_tr').style.display = "none";
-		$('resolvename').style.display = "";
+		document.getElementById('ExtOption_tr').style.display = "none";
+		document.getElementById('resolvename').style.display = "";
 	}
 }
 
@@ -190,15 +147,13 @@ function addNetOption(obj, opt, val){
 function append_value(obj){
 	if(document.form.cmdMethod.value == "netstat-nat"
 			&& obj.value == "-s"){
-				$('targetip_tr').style.display = "";		
-				$('targetip').style.display = "";
+				document.getElementById('targetip_tr').style.display = "";		
+				document.getElementById('targetip').style.display = "";
 	}else{
-				$('targetip_tr').style.display = "none";
+				document.getElementById('targetip_tr').style.display = "none";
 	}
 }
 
-var over_var = 0;
-var isMenuopen = 0;
 function hideClients_Block(evt){
 	if(typeof(evt) != "undefined"){
 		if(!evt.srcElement)
@@ -209,50 +164,24 @@ function hideClients_Block(evt){
 		}
 	}	
 	
-	$("pull_arrow").src = "/images/arrow-down.gif";
-	$('ClientList_Block_PC').style.display='none';
-	isMenuopen = 0;
+	document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
+	document.getElementById('ClientList_Block_PC').style.display='none';
 }
 
 function pullLANIPList(obj){
-	
+	var element = document.getElementById('ClientList_Block_PC');
+	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
 	if(isMenuopen == 0){		
 		obj.src = "/images/arrow-top.gif"
-		$("ClientList_Block_PC").style.display = 'block';		
-		isMenuopen = 1;
+		element.style.display = 'block';
 	}
 	else
 		hideClients_Block();
 }
 
-function showLANIPList(){
-	var code = "";
-	var show_name = "";
-	var client_list_array = '<% get_client_detail_info(); %>';	
-	var client_list_row = client_list_array.split('<');	
-
-	for(var i = 1; i < client_list_row.length; i++){
-		var client_list_col = client_list_row[i].split('>');
-		if(client_list_col[1] && client_list_col[1].length > 20)
-			show_name = client_list_col[1].substring(0, 16) + "..";
-		else
-			show_name = client_list_col[1];	
-
-		//client_list_col[]  0:type 1:device 2:ip 3:mac 4: 5: 6:
-		code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP(\''+client_list_col[2]+'\');"><strong>'+client_list_col[2]+'</strong> ';
-		
-		if(show_name && show_name.length > 0)
-				code += '( '+show_name+')';
-		code += ' </div></a>';
-		}
-	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
-	$("ClientList_Block_PC").innerHTML = code;
-}
-
 function setClientIP(ipaddr){
 	document.form.targetip.value = ipaddr;
 	hideClients_Block();
-	over_var = 0;
 }
 
 function validForm(){
@@ -268,7 +197,7 @@ function validForm(){
 }
 </script>
 </head>
-<body onkeydown="key_event(event);" onclick="if(isMenuopen){hideClients_Block(event)}" onload="init();">
+<body onload="init();">
 <div id="TopBanner"></div>
 <div id="Loading" class="popup_bg"></div>
 <iframe name="hidden_frame" id="hidden_frame" src="" width="0" height="0" frameborder="0"></iframe>
@@ -319,33 +248,33 @@ function validForm(){
 											<th width="20%"><#NetworkTools_option#></th>
 											<td>
 												<select id="NetOption" class="input_option" name="NetOption" onChange="append_value(this);">
-													<option value="-a">Display all sockets</option>
-													<option value="-t">TCP sockets</option>
-													<option value="-u">UDP sockets</option>
-													<option value="-w">RAW sockets</option>
-													<option value="-x">UNIX sockets</option>
-													<option value="-l">Display listening server sockets</option>
-													<option value="-r">Display routing table</option>
+													<option value="-a"><#sockets_all#></option>
+													<option value="-ta"><#sockets_TCP#></option>
+													<option value="-ua"><#sockets_UDP#></option>
+													<option value="-w"><#sockets_RAW#></option>
+													<option value="-xa"><#sockets_UNIX#></option>
+													<option value="-l"><#sockets_listening#></option>
+													<option value="-r"><#Display_routingtable#></option>
  												</select>	
 											</td>			
 										</tr>
 										<tr id="targetip_tr" style="display:none;">
 											<th width="20%"><#NetworkTools_target#> IP</th>
 											<td>
-													<input type="text" id="targetip" class="input_15_table" maxlength="15" name="targetip" onKeyPress="return is_ipaddr(this,event)" onClick="hideClients_Block();">
-												<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>" onmouseover="over_var=1;" onmouseout="over_var=0;">
-												<div id="ClientList_Block_PC" class="ClientList_Block_PC"></div>
+													<input type="text" id="targetip" class="input_15_table" maxlength="15" name="targetip" onKeyPress="return validator.isIPAddr(this,event)" onClick="hideClients_Block();" autocorrect="off" autocapitalize="off">
+												<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" style="position:absolute;*margin-left:-3px;*margin-top:1px;" onclick="pullLANIPList(this);" title="<#select_device_name#>">
+												<div id="ClientList_Block_PC" class="clientlist_dropdown" style="margin-left:2px;"></div>
 											</td>										
 										</tr>										
 										<tr id="ExtOption_tr" style="display:none;">
 											<th width="20%"><#NetworkTools_extended_option#></th>
 											<td>
 												<select id="ExtOption" class="input_option" name="ExtOption">
-													<option value="-r state" selected>Sort by state</option>
-													<option value="-r src">Sort by src</option>
-													<option value="-r dst">Sort by dst</option>
-													<option value="-r src-port">Sort by src-port</option>
-													<option value="-r dst-port">Sort by dst-port</option>
+													<option value="-r state" selected><#Netstatnat_sort_state#></option>
+													<option value="-r src"><#Netstatnat_sort_src#></option>
+													<option value="-r dst"><#Netstatnat_sort_dst#></option>
+													<option value="-r src-port"><#Netstatnat_sort_src_port#></option>
+													<option value="-r dst-port"><#Netstatnat_sort_dst_port#></option>
  												</select>
 											</td>										
 										</tr>						
@@ -385,7 +314,6 @@ function validForm(){
 </body>
 <script type="text/javascript">
 <!--[if !IE]>-->
-	jQuery.noConflict();
 	(function($){
 		var textArea = document.getElementById('textarea');
 		textArea.scrollTop = textArea.scrollHeight;

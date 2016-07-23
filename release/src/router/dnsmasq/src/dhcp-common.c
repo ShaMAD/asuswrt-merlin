@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2013 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2016 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -399,13 +399,13 @@ void dhcp_update_configs(struct dhcp_config *configs)
 	    if (cache_find_by_name(crec, config->hostname, 0, cacheflags))
 	      {
 		/* use primary (first) address */
-	      while (crec && !(crec->flags & F_REVERSE))
-		crec = cache_find_by_name(crec, config->hostname, 0, cacheflags);
-	      if (!crec)
-		continue; /* should be never */
-	      inet_ntop(prot, &crec->addr.addr, daemon->addrbuff, ADDRSTRLEN);
-	      my_syslog(MS_DHCP | LOG_WARNING, _("%s has more than one address in hostsfile, using %s for DHCP"), 
-			config->hostname, daemon->addrbuff);
+		while (crec && !(crec->flags & F_REVERSE))
+		  crec = cache_find_by_name(crec, config->hostname, 0, cacheflags);
+		if (!crec)
+		  continue; /* should be never */
+		inet_ntop(prot, &crec->addr.addr, daemon->addrbuff, ADDRSTRLEN);
+		my_syslog(MS_DHCP | LOG_WARNING, _("%s has more than one address in hostsfile, using %s for DHCP"), 
+			  config->hostname, daemon->addrbuff);
 	      }
 	    
 	    if (prot == AF_INET && 
@@ -545,8 +545,8 @@ static const struct opttab_t {
   { "parameter-request", 55, OT_INTERNAL },
   { "message", 56, OT_INTERNAL },
   { "max-message-size", 57, OT_INTERNAL },
-  { "T1", 58, OT_INTERNAL | OT_TIME},
-  { "T2", 59, OT_INTERNAL | OT_TIME},
+  { "T1", 58, OT_TIME},
+  { "T2", 59, OT_TIME},
   { "vendor-class", 60, 0 },
   { "client-id", 61, OT_INTERNAL },
   { "nis+-domain", 64, OT_NAME },
@@ -599,7 +599,7 @@ static const struct opttab_t opttab6[] = {
   { "sntp-server", 31,  OT_ADDR_LIST },
   { "information-refresh-time", 32, OT_TIME },
   { "FQDN", 39, OT_INTERNAL | OT_RFC1035_NAME },
-  { "ntp-server", 56,  OT_ADDR_LIST },
+  { "ntp-server", 56,  0 },
   { "bootfile-url", 59, OT_NAME },
   { "bootfile-param", 60, OT_CSTRING },
   { NULL, 0, 0 }

@@ -6,6 +6,8 @@ APPS_PATH=/opt
 APPS_RUN_DIR=$APPS_PATH/etc/init.d
 APPS_MOUNTED_PATH=`nvram get apps_mounted_path`
 APP_FS_TYPE=`mount | grep $APPS_MOUNTED_PATH | sed -e "s,.*on.* type \([^ ]*\) (.*$,\1,"`
+memsize=`grep MemTotal /proc/meminfo | sed -e "s,MemTotal:[^0-9]*\([0-9][0-9]*\) .*,\1,"`
+
 
 if [ -z "$1" ] || [ -z "$2" ]; then
 	echo "Usage: app_init_run.sh <Package name|allpkg> <action>"
@@ -27,7 +29,7 @@ if [ "$2" == "stop" ]; then
 		PIDS=`echo $PIDS1 $PIDS2 $PIDS3 $PIDS4 $PIDS5 | tr  '\n' ' '`
 
 		if [ -z "`echo $PIDS | tr -d ' \n\t\f\r'`" ] ; then
-			break;
+			break
 		fi
 
 		kill -TERM $PIDS
@@ -54,7 +56,7 @@ for f in $APPS_RUN_DIR/S*; do
 	fi
 
 	if [ "$2" == "start" ] || [ "$2" == "firewall-start" ]; then
-		app_enable=`app_get_field.sh $tmp_apps_name "Enabled" 1`
+		app_enable=`/usr/sbin/app_get_field.sh $tmp_apps_name "Enabled" 1`
 		if [ "$app_enable" != "yes" ]; then
 			if [ "$1" != "allpkg" ] && [ "$1" == "$tmp_apps_name" ]; then
 				echo "No permission to start with the app: $1!"
@@ -88,7 +90,7 @@ for f in $APPS_RUN_DIR/S*; do
 	[ ! -e "$s" ] && s=$f
 
 	nice_cmd=
-	if [ "$tmp_apps_name" == "downloadmaster" ]; then
+	if [ $memsize -lt 204800 -a "$tmp_apps_name" == "downloadmaster" ]; then
 		nice_cmd="nice -n 19"
 	fi
 
@@ -100,7 +102,7 @@ for f in $APPS_RUN_DIR/S*; do
 		ms_pid=`pidof minidlna`
 		i=0
 		while [ ! -z "$ms_pid" ] && [ $i -lt 10 ] ; do
-			i=$(($i+1))
+			i=$((i+1))
 			echo "$i: $nice_cmd sh $s $2" | logger -c
 			$nice_cmd sh $s $2
 			sleep 1
@@ -117,8 +119,10 @@ for f in $APPS_RUN_DIR/S*; do
 	fi
 done
 
-dm2_trans_array=`ps|grep dm2_trans|grep -v grep|awk '{print $1}'`
-for tran in $dm2_trans_array; do
-	ionice -c3 -p $tran
-done
+if [ $memsize -lt 204800 ]; then
+	dm2_trans_array=`ps|grep dm2_trans|grep -v grep|awk '{print $1}'`
+	for tran in $dm2_trans_array; do
+		ionice -c3 -p $tran
+	done
+fi
 

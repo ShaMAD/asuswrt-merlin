@@ -1,7 +1,7 @@
 /*
  * Broadcom chipcommon NAND flash interface
  *
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2015, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -30,12 +30,24 @@
 #define NFL_VENDOR_ESMT			0x92
 #define NFL_VENDOR_MXIC			0xC2
 #define NFL_VENDOR_ZENTEL		0xC8
+#define NFL_VENDOR_WINBOND		0xF1
 
 #define NFL_SECTOR_SIZE			512
 #define NFL_TABLE_END			0xffffffff
 
 #define NFL_BOOT_SIZE			0x200000
+/* ASUS LINUX MTD SIZE */
+#if CONFIG_LINUX_MTD == 32
 #define NFL_BOOT_OS_SIZE		0x2000000
+#elif CONFIG_LINUX_MTD == 48
+#define NFL_BOOT_OS_SIZE                0x3000000
+#elif CONFIG_LINUX_MTD == 64
+#define NFL_BOOT_OS_SIZE		0x4000000
+#elif CONFIG_LINUX_MTD == 128
+#define NFL_BOOT_OS_SIZE		0x8000000
+#else
+#define NFL_BOOT_OS_SIZE		0x2000000
+#endif
 #define NFL_BBT_SIZE			0x100000
 
 #ifdef __ARM_ARCH_7A__

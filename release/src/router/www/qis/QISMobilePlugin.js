@@ -1,5 +1,21 @@
-var child_macaddr = '<% nvram_get("et0macaddr"); %>';
+/* Internet Explorer lacks this array method */
+if (!('indexOf' in Array.prototype)) {
+	Array.prototype.indexOf = function(find, i) {
+		if(i===undefined) i=0;
+		if(i<0) i+= this.length;
+		if(i<0) i=0;
+		for(var n=this.length; i<n; i++){
+			if (i in this && this[i]===find)
+				return i;
+		}
+		return -1;
+	};
+}
+
+var child_macaddr = '<% nvram_get("lan_hwaddr"); %>';
 var sw_mode_submit = '<% nvram_get("sw_mode"); %>';
+if(sw_mode_submit == 3 && '<% nvram_get("wlc_psta"); %>' == 2)
+	sw_mode_submit = 2;
 if(parent.document.QKform.sw_mode)
 	sw_mode_submit = parent.document.QKform.sw_mode.value;
 
@@ -18,44 +34,26 @@ function genErrorHint(){
 		htmlCode += '<div style="margin:5px;" id="splitLine">';
 		htmlCode += '<img style="width: 720px; *width: 710px; height: 2px;" src="/images/New_ui/export/line_export.png"></div>';
 		if(sw_mode_submit == "4"){
-				htmlCode += "<br><br><br><p style='font-size:20px;line-height: 25px;color:#FC0;' class='QISGeneralFont'>* "+ parent.productid +" had set as media bridge and IP changed. In media bridge mode, the wireless only connect to the P-AP, client devices need connect to media bridge with network cable.";
-				htmlCode += "<br><br>* For further configuration, please download the <a href='http://dlcdnet.asus.com/pub/ASUS/LiveUpdate/Release/Wireless/Discovery.zip' target='_blank' style='font-family:Lucida Console;text-decoration:underline;color:#FC0;'>Device Discovery Utility</a> to find the media bridge IP.";
-				htmlCode += "<br><br>* Please check you have unplugged the network cable from WAN port on media bridge mode.";
+				htmlCode += "<br><br><br><p style='font-size:20px;line-height: 25px;color:#FC0;' class='QISGeneralFont'>* <#OP_MB_desc7#> <#OP_MB_desc6#>";
+				htmlCode += "<br><br>* <#OP_MB_desc8#>";
+				htmlCode += "<br><br>* <#OP_MB_desc9#>";
 		}else{
-				htmlCode += "<br><br><br><p style='font-size:20px;line-height: 25px;color:#FC0;' class='QISGeneralFont'>* The LAN IP of " + parent.productid + " may have been changed.<br>Please close this browser and access router.asus.com again.";
+				htmlCode += "<br><br><br><p style='font-size:20px;line-height: 25px;color:#FC0;' class='QISGeneralFont'>* <#OP_RE_desc1#><br><#OP_RE_desc2#>";
 				htmlCode += "<br><br>* <#DrSurf_sweet_advise1#>";
 		}
 
 		if(sw_mode_submit == "2")
-				htmlCode += "<br><br>* Please check you have unplugged the network cable form WAN port on repeater mode.</p>";
+				htmlCode += "<br><br>* <#OP_MB_desc9#></p>";
 		else
 				htmlCode += "</p>";
 		document.getElementsByTagName("body")[0].innerHTML = htmlCode;
 	}
 	else{
-		alert("The LAN IP of " + parent.productid + " may have been changed. Please close this browser and access router.asus.com again. <#DrSurf_sweet_advise1#>");
+		alert("<#OP_RE_desc1#> <#OP_RE_desc2#> <#DrSurf_sweet_advise1#>");
 	}
 } 
 
 if(parent.ISMOBILE){
-	var cssNode = document.createElement('link');
-	cssNode.type = 'text/css';
-	cssNode.rel = 'stylesheet';
-	cssNode.href = "/qis/qis_style_m.css";
-	document.getElementsByTagName("head")[0].appendChild(cssNode);
-
-	if(navigator.userAgent.indexOf("iP") != -1){
-		parent.window.scrollTo(0, 1);
-	}
-
-	addEventListener("click", function(event){
-		var div = myfindParent(event.target, "div");
-		if (div && myhasClass(div, "toggle"))
-		{
-			div.setAttribute("toggled", div.getAttribute("toggled") != "true");
-			event.preventDefault();		   
-		}
-	}, true);
 }
 else{
 	var cssNode = document.createElement('link');
@@ -73,8 +71,17 @@ function changeiuiBackground(loading){
 		document.getElementById("loadingIcon_iui").style.marginRight = '5px';
 	}
 	else{
-		document.getElementById("loadingIcon_iui").style.background = 'url(/iui/listArrow.png) no-repeat right center';
-		document.getElementById("loadingIcon_iui").style.marginRight = '0px';
+	}
+}
+
+function changeiuiBackground2(obj,loading){
+	if(!parent.ISMOBILE) return false;
+
+	if(loading){
+		document.getElementById(obj).style.background = 'url(/images/InternetScan.gif) no-repeat right center';
+		document.getElementById(obj).style.marginRight = '5px';
+	}
+	else{
 	}
 }
 

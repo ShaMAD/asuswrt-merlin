@@ -98,7 +98,7 @@ char *get_productid(void)
 
 char *port_get(char *name)
 {
-	char tmp_name[256]="/opt/etc/asus_script/aicloud_nvram_check.sh";
+	char tmp_name[256]="/opt/etc/apps_asus_script/aicloud_nvram_check.sh";
         //char tmp_name[256]="/tmp/aicloud_nvram_check.sh";
         char *cmd_name;
         cmd_name=(char *)malloc(sizeof(char)*(strlen(tmp_name)+strlen(name)+2));
@@ -139,7 +139,7 @@ char *port_get(char *name)
 
 int webdav_match(char *name,int id)
 {
-	char tmp_name[256]="/opt/etc/asus_script/aicloud_nvram_check.sh";
+	char tmp_name[256]="/opt/etc/apps_asus_script/aicloud_nvram_check.sh";
         //char tmp_name[256]="/tmp/aicloud_nvram_check.sh";
         char *cmd_name;
         cmd_name=(char *)malloc(sizeof(char)*(strlen(tmp_name)+strlen(name)+2));
@@ -228,19 +228,21 @@ int main(int argc, char *argv[]) {
 	if (fp==NULL) return -1;
 	
 	/* Load modules */
+	fprintf(fp, "server.modules+=(\"mod_aicloud_invite\")\n");
 	fprintf(fp, "server.modules+=(\"mod_aicloud_auth\")\n");
 #ifndef APP_IPKG
 	fprintf(fp, "server.modules+=(\"mod_alias\")\n");
-	fprintf(fp, "server.modules+=(\"mod_userdir\")\n");
+	//fprintf(fp, "server.modules+=(\"mod_userdir\")\n");
 	fprintf(fp, "server.modules+=(\"mod_aidisk_access\")\n");
-	fprintf(fp, "server.modules+=(\"mod_sharelink\")\n");
-	fprintf(fp, "server.modules+=(\"mod_create_captcha_image\")\n");
+	fprintf(fp, "server.modules+=(\"mod_aicloud_sharelink\")\n");
+	//fprintf(fp, "server.modules+=(\"mod_create_captcha_image\")\n");
+	fprintf(fp, "server.modules+=(\"mod_query_field_json\")\n");
 	fprintf(fp, "server.modules+=(\"mod_webdav\")\n");
 	fprintf(fp, "server.modules+=(\"mod_smbdav\")\n");
-	fprintf(fp, "server.modules+=(\"mod_redirect\")\n");
+	//fprintf(fp, "server.modules+=(\"mod_redirect\")\n");
 	fprintf(fp, "server.modules+=(\"mod_compress\")\n");
-	fprintf(fp, "server.modules+=(\"mod_usertrack\")\n");
-	fprintf(fp, "server.modules+=(\"mod_rewrite\")\n");
+	//fprintf(fp, "server.modules+=(\"mod_usertrack\")\n");
+	//fprintf(fp, "server.modules+=(\"mod_rewrite\")\n");
 	
 	if (nvram_match("st_webdav_mode", "2")){
 		fprintf(fp, "server.modules+=(\"mod_access\")\n");
@@ -248,20 +250,21 @@ int main(int argc, char *argv[]) {
 	}
 #else
 	fprintf(fp, "server.modules+=(\"aicloud_mod_alias\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_userdir\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_aidisk_access\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_sharelink\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_create_captcha_image\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_webdav\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_smbdav\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_redirect\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_compress\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_usertrack\")\n");
-        fprintf(fp, "server.modules+=(\"aicloud_mod_rewrite\")\n");
+    //fprintf(fp, "server.modules+=(\"aicloud_mod_userdir\")\n");
+    fprintf(fp, "server.modules+=(\"aicloud_mod_aidisk_access\")\n");
+    fprintf(fp, "server.modules+=(\"aicloud_mod_aicloud_sharelink\")\n");
+    //fprintf(fp, "server.modules+=(\"aicloud_mod_create_captcha_image\")\n");
+    fprintf(fp, "server.modules+=(\"aicloud_mod_query_field_json\")\n");
+	fprintf(fp, "server.modules+=(\"aicloud_mod_webdav\")\n");
+    fprintf(fp, "server.modules+=(\"aicloud_mod_smbdav\")\n");
+    //fprintf(fp, "server.modules+=(\"aicloud_mod_redirect\")\n");
+    fprintf(fp, "server.modules+=(\"aicloud_mod_compress\")\n");
+    //fprintf(fp, "server.modules+=(\"aicloud_mod_usertrack\")\n");
+    //fprintf(fp, "server.modules+=(\"aicloud_mod_rewrite\")\n");
 	
-        if (webdav_match("st_webdav_mode", 2)){
-                fprintf(fp, "server.modules+=(\"aicloud_mod_access\")\n");
-                fprintf(fp, "server.modules+=(\"aicloud_mod_auth\")\n");
+    if (webdav_match("st_webdav_mode", 2)){
+        fprintf(fp, "server.modules+=(\"aicloud_mod_access\")\n");
+        fprintf(fp, "server.modules+=(\"aicloud_mod_auth\")\n");
 	}
 #endif
 	/* Basic setting */
@@ -320,12 +323,17 @@ int main(int argc, char *argv[]) {
 	// ****
 	fprintf(fp, "compress.cache-dir          = \"/tmp/lighttpd/compress/\"\n");
 	fprintf(fp, "compress.filetype           = ( \"application/x-javascript\", \"text/css\", \"text/html\", \"text/plain\" )\n");
-	
+
+	fprintf(fp, "aicloud.max-sharelink             = 15\n");
+
 	// **** SambaDav setting
 	fprintf(fp, "$SERVER[\"socket\"]==\":%s\"{\n", get_webdav_http_port());
 //	fprintf(fp, "$SERVER[\"socket\"]==\":8999\"{\n");
 //	fprintf(fp, "	alias.url=(\"/webdav\"=>\"/mnt/\")\n");
 //	fprintf(fp, "   $HTTP[\"url\"]=~\"^/usbdisk($|/)\"{\n");
+
+	fprintf(fp, "   url.aicloud-auth-deny = (\"query_field.json\")\n");
+
 	fprintf(fp, "   $HTTP[\"url\"]=~\"^/%s($|/)\"{\n",get_productid());
     fprintf(fp, "       server.document-root = \"/\"\n");
 //	fprintf(fp, "       alias.url=(\"/usbdisk\"=>\"/mnt\")\n");
@@ -356,7 +364,7 @@ int main(int argc, char *argv[]) {
     fprintf(fp, "		webdav.activate = \"enable\" \n");
     fprintf(fp, "		webdav.is-readonly = \"enable\"\n");
 	fprintf(fp, "	}\n");
-	fprintf(fp, "	else $HTTP[\"url\"] !~ \"^/smb($|/)\" { \n");
+	fprintf(fp, "	else $HTTP[\"url\"] !~ \"^/smb($|/|.)\" { \n");
 	fprintf(fp, "	    server.document-root = \"smb://\" \n");
    	fprintf(fp, "	    smbdav.activate = \"enable\" \n");
     fprintf(fp, "	    smbdav.is-readonly = \"disable\" \n");
@@ -481,8 +489,24 @@ WEBDAV_SETTING:
 	/*** Webdav_SSL ***/
 	/* default : https://192.168.1.1:443/webdav */
 	fprintf(fp, "$SERVER[\"socket\"]==\":%s\"{\n",get_webdav_https_port());
-	fprintf(fp, "	ssl.pemfile=\"/tmp/lighttpd/server.pem\"\n");
+	//fprintf(fp, "	ssl.pemfile=\"/tmp/lighttpd/server.pem\"\n");
+	fprintf(fp, "	ssl.pemfile=\"/etc/server.pem\"\n");
+	
+	//FILE* fd;
+	//if (NULL != (fd = fopen("/etc/intermediate_cert.pem", "rb"))) {
+	if (nvram_match("https_intermediate_crt_save", "1")){
+		fprintf(fp, "   ssl.ca-file=\"/etc/intermediate_cert.pem\"\n");
+		//fclose(fd);
+	}
+
 	fprintf(fp, "	ssl.engine=\"enable\"\n");
+	fprintf(fp, "   ssl.use-compression=\"disable\"\n");
+	fprintf(fp, "   ssl.use-sslv2=\"disable\"\n");
+	fprintf(fp, "   ssl.use-sslv3=\"disable\"\n");
+	fprintf(fp, "   ssl.honor-cipher-order=\"enable\"\n");
+	//fprintf(fp, "   ssl.cipher-list=\"ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-SHA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!DES:!MD5:!PSK:!RC4\"\n");
+	fprintf(fp, "   ssl.cipher-list=\"ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:AES256-GCM-SHA384:AES256-SHA256:AES256-SHA:AES128-GCM-SHA256:AES128-SHA256:AES128-SHA:ECDHE-RSA-DES-CBC3-SHA:DES-CBC3-SHA:!aNULL:!eNULL:!EXPORT:!CAMELLIA:!DES:!MD5:!PSK:!RC4;\"\n");
+	fprintf(fp, "   url.aicloud-auth-deny = (\"query_field.json\")\n");
 	//fprintf(fp, "	alias.url=(\"/webdav\"=>\"/mnt/\")\n"); 
 //	fprintf(fp, "	$HTTP[\"url\"]=~\"^/usbdisk($|/)\"{\n");
 	fprintf(fp, "	$HTTP[\"url\"]=~\"^/%s($|/)\"{\n", get_productid());
@@ -515,7 +539,13 @@ WEBDAV_SETTING:
     fprintf(fp, "		webdav.activate = \"enable\" \n");
     fprintf(fp, "		webdav.is-readonly = \"enable\"\n");
 	fprintf(fp, "	}\n");
-	fprintf(fp, "	else $HTTP[\"url\"] !~ \"^/smb($|/)\" { \n");
+	fprintf(fp, "   else $HTTP[\"url\"] =~ \"^/aicloud.crt$\"{\n");
+	fprintf(fp, "       server.document-root = \"/\"\n");
+	fprintf(fp, "       alias.url = ( \"/aicloud.crt\" => \"/etc/cert.pem\" ) \n");
+	fprintf(fp, "       webdav.activate = \"enable\" \n");
+	fprintf(fp, "       webdav.is-readonly = \"enable\"\n");
+	fprintf(fp, "   }\n");
+	fprintf(fp, "	else $HTTP[\"url\"] !~ \"^/smb($|/|.)\" { \n");
 	fprintf(fp, "	    server.document-root = \"smb://\" \n");
    	fprintf(fp, "	    smbdav.activate = \"enable\" \n");
     fprintf(fp, "	    smbdav.is-readonly = \"disable\" \n");

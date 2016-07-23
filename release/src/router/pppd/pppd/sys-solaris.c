@@ -1225,6 +1225,9 @@ set_up_tty(fd, local)
     }
 #endif
 
+    if (stop_bits >= 2)
+	tios.c_cflag |= CSTOPB;
+
     tios.c_cflag |= CS8 | CREAD | HUPCL;
     if (local || !modem)
 	tios.c_cflag |= CLOCAL;
@@ -1754,6 +1757,18 @@ sifvjcomp(u, vjcomp, xcidcomp, xmaxcid)
     }
 
     return 1;
+}
+
+/*
+ * sifname - Config the interface name.
+ */
+int
+sifname (u, newname)
+    int u;
+    const char *newname;
+{
+    error("Couldn't set interface name %s: %s", newname, "Unsupported");
+    return 0;
 }
 
 /*

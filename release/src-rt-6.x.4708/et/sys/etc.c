@@ -16,7 +16,7 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- * $Id: etc.c 430045 2013-10-17 01:04:26Z $
+ * $Id: etc.c 456614 2014-02-19 10:18:50Z $
  */
 
 #include <et_cfg.h>
@@ -245,6 +245,10 @@ etc_down(etc_info_t *etc, int reset)
 	return (callback);
 }
 
+#ifdef CONFIG_DUMP_PREV_OOPS_MSG
+extern void dump_previous_oops(void);
+#endif
+
 /* common iovar handler. return 0=ok, -1=error */
 int
 etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
@@ -363,6 +367,12 @@ etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
 			}
 			break;
 
+#ifdef CONFIG_DUMP_PREV_OOPS_MSG
+		case IOV_DUMP_OOPS:
+			dump_previous_oops();
+			break;
+#endif
+
 #ifdef HNDCTF
 		case IOV_DUMP_CTF:
 			{
@@ -402,6 +412,7 @@ etc_iovar(etc_info_t *etc, uint cmd, uint set, void *arg, int len)
 				struct bcmstrbuf b;
 				bcm_binit(&b, (char*)arg, len);
 				fa_dump(etc->fa, &b, FALSE);
+				fa_regs_show(etc->fa, &b);
 			}
 			break;
 		case IOV_FA_REV:
@@ -681,19 +692,6 @@ etc_watchdog(etc_info_t *etc)
 		}
 	}
 #endif /* ETROBO && !_CFE_ */
-
-	if (etc->coreid == GMAC_CORE_ID && etc->corerev >= 4) {
-		if ((*etc->chops->dmaerrors)(etc->ch)) {
-			if (etc->reset_countdown == 0)
-				etc->reset_countdown = ETC_TXERR_COUNTDOWN;
-				etc->reset_countdown--;
-			if (etc->reset_countdown == 0) {
-				et_reset(etc->et);
-				et_init(etc->et, ET_INIT_FULL | ET_INIT_INTRON);
-			}
-		} else
-			etc->reset_countdown = 0;
-	}
 
 	/* no local phy registers */
 	if (etc->phyaddr == EPHY_NOREG) {

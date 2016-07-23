@@ -1,7 +1,7 @@
 ﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -13,35 +13,38 @@
 <script type="text/javascript" src="/help.js"></script>
 <script type="text/javascript" src="/state.js"></script>
 <script>
+if(parent.location.pathname.search("index") === -1) top.location.href = "../index.asp";
+
+<% login_state_hook(); %>
 
 function initial(){
-	showtext($("printerModel"), parent.usbPorts[parent.currentUsbPort].deviceName);
+	showtext(document.getElementById("printerModel"), parent.usbPorts[parent.currentUsbPort].deviceName);
 	
 	if(parent.usbPorts[parent.currentUsbPort].deviceName != ""
 			&& parent.usbPorts[parent.currentUsbPort].serialNum == "<% nvram_get("u2ec_serial"); %>")
 	{
-		showtext($("printerStatus"), '<#CTL_Enabled#>');
-		$("printer_button").style.display = "";
-		$("button_descrition").style.display = "";
+		showtext(document.getElementById("printerStatus"), '<#CTL_Enabled#>');
+		document.getElementById("printer_button").style.display = "";
+		document.getElementById("button_descrition").style.display = "";
 	}
 	else{
-		showtext($("printerStatus"), '<#CTL_Disabled#>');
-		$("printer_button").style.display = "none";
-		$("button_descrition").style.display = "none";
+		showtext(document.getElementById("printerStatus"), '<#CTL_Disabled#>');
+		document.getElementById("printer_button").style.display = "none";
+		document.getElementById("button_descrition").style.display = "none";
 	}
 
-	if('<% nvram_get("mfp_ip_monopoly"); %>' != "" && '<% nvram_get("mfp_ip_monopoly"); %>' != parent.login_ip_str()){
-		$("monoBtn").style.display = "none";
-		$("monoDesc").style.display = "";
- 		$("monoP").style.width = "";
- 		$("monoP").style.float = "";
+	if('<% nvram_get("mfp_ip_monopoly"); %>' != "" && '<% nvram_get("mfp_ip_monopoly"); %>' != login_ip_str()){
+		document.getElementById("monoBtn").style.display = "none";
+		document.getElementById("monoDesc").style.display = "";
+ 		document.getElementById("monoP").style.width = "";
+ 		document.getElementById("monoP").style.float = "";
 	}
 	else{
-		$("monoBtn").style.display = "";
-		$("monoDesc").style.display = "none";
+		document.getElementById("monoBtn").style.display = "";
+		document.getElementById("monoDesc").style.display = "none";
 	}
 
-	addOnlineHelp($("faq"), ["monopoly", "mode"]);
+	addOnlineHelp(document.getElementById("faq"), ["monopoly", "mode"]);
 }
 
 function cleanTask(){

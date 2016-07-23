@@ -10,68 +10,72 @@
 <link rel="stylesheet" type="text/css" href="aidisk.css">
 <link rel="stylesheet" type="text/css" href="/form_style.css">
 <script type="text/javascript" src="/state.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script>
 var next_page = "";
 var dummyShareway = 0;
 
 function initial(){
-	//parent.show_help_iframe(2);
+	
 	parent.hideLoading();
 	
 	parent.restore_help_td();	
-	//parent.openHint(15, 2);
 	
-	parent.$("dummyShareway").value = "<% nvram_get("dummyShareway"); %>";
-	if(parent.$("dummyShareway").value == "")
-		parent.$("dummyShareway").value = 0;
+	
+	parent.document.getElementById("dummyShareway").value = "<% nvram_get("dummyShareway"); %>";
+	if(parent.document.getElementById("dummyShareway").value == "")
+			parent.document.getElementById("dummyShareway").value = 0;
 
-	//showTextinWizard(parent.$("dummyShareway").value);
-	showTextinWizard(1);
+	if(is_KR_sku){
+		document.getElementById("d1").style.display = "none";	
+		document.getElementById("d1_desc").style.display = "none";			
+	}
+	showTextinWizard(2);
 }
 
-var et0macaddr_array = '<% nvram_get("et0macaddr"); %>'.split(':');
+var lan_hwaddr_array = '<% nvram_get("lan_hwaddr"); %>'.split(':');
 function showTextinWizard(flag){
 	dummyShareway = flag;
 	
 	if(dummyShareway == 0){
-		parent.$("dummyShareway").value = dummyShareway;
+		parent.document.getElementById("dummyShareway").value = dummyShareway;
 		
 		document.getElementsByName('dummyoption')[2].focus();
 		document.getElementsByName('dummyoption')[2].checked = true;
 		
-		$("share0_Hint").style.display = "";
-		$("share1").style.display = "none";				
-		$("target1").style.display = "none";
-		$("target2").style.display = "none";
+		document.getElementById("share0_Hint").style.display = "";
+		document.getElementById("share1").style.display = "none";				
+		document.getElementById("target1").style.display = "none";
+		document.getElementById("target2").style.display = "none";
 	}
 	else if(dummyShareway == 1){
-		parent.$("dummyShareway").value = dummyShareway;
-		
-		document.getElementsByName('dummyoption')[0].focus();
-		document.getElementsByName('dummyoption')[0].checked = true;
-		
-		showtext($("user1"), '<% nvram_get("http_username"); %>');
-		
-		showtext($("user2"), "Family");
-		$("userpasswd2").value =  "family" + et0macaddr_array[et0macaddr_array.length-2].toLowerCase() + et0macaddr_array[et0macaddr_array.length-1].toLowerCase();
-
-		$("share0_Hint").style.display = "none";
-		$("share1").style.display = "block";		
-		$("target1").style.display = "";
-		$("target2").style.display = "";
-	}
-	else if(dummyShareway == 2){
-		parent.$("dummyShareway").value = dummyShareway;
+		parent.document.getElementById("dummyShareway").value = dummyShareway;
 		
 		document.getElementsByName('dummyoption')[1].focus();
 		document.getElementsByName('dummyoption')[1].checked = true;
 		
-		showtext($("user1"), '<% nvram_get("http_username"); %>');
+		showtext(document.getElementById("user1"), '<% nvram_get("http_username"); %>');
 		
-		$("share0_Hint").style.display = "none";
-		$("share1").style.display = "";		
-		$("target1").style.display = "";
-		$("target2").style.display = "none";
+		showtext(document.getElementById("user2"), "Family");
+		document.getElementById("userpasswd2").value =  "family" + lan_hwaddr_array[lan_hwaddr_array.length-2].toLowerCase() + lan_hwaddr_array[lan_hwaddr_array.length-1].toLowerCase();
+
+		document.getElementById("share0_Hint").style.display = "none";
+		document.getElementById("share1").style.display = "block";		
+		document.getElementById("target1").style.display = "";
+		document.getElementById("target2").style.display = "";
+	}
+	else if(dummyShareway == 2){
+		parent.document.getElementById("dummyShareway").value = dummyShareway;
+		
+		document.getElementsByName('dummyoption')[0].focus();
+		document.getElementsByName('dummyoption')[0].checked = true;
+		
+		showtext(document.getElementById("user1"), '<% nvram_get("http_username"); %>');
+		
+		document.getElementById("share0_Hint").style.display = "none";
+		document.getElementById("share1").style.display = "";		
+		document.getElementById("target1").style.display = "";
+		document.getElementById("target2").style.display = "none";
 	}
 	else
 		alert("System error: No this choice");	// no translate*/
@@ -79,33 +83,33 @@ function showTextinWizard(flag){
 
 function passTheResult(){
 	if(dummyShareway == 0){
-		parent.$("accountNum").value = 0;
+		parent.document.getElementById("accountNum").value = 0;
 		
-		/*parent.$("account0").value = "";
-		parent.$("passwd0").value = "";
-		parent.$("permission0").value = "";//*/
+		/*parent.document.getElementById("account0").value = "";
+		parent.document.getElementById("passwd0").value = "";
+		parent.document.getElementById("permission0").value = "";//*/
 		
-		parent.$("account1").value = "";
-		parent.$("passwd1").value = "";
-		parent.$("permission1").value = "";
+		parent.document.getElementById("account1").value = "";
+		parent.document.getElementById("passwd1").value = "";
+		parent.document.getElementById("permission1").value = "";
 	}
 	else if(dummyShareway == 1){
-		parent.$("accountNum").value = 2;
+		parent.document.getElementById("accountNum").value = 2;
 		
-		/*if(checkPasswdValid($("userpasswd1").value)){
-			parent.$("account0").value = $("user1").firstChild.nodeValue;
-			parent.$("passwd0").value = $("userpasswd1").value;
-			parent.$("permission0").value = "3";
+		/*if(checkPasswdValid(document.getElementById("userpasswd1").value)){
+			parent.document.getElementById("account0").value = document.getElementById("user1").firstChild.nodeValue;
+			parent.document.getElementById("passwd0").value = document.getElementById("userpasswd1").value;
+			parent.document.getElementById("permission0").value = "3";
 		}
 		else{
-			$("userpasswd1").focus();
+			document.getElementById("userpasswd1").focus();
 			return;
 		}//*/
 		
 		if(checkPasswdValid(document.smartForm.userpasswd2)){
-			parent.$("account1").value = $("user2").firstChild.nodeValue;
-			parent.$("passwd1").value = $("userpasswd2").value;
-			parent.$("permission1").value = "1";
+			parent.document.getElementById("account1").value = document.getElementById("user2").firstChild.nodeValue;
+			parent.document.getElementById("passwd1").value = document.getElementById("userpasswd2").value;
+			parent.document.getElementById("permission1").value = "1";
 		}
 		else{
 			document.smartForm.action = "/aidisk/Aidisk-2.asp";
@@ -114,21 +118,21 @@ function passTheResult(){
 		}
 	}
 	else if(dummyShareway == 2){
-		parent.$("accountNum").value = 1;
+		parent.document.getElementById("accountNum").value = 1;
 		
-		/*if(checkPasswdValid($("userpasswd1").value)){
-			parent.$("account0").value = $("user1").firstChild.nodeValue;
-			parent.$("passwd0").value = $("userpasswd1").value;
-			parent.$("permission0").value = "3";
+		/*if(checkPasswdValid(document.getElementById("userpasswd1").value)){
+			parent.document.getElementById("account0").value = document.getElementById("user1").firstChild.nodeValue;
+			parent.document.getElementById("passwd0").value = document.getElementById("userpasswd1").value;
+			parent.document.getElementById("permission0").value = "3";
 		}
 		else{
-			$("userpasswd1").focus();
+			document.getElementById("userpasswd1").focus();
 			return;
 		}//*/
 		
-		parent.$("account1").value = "";
-		parent.$("passwd1").value = "";
-		parent.$("permission1").value = "";
+		parent.document.getElementById("account1").value = "";
+		parent.document.getElementById("passwd1").value = "";
+		parent.document.getElementById("permission1").value = "";
 	}
 	
 	document.smartForm.action = "/aidisk/Aidisk-3.asp";
@@ -148,7 +152,7 @@ function checkPasswdValid(obj){
 		return false;
 	}	
 	
-	if(!validate_string(obj)){
+	if(!validator.string(obj)){
 			obj.focus();
 			obj.select();
 			return false;	
@@ -204,14 +208,14 @@ function checkPasswdValid(obj){
     <tr>
       <td valign="top">
 						<div style="margin-left:20px;">
-            <br/><p><input type="radio" id="d2" name="dummyoption" value="1" width="10" onclick="showTextinWizard(this.value);"/> 
-            				<label for="d2"><#Step2_method2#></label>
-            		</p>
             <br/><p><input type="radio" id="d3" name="dummyoption" value="2" width="10" onclick="showTextinWizard(this.value);"/> 
             				<label for="d3"><#Step2_method3#></label>
             		</p>
+            <br/><p><input type="radio" id="d2" name="dummyoption" value="1" width="10" onclick="showTextinWizard(this.value);"/> 
+            				<label for="d2"><#Step2_method2#></label>
+            		</p>
             <br/><p><input type="radio" id="d1" name="dummyoption" value="0" width="10" onclick="showTextinWizard(this.value);"/> 
-            				<label for="d1"><#Step2_method1#></label>
+            				<label for="d1" id="d1_desc"><#Step2_method1#></label>
             		</p>
 						</div>
 
@@ -223,7 +227,7 @@ function checkPasswdValid(obj){
             	<table width="80%" border="1" align="center" cellpadding="2" cellspacing="0" bordercolor="#7ea7bd" class="FormTable_table">
                 	<tr>
                   	<th width="100"><#AiDisk_Account#></th>
-                  	<th><#PPPConnection_Password_itemname#></th>
+                  	<th><#HSDPAConfig_Password_itemname#></th>
                   	<th width="50" ><#AiDisk_Read#></th>
                   	<th width="50" ><#AiDisk_Write#></th>
                 	</tr>
@@ -237,7 +241,7 @@ function checkPasswdValid(obj){
                 
                 	<tr id="target2">
                   	<td height="35"><span id="user2" style="color:#FFFFFF;"></span></td>
-                  	<td><input type="text" name="userpasswd2" id="userpasswd2" value="" class="input_25_table" onKeyPress="return is_string(this, event);" maxlength="16"></td>
+                  	<td><input type="text" name="userpasswd2" id="userpasswd2" value="" class="input_25_table" onKeyPress="return validator.isString(this, event);" maxlength="16" autocorrect="off" autocapitalize="off"></td>
                   	<td align="center"><img src="/images/New_ui/checkbox.png"></td>
                   	<td align="center">&nbsp;</td>
                 	</tr>
@@ -254,13 +258,11 @@ function checkPasswdValid(obj){
     
     <tr valign="bottom" align="center">
     	<td width="20%">
-    		<div class="apply_gen" style="margin-top:30px">
-  				<input type="button" id="prevButton" value="<#btn_pre#>" onclick="go_pre_page();" class="button_gen">
-  				<input type="submit" id="nextButton" value="<#btn_next#>" class="button_gen">  							
-        	<!--a href="javascript:go_pre_page();"><div class="titlebtn" align="center" style="margin-left:275px;_margin-left:137px;width:80px;"><span><#btn_pre#></span></div></a>
-        	<a href="javascript:passTheResult();"><div class="titlebtn" align="center" style="width:80px;"><span><#btn_next#></span></div></a-->
-        </div>	 
-      </td>
+		<div class="apply_gen" style="margin-top:30px">
+  			<input type="button" id="prevButton" value="<#CTL_prev#>" onclick="go_pre_page();" class="button_gen">
+			<input type="submit" id="nextButton" value="<#CTL_next#>" class="button_gen">
+		</div>	 
+	</td>
     </tr>
     <!-- end -->    
   </table>

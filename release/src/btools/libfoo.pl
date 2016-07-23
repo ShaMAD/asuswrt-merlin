@@ -11,6 +11,10 @@ $root = $ENV{"TARGETDIR"};
 $uclibc = $ENV{"TOOLCHAIN"};
 $router = $ENV{"SRCBASE"} . "/router";
 
+# toolchain
+$ld = $ENV{"LD"};
+$readelf = $ENV{"READELF"};
+
 sub error
 {
 	print STDERR "\n*** ERROR: " . (shift) . "\n\n";
@@ -58,7 +62,7 @@ sub load
 	$base = basename($fname);
 	print LOG "\n\nreadelf $base:\n";
 	
-	open($f, "mipsel-linux-readelf -WhsdD ${fname} 2>&1 |") || error("readelf - $!\n");
+	open($f, "${readelf} -WhsdD ${fname} 2>&1 |") || error("readelf - $!\n");
 	
 	while (<$f>) {
 		print LOG;
@@ -84,6 +88,13 @@ sub load
 		
 		if (/\(NEEDED\)\s+Shared library: \[(.+)\]/) {
 			push(@{$elf_lib{$base}}, $1);
+		}
+		elsif (/\(SONAME\)\s+Library soname: \[(.+)\]/) {
+			if (!($1 eq $base))
+			{
+				$elf_lib_soname{$base} = $1;
+				$elf_lib_soname{$1} = $base;
+			}
 		}
 		elsif (/Symbol table for image:/) {
 			last;
@@ -143,11 +154,13 @@ sub fixDyn
 			fixDynDep($_, "xtables-multi");
 		}
 		elsif (/^libip6t_.+\.so$/) {
-			fixDynDep("iptables", $_);
+			fixDynDep("ip6tables", $_);
 			fixDynDep($_, "libxtables.so");
+			fixDynDep($_, "xtables-multi");
 		}
 		elsif (/^libxt_.+\.so$/) {
 			fixDynDep($_, "libxtables.so");
+			fixDynDep($_, "xtables-multi");
 		}
 		elsif (/^CP\d+\.so$/) {
 			fixDynDep("smbd", $_);
@@ -168,21 +181,28 @@ sub fixDyn
 	fixDynDep("libxt_RATEEST.so", "libm.so.0");
 	fixDynDep("libxt_statistic.so", "libm.so.0");
 
-## charles add
-#	    fixDynDep("libsmbclient.so.0", "libpthread.so.0");
+#	fixDynDep("libsmbclient.so.0", "libpthread.so.0");
+
+	fixDynDep("mod_webdav.so", "libsqlite3.so.0");
+	fixDynDep("mod_webdav.so", "libxml2.so.2");
 	fixDynDep("mod_smbdav.so", "libshared.so");
 	fixDynDep("mod_smbdav.so", "libnvram.so");
 	fixDynDep("mod_smbdav.so", "libsqlite3.so.0");
-    fixDynDep("mod_smbdav.so", "libxml2.so.2");
+	fixDynDep("mod_smbdav.so", "libxml2.so.2");
 	fixDynDep("mod_smbdav.so", "libsmbclient.so.0");
 	fixDynDep("mod_smbdav.so", "libpthread.so.0");
-	   fixDynDep("lighttpd", "libpthread.so.0");
-	   fixDynDep("lighttpd-arpping", "libpthread.so.0");
-	   fixDynDep("lighttpd-arpping", "libsmbclient.so.0");
+	fixDynDep("mod_smbdav_access.so", "libdisk.so");
+	fixDynDep("mod_create_captcha_image.so", "mod_webdav.so");
 
+	fixDynDep("lighttpd", "libpthread.so.0");
 	fixDynDep("lighttpd", "libcrypto.so.1.0.0");
 	fixDynDep("lighttpd", "libssl.so.1.0.0");
         fixDynDep("lighttpd", "libpcre.so.0.0.1");
+	fixDynDep("lighttpd", "libshared.so");
+	fixDynDep("lighttpd", "libnvram.so");
+	fixDynDep("lighttpd", "libxml2.so.2");
+#	fixDynDep("lighttpd", "libdisk.so");
+
         fixDynDep("lighttpd", "mod_accesslog.so");
         fixDynDep("lighttpd", "mod_alias.so");
         fixDynDep("lighttpd", "mod_auth.so");
@@ -216,18 +236,17 @@ sub fixDyn
         fixDynDep("lighttpd", "mod_secdownload.so");
         fixDynDep("lighttpd", "mod_setenv.so");
         fixDynDep("lighttpd", "mod_simple_vhost.so");
-        fixDynDep("mod_webdav.so", "libsqlite3.so.0");
-        fixDynDep("mod_webdav.so", "libxml2.so.2");
-## charles add
-		fixDynDep("lighttpd", "mod_smbdav.so");
-        fixDynDep("lighttpd", "libshared.so");
-        fixDynDep("lighttpd", "libnvram.so");
-		fixDynDep("lighttpd", "libxml2.so.2");
-		fixDynDep("libbcm.so", "libshared.so");
-		fixDynDep("libbcm.so", "libc.so.0");
-#   fixDynDep("lighttpd", "libdisk.so");
-        fixDynDep("lighttpd", "mod_smbdav_access.so");
-        fixDynDep("mod_smbdav_access.so", "libdisk.so");
+	fixDynDep("lighttpd", "mod_smbdav.so");
+	fixDynDep("lighttpd", "mod_smbdav_access.so");
+	fixDynDep("lighttpd", "mod_aicloud_auth.so");
+	fixDynDep("lighttpd", "mod_aicloud_invite.so");
+	fixDynDep("lighttpd", "mod_aicloud_sharelink.so");
+	fixDynDep("lighttpd", "mod_aidisk_access.so");
+	fixDynDep("lighttpd", "mod_create_captcha_image.so");
+	fixDynDep("lighttpd", "mod_query_field_json.so");
+
+	fixDynDep("lighttpd-arpping", "libpthread.so.0");
+	fixDynDep("lighttpd-arpping", "libsmbclient.so.0");
 
 #!!TB - Updated Broadcom WL driver
 	fixDynDep("libbcmcrypto.so", "libc.so.0");
@@ -235,6 +254,13 @@ sub fixDyn
 	fixDynDep("wl", "libbcmcrypto.so");
 	fixDynDep("nas", "libc.so.0");
 	fixDynDep("wl", "libc.so.0");
+	fixDynDep("libbcm.so", "libshared.so");
+	fixDynDep("libbcm.so", "libc.so.0");
+
+	fixDynDep("libneon.so.27.2.6", "libz.so.1");
+	fixDynDep("libneon.so.27.2.6", "libcrypto.so.1.0.0");
+
+	fixDynDep("wimaxd", "libxvi020.so.05.02.93");
 }
 
 sub usersOf
@@ -248,7 +274,7 @@ sub usersOf
 	@x = ();
 	foreach $e (@elfs) {
 		foreach $l (@{$elf_lib{$e}}) {
-			if ($l eq $name) {
+			if ($l eq $name || (defined($elf_lib_soname{$l}) && $elf_lib_soname{$l} eq $name)) {
 				if ((!defined $sym) || (defined $elf_ext{$e}{$sym})) {
 					push(@x, $e);
 				}
@@ -387,6 +413,31 @@ sub genXref
 	close($f);
 }
 
+sub verifyUnresolved
+{
+	my $name;
+	my $sym;
+	my $lib;
+	my $found;
+	my @unresolved;
+
+	foreach $name (@elfs) {
+		foreach $sym (keys %{$elf_ext{$name}}) {
+			$found = 0;
+			foreach $lib (@{$elf_lib{$name}}) {
+				if (defined($elf_exp{$lib}{$sym}) || (defined($elf_lib_soname{$lib}) && defined($elf_exp{$elf_lib_soname{$lib}}{$sym}))) {
+					$found = 1;
+					last;
+				}
+			}
+			if($found == 0) {
+				print "WARNING: unresolved $name---$sym\n";
+				push(@unresolved, "$name---$sym");
+			}
+		}
+	}
+	return @unresolved;
+}
 
 sub genSO
 {
@@ -424,7 +475,7 @@ sub genSO
 
 	print LOG "\n\n${base}\n";
 	
-	$cmd = "mipsel-uclibc-ld -shared -s -z combreloc --warn-common --fatal-warnings ${opt} -soname ${name} -o ${so}";
+	$cmd = "${ld} -shared -s -z combreloc --warn-common --fatal-warnings ${opt} -soname ${name} -o ${so}";
 	foreach (@{$elf_lib{$name}}) {
 		if ((!$elf_dyn{$name}{$_}) && (/^lib(.+)\.so/)) {
 			$cmd .= " -l$1";
@@ -434,7 +485,11 @@ sub genSO
 		}
 	}
 #	print "$cmd -u... ${arc}\n";	
-	if (scalar(@used) == 0) {
+	my @u = usersOf($name);
+	if ((scalar(@used) == 0) && (scalar(@u) > 0)) {
+		print "$name: WARNING: Library symbol is not used by anything, but linked by (@u). so keep it ...\n";
+	}
+	elsif (scalar(@used) == 0) {
 		print "$name: WARNING: Library is not used by anything, deleting...\n";
 		unlink $so;
 #		<>;
@@ -499,6 +554,8 @@ if ($ARGV[0] eq "--noopt") {
 # (binutils 2.20.1 / gcc 4.2.4) :(
 $libpthreadwar = "-u pthread_mutexattr_init -u pthread_mutexattr_settype -u pthread_mutexattr_destroy";
 
+verifyUnresolved();
+
 genSO("${root}/lib/libc.so.0", "${uclibc}/lib/libc.a", "${stripshared}", "-init __uClibc_init ${uclibc}/lib/optinfo/interp.os");
 genSO("${root}/lib/libresolv.so.0", "${uclibc}/lib/libresolv.a", "${stripshared}");
 genSO("${root}/lib/libcrypt.so.0", "${uclibc}/lib/libcrypt.a", "${stripshared}");
@@ -520,9 +577,9 @@ genSO("${root}/usr/lib/libvorbis.so.0", "${router}/libvorbis/lib/.libs/libvorbis
 genSO("${root}/usr/lib/libid3tag.so.0", "${router}/libid3tag/.libs/libid3tag.a", "", "-L${router}/zlib");
 genSO("${root}/usr/lib/libexif.so.12", "${router}/libexif/libexif/.libs/libexif.a");
 genSO("${root}/usr/lib/libFLAC.so.8", "${router}/flac/src/libFLAC/.libs/libFLAC.a", "", "-L${router}/libogg/src/.libs");
-genSO("${root}/usr/lib/libavcodec.so.52", "${router}/ffmpeg/libavcodec/libavcodec.a", "", "-L${router}/ffmpeg/libavutil");
+genSO("${root}/usr/lib/libavcodec.so.52", "${router}/ffmpeg/libavcodec/libavcodec.a", "", "-L${router}/ffmpeg/libavutil -L${router}/zlib");
 genSO("${root}/usr/lib/libavutil.so.50", "${router}/ffmpeg/libavutil/libavutil.a");
-genSO("${root}/usr/lib/libavformat.so.52", "${router}/ffmpeg/libavformat/libavformat.a", "", "-L${router}/ffmpeg/libavutil -L${router}/ffmpeg/libavcodec");
+genSO("${root}/usr/lib/libavformat.so.52", "${router}/ffmpeg/libavformat/libavformat.a", "", "-L${router}/ffmpeg/libavutil -L${router}/ffmpeg/libavcodec -L${router}/zlib");
 genSO("${root}/usr/lib/libsmb.so", "${router}/samba/source/bin/libsmb.a");
 genSO("${root}/usr/lib/libbigballofmud.so", "${router}/samba3/source/bin/libbigballofmud.a");
 

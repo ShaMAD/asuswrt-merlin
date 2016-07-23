@@ -21,6 +21,9 @@ endif
 ifneq ($(wildcard $(SRCBASE)/wl/exe/wlu_common.c),)
 WLU_OBJS += wlu_common.o
 endif
+ifeq ($(RTCONFIG_BCMWL6),y)
+WLU_OBJS += wlc_clm_data.o
+endif
 
 ifeq ($(RWL),1)
 WL_OBJS := $(WLU_OBJS)
@@ -39,6 +42,9 @@ WL_EXE  := wl
 endif
 
 CFLAGS += -s -I$(SRCBASE)/include
+ifneq ($(RTCONFIG_BCMWL6),y)
+CFLAGS += -I$(TOP)/shared -I$(TOP)/nvram
+endif
 #ifeq ($(CONFIG_RTR_OPTIMIZE_SIZE),y)
 ifeq ($(SFP),y)
 CFLAGS  += -Os
@@ -48,6 +54,10 @@ else
 CFLAGS  += -O2
 endif
 CFLAGS += -DBCMINTERNAL -DBCMDBG
+ifneq ($(RTCONFIG_BCMWL6),y)
+LDFLAGS += -L$(TOP)/nvram -L$(INSTALLDIR)/nvram/usr/lib -lnvram
+LDFLAGS += -L$(TOP)/shared -L$(INSTALLDIR)/shared/usr/lib -lshared
+endif
 
 #UTILS := mii-tool robocfg ttcp
 UTILS := robocfg
@@ -78,7 +88,7 @@ endif
 ifneq ($(wildcard $(SRCBASE)/wl/exe),)
 CFLAGS += -I$(SRCBASE)/wl/exe
 UTILS += wl
-vpath %.c $(SRCBASE)/wl/exe $(SRCBASE)/shared
+vpath %.c $(SRCBASE)/wl/exe $(SRCBASE)/wl/clm/src $(SRCBASE)/shared
 endif
 
 ifeq ($(RWL),1)
@@ -135,7 +145,12 @@ endif
 
 mii-tool: mii-tool.c mii.h
 
+ifeq ($(wildcard $(SRCBASE)/router/utils/robocfg.c),)
+robocfg:
+	-cp -f $(SRCBASE)/wl/exe/prebuilt/robocfg robocfg
+else
 robocfg: robocfg.c etc53xx.h
+endif
 
 ttcp: epi_ttcp.c
 	$(CC) $(CFLAGS) -o $@ $^

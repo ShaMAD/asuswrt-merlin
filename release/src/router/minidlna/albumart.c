@@ -25,6 +25,7 @@
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/param.h>
+#include <limits.h>
 #include <libgen.h>
 #include <setjmp.h>
 #include <errno.h>
@@ -41,11 +42,9 @@
 static int
 art_cache_exists(const char *orig_path, char **cache_file)
 {
-	if( asprintf(cache_file, "%s/art_cache%s", db_path, orig_path) < 0 )
-	{
-		*cache_file = NULL;
+	if( xasprintf(cache_file, "%s/art_cache%s", db_path, orig_path) < 0 )
 		return 0;
-	}
+
 	strcpy(strchr(*cache_file, '\0')-4, ".jpg");
 
 	return (!access(*cache_file, F_OK));
@@ -78,20 +77,17 @@ save_resized_album_art(image_s *imsrc, const char *path)
 		dstw = (imsrc->width<<8) / ((imsrc->height<<8)/160);
 		dsth = 160;
 	}
-        imdst = image_resize(imsrc, dstw, dsth);
+	imdst = image_resize(imsrc, dstw, dsth);
 	if( !imdst )
-		goto error;
-
-	if( image_save_to_jpeg_file(imdst, cache_file) == 0 )
 	{
-		image_free(imdst);
-		return cache_file;
+		free(cache_file);
+		return NULL;
 	}
-	else
-		image_free(imdst);
-error:
-	free(cache_file);
-	return NULL;
+
+	cache_file = image_save_to_jpeg_file(imdst, cache_file);
+	image_free(imdst);
+	
+	return cache_file;
 }
 
 /* And our main album art functions */
@@ -132,23 +128,22 @@ update_if_album_art(const char *path)
 		return;
 	while ((dp = readdir(dh)) != NULL)
 	{
-		switch( dp->d_type )
+		if (is_reg(dp) == 1)
 		{
-			case DT_REG:
-				type = TYPE_FILE;
-				break;
-			case DT_LNK:
-			case DT_UNKNOWN:
-				snprintf(file, sizeof(file), "%s/%s", dir, dp->d_name);
-				type = resolve_unknown_type(file, ALL_MEDIA);
-				break;
-			default:
-				type = TYPE_UNKNOWN;
-				break;
+			type = TYPE_FILE;
+		}
+		else if (is_dir(dp) == 1)
+		{
+			type = TYPE_DIR;
+		}
+		else
+		{
+			snprintf(file, sizeof(file), "%s/%s", dir, dp->d_name);
+			type = resolve_unknown_type(file, ALL_MEDIA);
 		}
 		if( type != TYPE_FILE )
 			continue;
-		if( (*(dp->d_name) != '.') &&
+		if( (dp->d_name[0] != '.') &&
 		    (is_video(dp->d_name) || is_audio(dp->d_name)) &&
 		    (album_art || strncmp(dp->d_name, match, ncmp) == 0) )
 		{
@@ -164,7 +159,7 @@ update_if_album_art(const char *path)
 }
 
 char *
-check_embedded_art(const char *path, const char *image_data, int image_size)
+check_embedded_art(const char *path, uint8_t *image_data, int image_size)
 {
 	int width = 0, height = 0;
 	char *art_path = NULL;
@@ -241,7 +236,8 @@ check_embedded_art(const char *path, const char *image_data, int image_size)
 		fclose(dstfile);
 		if( nwritten != image_size )
 		{
-			DPRINTF(E_WARN, L_METADATA, "Embedded art error: wrote %d/%d bytes\n", nwritten, image_size);
+			DPRINTF(E_WARN, L_METADATA, "Embedded art error: wrote %lu/%d bytes\n",
+				(unsigned long)nwritten, image_size);
 			remove(art_path);
 			free(art_path);
 			art_path = NULL;
@@ -263,19 +259,6 @@ end_art:
 	return(art_path);
 }
 
-//- 20130708 Sungmin add
-int
-filter_image_files(const struct dirent *d)
-{
-	return ( (*d->d_name != '.') &&
-			 ((d->d_type == DT_DIR) ||
-			 (d->d_type == DT_LNK) ||
-			 (d->d_type == DT_UNKNOWN) ||
-			 ((d->d_type == DT_REG) &&
-			is_image(d->d_name) )
-			) );
-}
-
 static char *
 check_for_album_file(const char *path)
 {
@@ -284,7 +267,7 @@ check_for_album_file(const char *path)
 	struct album_art_name_s *album_art_name;
 	image_s *imsrc = NULL;
 	int width=0, height=0;
-	char *art_file;
+	char *art_file, *p;
 	const char *dir;
 	struct stat st;
 	int ret;
@@ -306,19 +289,19 @@ check_for_album_file(const char *path)
 	if( ret != 0 )
 	{
 		strncpyt(file, path, sizeof(file));
-		art_file = strrchr(file, '.');
-		if( art_file )
+		p = strrchr(file, '.');
+		if( p )
 		{
-			strcpy(art_file, ".jpg");
+			strcpy(p, ".jpg");
 			ret = access(file, R_OK);
 		}
 		if( ret != 0 )
 		{
-			art_file = strrchr(file, '/');
-			if( art_file )
+			p = strrchr(file, '/');
+			if( p )
 			{
-				memmove(art_file+2, art_file+1, file+MAXPATHLEN-art_file-2);
-				art_file[1] = '.';
+				memmove(p+2, p+1, file+MAXPATHLEN-p-2);
+				p[1] = '.';
 				ret = access(file, R_OK);
 			}
 		}
@@ -359,68 +342,24 @@ found_file:
 			return(art_file);
 		}
 	}
-
-	//- 20130708 Sungmin add	
-	int i;	
-	struct dirent **namelist;	
-	int n = scandir(dir, &namelist, filter_image_files, alphasort);	
-	if(n>0)	
-	{	   
-		snprintf(file, sizeof(file), "%s/%s", dir, namelist[0]->d_name);	   
-		for(i=0; i<n; i++)
-			{
-			free(namelist[i]);
-		}
-		if( access(file, R_OK) == 0 )	   
-		{		  
-			if( art_cache_exists(file, &art_file) )		  
-			{			
-				return art_file;		  
-			}		  
-			free(art_file);		  
-			imsrc = image_new_from_jpeg(file, 1, NULL, 0, 1, ROTATE_NONE);		  
-			if( !imsrc )			
-			   return NULL;		  
-			width = imsrc->width;		  
-			height = imsrc->height;		  
-			//DPRINTF(E_WARN, L_METADATA, "imgsrc->size: %s, %d X %d\n", file, width, height);		  
-			if( width > 160 || height > 160 )			
-				art_file = save_resized_album_art(imsrc, file);		  
-			else			
-				art_file = strdup(file);		  
-			image_free(imsrc);
-
-			return art_file;
-		}
-	}
-
 	return NULL;
 }
 
 int64_t
-find_album_art(const char *path, const char *image_data, int image_size)
+find_album_art(const char *path, uint8_t *image_data, int image_size)
 {
 	char *album_art = NULL;
-	char *sql;
-	char **result;
-	int cols, rows;
 	int64_t ret = 0;
 
 	if( (image_size && (album_art = check_embedded_art(path, image_data, image_size))) ||
 	    (album_art = check_for_album_file(path)) )
 	{
-		sql = sqlite3_mprintf("SELECT ID from ALBUM_ART where PATH = '%q'", album_art ? album_art : path);
-		if( (sql_get_table(db, sql, &result, &rows, &cols) == SQLITE_OK) && rows )
-		{
-			ret = strtoll(result[1], NULL, 10);
-		}
-		else
+		ret = sql_get_int_field(db, "SELECT ID from ALBUM_ART where PATH = '%q'", album_art);
+		if( !ret )
 		{
 			if( sql_exec(db, "INSERT into ALBUM_ART (PATH) VALUES ('%q')", album_art) == SQLITE_OK )
 				ret = sqlite3_last_insert_rowid(db);
 		}
-		sqlite3_free_table(result);
-		sqlite3_free(sql);
 	}
 	free(album_art);
 

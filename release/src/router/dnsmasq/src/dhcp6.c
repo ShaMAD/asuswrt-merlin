@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2013 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2016 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -23,21 +23,14 @@
 struct iface_param {
   struct dhcp_context *current;
   struct dhcp_relay *relay;
-  struct in6_addr fallback, relay_local;
+  struct in6_addr fallback, relay_local, ll_addr, ula_addr;
   int ind, addr_match;
-};
-
-struct mac_param {
-  struct in6_addr *target;
-  unsigned char *mac;
-  unsigned int maclen;
 };
 
 
 static int complete_context6(struct in6_addr *local,  int prefix,
 			     int scope, int if_index, int flags, 
 			     unsigned int preferred, unsigned int valid, void *vparam);
-static int find_mac(int family, char *addrp, char *mac, size_t maclen, void *parmv);
 static int make_duid1(int index, unsigned int type, char *mac, size_t maclen, void *parm); 
 
 void dhcp6_init(void)
@@ -144,6 +137,8 @@ void dhcp6_packet(time_t now)
 
   if ((port = relay_reply6(&from, sz, ifr.ifr_name)) == 0)
     {
+      struct dhcp_bridge *bridge, *alias;
+
       for (tmp = daemon->if_except; tmp; tmp = tmp->next)
 	if (tmp->name && wildcard_match(tmp->name, ifr.ifr_name))
 	  return;
@@ -158,6 +153,32 @@ void dhcp6_packet(time_t now)
       parm.ind = if_index;
       parm.addr_match = 0;
       memset(&parm.fallback, 0, IN6ADDRSZ);
+      memset(&parm.ll_addr, 0, IN6ADDRSZ);
+      memset(&parm.ula_addr, 0, IN6ADDRSZ);
+
+      /* If the interface on which the DHCPv6 request was received is
+         an alias of some other interface (as specified by the
+         --bridge-interface option), change parm.ind so that we look
+         for DHCPv6 contexts associated with the aliased interface
+         instead of with the aliasing one. */
+      for (bridge = daemon->bridges; bridge; bridge = bridge->next)
+	{
+	  for (alias = bridge->alias; alias; alias = alias->next)
+	    if (wildcard_matchn(alias->iface, ifr.ifr_name, IF_NAMESIZE))
+	      {
+		parm.ind = if_nametoindex(bridge->iface);
+		if (!parm.ind)
+		  {
+		    my_syslog(MS_DHCP | LOG_WARNING,
+			      _("unknown interface %s in bridge-interface"),
+			      bridge->iface);
+		    return;
+		  }
+		break;
+	      }
+	  if (alias)
+	    break;
+	}
       
       for (context = daemon->dhcp6; context; context = context->next)
 	if (IN6_IS_ADDR_UNSPECIFIED(&context->start6) && context->prefix == 0)
@@ -199,18 +220,18 @@ void dhcp6_packet(time_t now)
 	  inet_pton(AF_INET6, ALL_SERVERS, &all_servers);
 	  
 	  if (!IN6_ARE_ADDR_EQUAL(&dst_addr, &all_servers))
-	    relay_upstream6(parm.relay, sz, &from.sin6_addr, from.sin6_scope_id);
+	    relay_upstream6(parm.relay, sz, &from.sin6_addr, from.sin6_scope_id, now);
 	  return;
 	}
       
       /* May have configured relay, but not DHCP server */
       if (!daemon->doing_dhcp6)
 	return;
-      
+
       lease_prune(NULL, now); /* lose any expired leases */
       
       port = dhcp6_reply(parm.current, if_index, ifr.ifr_name, &parm.fallback, 
-			 sz, &from.sin6_addr, now);
+			 &parm.ll_addr, &parm.ula_addr, sz, &from.sin6_addr, now);
       
       lease_update_file(now);
       lease_update_dns(0);
@@ -223,79 +244,56 @@ void dhcp6_packet(time_t now)
   if (port != 0)
     {
       from.sin6_port = htons(port);
-      while (sendto(daemon->dhcp6fd, daemon->outpacket.iov_base, save_counter(0), 
-		    0, (struct sockaddr *)&from, sizeof(from)) == -1 &&
-	   retry_send());
+      while (retry_send(sendto(daemon->dhcp6fd, daemon->outpacket.iov_base, 
+			       save_counter(0), 0, (struct sockaddr *)&from, 
+			       sizeof(from))));
     }
 }
 
-void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, unsigned int *maclenp, unsigned int *mactypep)
+void get_client_mac(struct in6_addr *client, int iface, unsigned char *mac, unsigned int *maclenp, unsigned int *mactypep, time_t now)
 {
   /* Recieving a packet from a host does not populate the neighbour
      cache, so we send a neighbour discovery request if we can't 
      find the sender. Repeat a few times in case of packet loss. */
   
   struct neigh_packet neigh;
-  struct sockaddr_in6 addr;
-  struct mac_param mac_param;
-  int i;
+  union mysockaddr addr;
+  int i, maclen;
 
   neigh.type = ND_NEIGHBOR_SOLICIT;
   neigh.code = 0;
   neigh.reserved = 0;
   neigh.target = *client;
-  
+  /* RFC4443 section-2.3: checksum has to be zero to be calculated */
+  neigh.checksum = 0;
+   
   memset(&addr, 0, sizeof(addr));
 #ifdef HAVE_SOCKADDR_SA_LEN
-  addr.sin6_len = sizeof(struct sockaddr_in6);
+  addr.in6.sin6_len = sizeof(struct sockaddr_in6);
 #endif
-  addr.sin6_family = AF_INET6;
-  addr.sin6_port = htons(IPPROTO_ICMPV6);
-  addr.sin6_addr = *client;
-  addr.sin6_scope_id = iface;
-  
-  mac_param.target = client;
-  mac_param.maclen = 0;
-  mac_param.mac = mac;
+  addr.in6.sin6_family = AF_INET6;
+  addr.in6.sin6_port = htons(IPPROTO_ICMPV6);
+  addr.in6.sin6_addr = *client;
+  addr.in6.sin6_scope_id = iface;
   
   for (i = 0; i < 5; i++)
     {
       struct timespec ts;
       
-      iface_enumerate(AF_UNSPEC, &mac_param, find_mac);
-      
-      if (mac_param.maclen != 0)
+      if ((maclen = find_mac(&addr, mac, 0, now)) != 0)
 	break;
-      
-      sendto(daemon->icmp6fd, &neigh, sizeof(neigh), 0, (struct sockaddr *)&addr, sizeof(addr));
+	  
+      sendto(daemon->icmp6fd, &neigh, sizeof(neigh), 0, &addr.sa, sizeof(addr));
       
       ts.tv_sec = 0;
       ts.tv_nsec = 100000000; /* 100ms */
       nanosleep(&ts, NULL);
     }
 
-  *maclenp = mac_param.maclen;
+  *maclenp = maclen;
   *mactypep = ARPHRD_ETHER;
 }
     
-static int find_mac(int family, char *addrp, char *mac, size_t maclen, void *parmv)
-{
-  struct mac_param *parm = parmv;
-  
-  if (family == AF_INET6 && IN6_ARE_ADDR_EQUAL(parm->target, (struct in6_addr *)addrp))
-    {
-      if (maclen <= DHCP_CHADDR_MAX)
-	{
-	  parm->maclen = maclen;
-	  memcpy(parm->mac, mac, maclen);
-	}
-      
-      return 0; /* found, abort */
-    }
-  
-  return 1;
-}
-
 static int complete_context6(struct in6_addr *local,  int prefix,
 			     int scope, int if_index, int flags, unsigned int preferred, 
 			     unsigned int valid, void *vparam)
@@ -309,6 +307,11 @@ static int complete_context6(struct in6_addr *local,  int prefix,
   
   if (if_index == param->ind)
     {
+      if (IN6_IS_ADDR_LINKLOCAL(local))
+	param->ll_addr = *local;
+      else if (IN6_IS_ADDR_ULA(local))
+	param->ula_addr = *local;
+
       if (!IN6_IS_ADDR_LOOPBACK(local) &&
 	  !IN6_IS_ADDR_LINKLOCAL(local) &&
 	  !IN6_IS_ADDR_MULTICAST(local))
@@ -417,7 +420,7 @@ struct dhcp_context *address6_allocate(struct dhcp_context *context,  unsigned c
     j = rand64();
   else
     for (j = iaid, i = 0; i < clid_len; i++)
-      j += clid[i] + (j << 6) + (j << 16) - j;
+      j = clid[i] + (j << 6) + (j << 16) - j;
   
   for (pass = 0; pass <= plain_range ? 1 : 0; pass++)
     for (c = context; c; c = c->current)
@@ -431,7 +434,16 @@ struct dhcp_context *address6_allocate(struct dhcp_context *context,  unsigned c
 	    /* seed is largest extant lease addr in this context */
 	    start = lease_find_max_addr6(c) + serial;
 	  else
-	    start = addr6part(&c->start6) + ((j + c->addr_epoch) % (1 + addr6part(&c->end6) - addr6part(&c->start6)));
+	    {
+	      u64 range = 1 + addr6part(&c->end6) - addr6part(&c->start6);
+	      u64 offset = j + c->addr_epoch;
+
+	      /* don't divide by zero if range is whole 2^64 */
+	      if (range != 0)
+		offset = offset % range;
+
+	      start = addr6part(&c->start6) + offset;
+	    }
 
 	  /* iterate until we find a free address. */
 	  addr = start;
@@ -720,9 +732,7 @@ void dhcp_construct_contexts(time_t now)
      
       if (context->flags & CONTEXT_GC && !(context->flags & CONTEXT_OLD))
 	{
-	  
-	  if ((context->flags & (CONTEXT_RA_ONLY | CONTEXT_RA_NAME | CONTEXT_RA_STATELESS)) ||
-	      option_bool(OPT_RA))
+	  if ((context->flags & CONTEXT_RA) || option_bool(OPT_RA))
 	    {
 	      /* previously constructed context has gone. advertise it's demise */
 	      context->flags |= CONTEXT_OLD;

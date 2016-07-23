@@ -1,7 +1,7 @@
-/* $Id: iptpinhole.c,v 1.8 2012/09/18 08:29:17 nanard Exp $ */
+/* $Id: iptpinhole.c,v 1.14 2015/02/10 15:01:03 nanard Exp $ */
 /* MiniUPnP project
  * http://miniupnp.free.fr/ or http://miniupnp.tuxfamily.org/
- * (c) 2012 Thomas Bernard
+ * (c) 2012-2016 Thomas Bernard
  * This software is subject to the conditions detailed
  * in the LICENCE file provided within the distribution */
 
@@ -13,10 +13,11 @@
 #include <sys/queue.h>
 
 #include "../config.h"
+#include "../macros.h"
 #include "iptpinhole.h"
 #include "../upnpglobalvars.h"
 
-#ifdef ENABLE_6FC_SERVICE
+#ifdef ENABLE_UPNPPINHOLE
 
 #include <iptables.h>
 #include <libiptc/libip6tc.h>
@@ -40,6 +41,7 @@ struct pinhole_t {
 	unsigned short dport;
 	unsigned short uid;
 	unsigned char proto;
+	char desc[];
 };
 
 void init_iptpinhole(void)
@@ -49,22 +51,28 @@ void init_iptpinhole(void)
 
 void shutdown_iptpinhole(void)
 {
-	/* TODO empty list */
+	struct pinhole_t * p;
+	while(pinhole_list.lh_first != NULL) {
+		p = pinhole_list.lh_first;
+		LIST_REMOVE(p, entries);
+		free(p);
+	}
 }
 
 /* return uid */
 static int
 add_to_pinhole_list(struct in6_addr * saddr, unsigned short sport,
                     struct in6_addr * daddr, unsigned short dport,
-                    int proto, unsigned int timestamp)
+                    int proto, const char *desc, unsigned int timestamp)
 {
 	struct pinhole_t * p;
 
-	p = calloc(1, sizeof(struct pinhole_t));
+	p = calloc(1, sizeof(struct pinhole_t) + strlen(desc) + 1);
 	if(!p) {
 		syslog(LOG_ERR, "add_to_pinhole_list calloc() error");
 		return -1;
 	}
+	strcpy(p->desc, desc);
 	memcpy(&p->saddr, saddr, sizeof(struct in6_addr));
 	p->sport = sport;
 	memcpy(&p->daddr, daddr, sizeof(struct in6_addr));
@@ -195,19 +203,27 @@ ip6tables -t raw -I PREROUTING %d -p %s -i %s --sport %hu -d %s --dport %hu -j T
 int add_pinhole(const char * ifname,
                 const char * rem_host, unsigned short rem_port,
                 const char * int_client, unsigned short int_port,
-                int proto, unsigned int timestamp)
+                int proto, const char * desc, unsigned int timestamp)
 {
 	int uid;
 	struct ip6t_entry * e;
+	struct ip6t_entry * tmp;
 	struct ip6t_entry_match *match = NULL;
 	struct ip6t_entry_target *target = NULL;
 
 	e = calloc(1, sizeof(struct ip6t_entry));
+	if(!e) {
+		syslog(LOG_ERR, "%s: calloc(%d) failed",
+		       "add_pinhole", (int)sizeof(struct ip6t_entry));
+		return -1;
+	}
 	e->ipv6.proto = proto;
+	if (proto)
+		e->ipv6.flags |= IP6T_F_PROTO;
 
 	if(ifname)
 		strncpy(e->ipv6.iniface, ifname, IFNAMSIZ);
-	if(rem_host) {
+	if(rem_host && (rem_host[0] != '\0')) {
 		inet_pton(AF_INET6, rem_host, &e->ipv6.src);
 		memset(&e->ipv6.smsk, 0xff, sizeof(e->ipv6.smsk));
 	}
@@ -219,9 +235,18 @@ int add_pinhole(const char * ifname,
 
 	match = new_match(proto, rem_port, int_port);
 	target = get_accept_target();
-	e = realloc(e, sizeof(struct ip6t_entry)
+	tmp = realloc(e, sizeof(struct ip6t_entry)
 	               + match->u.match_size
 	               + target->u.target_size);
+	if(!tmp) {
+		syslog(LOG_ERR, "%s: realloc(%d) failed",
+		       "add_pinhole", (int)(sizeof(struct ip6t_entry) + match->u.match_size + target->u.target_size));
+		free(e);
+		free(match);
+		free(target);
+		return -1;
+	}
+	e = tmp;
 	memcpy(e->elems, match, match->u.match_size);
 	memcpy(e->elems + match->u.match_size, target, target->u.target_size);
 	e->target_offset = sizeof(struct ip6t_entry)
@@ -238,9 +263,40 @@ int add_pinhole(const char * ifname,
 	}
 	uid = add_to_pinhole_list(&e->ipv6.src, rem_port,
 	                          &e->ipv6.dst, int_port,
-	                          proto, timestamp);
+	                          proto, desc, timestamp);
 	free(e);
 	return uid;
+}
+
+int
+find_pinhole(const char * ifname,
+             const char * rem_host, unsigned short rem_port,
+             const char * int_client, unsigned short int_port,
+             int proto,
+             char *desc, int desc_len, unsigned int * timestamp)
+{
+	struct pinhole_t * p;
+	struct in6_addr saddr;
+	struct in6_addr daddr;
+	UNUSED(ifname);
+
+	if(rem_host && (rem_host[0] != '\0')) {
+		inet_pton(AF_INET6, rem_host, &saddr);
+	} else {
+		memset(&saddr, 0, sizeof(struct in6_addr));
+	}
+	inet_pton(AF_INET6, int_client, &daddr);
+	for(p = pinhole_list.lh_first; p != NULL; p = p->entries.le_next) {
+		if((proto == p->proto) && (rem_port == p->sport) &&
+		   (0 == memcmp(&saddr, &p->saddr, sizeof(struct in6_addr))) &&
+		   (int_port == p->dport) &&
+		   (0 == memcmp(&daddr, &p->daddr, sizeof(struct in6_addr)))) {
+			if(desc) strncpy(desc, p->desc, desc_len);
+			if(timestamp) *timestamp = p->timestamp;
+			return (int)p->uid;
+		}
+	}
+	return -2;	/* not found */
 }
 
 int
@@ -278,7 +334,7 @@ delete_pinhole(unsigned short uid)
 			info = (const struct ip6t_tcp *)&match->data;
 			if((info->spts[0] == p->sport) && (info->dpts[0] == p->dport)) {
 				if(!ip6tc_delete_num_entry(miniupnpd_v6_filter_chain, index, h)) {
-					syslog(LOG_ERR, "ip6tc_delete_num_entry(%s,%d,...): %s",
+					syslog(LOG_ERR, "ip6tc_delete_num_entry(%s,%u,...): %s",
 					       miniupnpd_v6_filter_chain, index, ip6tc_strerror(errno));
 					goto error;
 				}
@@ -296,6 +352,7 @@ delete_pinhole(unsigned short uid)
 	}
 	ip6tc_free(h);
 	syslog(LOG_WARNING, "delete_pinhole() rule with PID=%hu not found", uid);
+	LIST_REMOVE(p, entries);
 	return -2;	/* not found */
 error:
 	ip6tc_free(h);
@@ -318,9 +375,12 @@ update_pinhole(unsigned short uid, unsigned int timestamp)
 
 int
 get_pinhole_info(unsigned short uid,
-                 char * rem_host, int rem_hostlen, unsigned short * rem_port,
-                 char * int_client, int int_clientlen, unsigned short * int_port,
-                 int * proto, unsigned int * timestamp,
+                 char * rem_host, int rem_hostlen,
+                 unsigned short * rem_port,
+                 char * int_client, int int_clientlen,
+                 unsigned short * int_port,
+                 int * proto, char * desc, int desclen,
+                 unsigned int * timestamp,
                  u_int64_t * packets, u_int64_t * bytes)
 {
 	struct pinhole_t * p;
@@ -328,7 +388,7 @@ get_pinhole_info(unsigned short uid,
 	p = get_pinhole(uid);
 	if(!p)
 		return -2;	/* Not found */
-	if(rem_host) {
+	if(rem_host && (rem_host[0] != '\0')) {
 		if(inet_ntop(AF_INET6, &p->saddr, rem_host, rem_hostlen) == NULL)
 			return -1;
 	}
@@ -344,6 +404,8 @@ get_pinhole_info(unsigned short uid,
 		*proto = p->proto;
 	if(timestamp)
 		*timestamp = p->timestamp;
+	if (desc)
+		strncpy(desc, p->desc, desclen);
 	if(packets || bytes) {
 		/* theses informations need to be read from netfilter */
 		IP6TC_HANDLE h;
@@ -377,6 +439,16 @@ get_pinhole_info(unsigned short uid,
 	return 0;
 }
 
+int get_pinhole_uid_by_index(int index)
+{
+	struct pinhole_t * p;
+
+	for(p = pinhole_list.lh_first; p != NULL; p = p->entries.le_next)
+		if (!index--)
+			return p->uid;
+	return -1;
+}
+
 int
 clean_pinhole_list(unsigned int * next_timestamp)
 {
@@ -407,5 +479,4 @@ clean_pinhole_list(unsigned int * next_timestamp)
 	return n;
 }
 
-#endif
-
+#endif /* ENABLE_UPNPPINHOLE */

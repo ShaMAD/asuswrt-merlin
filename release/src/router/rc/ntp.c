@@ -25,7 +25,6 @@
  */
  
 #include <stdio.h>
-#include <signal.h>
 #include <time.h>
 #include <sys/time.h>
 #include <string.h>
@@ -41,54 +40,81 @@
 #define SECONDS_TO_WAIT 3
 #define NTP_RETRY_INTERVAL 30
 
-static char servers[32];
-int first_sync = 1;
+static char server[32];
 static int sig_cur = -1;
+static int server_idx = 0;
 
 static void ntp_service()
 {
-	// Don't set it only on first sync, someone else might have reset it
-	if (!nvram_get_int("svc_ready"))
-		nvram_set("svc_ready", "1");
+	static int first_sync = 1;
 
-	if (first_sync)
-	{
+	if (first_sync) {
 		first_sync = 0;
+
 		nvram_set("reload_svc_radio", "1");
+		nvram_set("svc_ready", "1");
 
 		setup_timezone();
 
 		if (is_routing_enabled())
-			notify_rc("restart_upnp");
-#ifdef RTCONFIG_IPV6
-		if (get_ipv6_service() != IPV6_DISABLED)
-			notify_rc("restart_radvd");
-#endif
+			notify_rc_and_period_wait("restart_upnp", 25);
 #ifdef RTCONFIG_DISK_MONITOR
-			notify_rc("restart_diskmon");
+		notify_rc("restart_diskmon");
+#endif
+
+#ifdef RTCONFIG_DNSSEC
+		if (nvram_match("dnssec_enable", "1")) {
+			reload_dnsmasq();
+		}
 #endif
 	}
 }
 
+static void set_alarm()
+{
+	struct tm local;
+	time_t now;
+	int diff_sec;
+	unsigned int sec;
+
+	if (nvram_get_int("ntp_ready"))
+	{
+		/* ntp sync every hour when time_zone set as "DST" */
+		if (strstr(nvram_safe_get("time_zone_x"), "DST")) {
+			time(&now);
+			localtime_r(&now, &local);
+//			dbg("%s: %d-%d-%d, %d:%d:%d dst:%d\n", __FUNCTION__, local.tm_year+1900, local.tm_mon+1, local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec, local.tm_isdst);
+			/* every hour */
+			if ((local.tm_min != 0) || (local.tm_sec != 0)) {
+				/* compensate for the alarm(SECONDS_TO_WAIT) */
+				diff_sec = (3600 - SECONDS_TO_WAIT) - (local.tm_min * 60 + local.tm_sec);
+				if (diff_sec == 0)
+					diff_sec = 3600;
+				else if (diff_sec < 0)
+					diff_sec = 3600 - diff_sec;
+				else if (diff_sec <= SECONDS_TO_WAIT)
+					diff_sec += 3600;
+//				dbg("diff_sec: %d \n", diff_sec);
+				sec = diff_sec;
+			}
+			else
+				sec = 3600 - SECONDS_TO_WAIT;
+		}
+		else	/* every 12 hours */
+			sec = 12 * 3600 - SECONDS_TO_WAIT;
+	}
+	else
+		sec = NTP_RETRY_INTERVAL - SECONDS_TO_WAIT;
+
+	//cprintf("## %s 4: sec(%u)\n", __func__, sec);
+	alarm(sec);
+}
+
 static void catch_sig(int sig)
 {
-	static int server_idx = 0;
-
 	sig_cur = sig;
 
-	if (sig == SIGALRM)
-	{
-		if (strlen(nvram_safe_get("ntp_server0")))
-		{
-			if (server_idx)
-				strcpy(servers, nvram_safe_get("ntp_server1"));
-			else
-				strcpy(servers, nvram_safe_get("ntp_server0"));
-			server_idx = (server_idx + 1) % 2;
-		}
-		else strcpy(servers, "");
-	}
-	else if (sig == SIGTSTP)
+	if (sig == SIGTSTP)
 	{
 		ntp_service();
 	}
@@ -97,14 +123,20 @@ static void catch_sig(int sig)
 		remove("/var/run/ntp.pid");
 		exit(0);
 	}
+	else if (sig == SIGCHLD)
+	{
+		chld_reap(sig);
+	}
 }
 
 int ntp_main(int argc, char *argv[])
 {
 	FILE *fp;
-	int ret;
+	pid_t pid;
+	char *args[] = {"ntpclient", "-h", server, "-i", "3", "-l", "-s", NULL};
 
-	strcpy(servers, nvram_safe_get("ntp_server0"));
+	strlcpy(server, nvram_safe_get("ntp_server0"), sizeof (server));
+	args[2] = server;
 
 	fp = fopen("/var/run/ntp.pid", "w");
 	if (fp == NULL)
@@ -114,68 +146,59 @@ int ntp_main(int argc, char *argv[])
 
 	dbg("starting ntp...\n");
 
-	signal(SIGALRM, catch_sig);
 	signal(SIGTSTP, catch_sig);
+	signal(SIGALRM, catch_sig);
 	signal(SIGTERM, catch_sig);
-	signal(SIGCHLD, chld_reap);
+//	signal(SIGCHLD, chld_reap);
+	signal(SIGCHLD, catch_sig);
 
 	nvram_set("ntp_ready", "0");
+#ifdef RTCONFIG_QTN
+	nvram_set("qtn_ntp_ready", "0");
+#endif
 	nvram_set("svc_ready", "0");
+
 	while (1)
 	{
-		if ((sig_cur != SIGALRM) && (sig_cur != -1))
-			pause();
-		else if (nvram_get_int("sw_mode") == SW_MODE_ROUTER
-				&& !(  nvram_match("link_internet", "1") 
-		        ))
+		if (sig_cur == SIGTSTP)
+			;
+		else if (nvram_get_int("sw_mode") == SW_MODE_ROUTER &&
+			!nvram_match("link_internet", "1") &&
+			!nvram_match("link_internet", "2"))
 		{
-			sleep(NTP_RETRY_INTERVAL);
+			alarm(SECONDS_TO_WAIT);
 		}
-		else if (strlen(servers))
+		else if (sig_cur == SIGCHLD && nvram_get_int("ntp_ready") != 0 )
+		{ //handle the delayed ntpclient process
+			set_alarm();
+		}
+		else
 		{
-			pid_t pid;
-			char *args[] = {"ntpclient", "-h", servers, "-i", "3", "-l", "-s", NULL};
-//			dbg("run ntpclient\n");
+			stop_ntpc();
 
-			nvram_set("ntp_server_tried", servers);
-			ret = _eval(args, NULL, 0, &pid);
+			nvram_set("ntp_server_tried", server);
+			if (nvram_match("ntp_ready", "0") || nvram_match("ntp_debug", "1") ||
+				!strstr(nvram_safe_get("time_zone_x"), "DST"))
+				logmessage("ntp", "start NTP update");
+			_eval(args, NULL, 0, &pid);
 			sleep(SECONDS_TO_WAIT);
 
-			if(nvram_get_int("ntp_ready"))
+			if (strlen(nvram_safe_get("ntp_server0")))
 			{
-				nvram_set("ntp_ready", "0");
+				if (server_idx)
+					strlcpy(server, nvram_safe_get("ntp_server1"), sizeof (server));
+				else
+					strlcpy(server, nvram_safe_get("ntp_server0"), sizeof (server));
 
-				/* ntp sync every hour when time_zone set as "DST" */
-				if(strstr(nvram_safe_get("time_zone_x"), "DST")) {
-					struct tm local;
-					time_t now;
-					int diff_sec;
-
-					time(&now);
-					localtime_r(&now, &local);
-//					dbg("%s: %d-%d-%d, %d:%d:%d dst:%d\n", __FUNCTION__, local.tm_year+1900, local.tm_mon+1, local.tm_mday, local.tm_hour, local.tm_min, local.tm_sec, local.tm_isdst);
-
-					/* every hour */
-					if((local.tm_min != 0) || (local.tm_sec != 0)) {
-						/* compensate for the sleep(SECONDS_TO_WAIT) */
-						diff_sec = (3600 - SECONDS_TO_WAIT) - (local.tm_min * 60 + local.tm_sec);
-						if(diff_sec == 0) diff_sec = 3600 - SECONDS_TO_WAIT;
-						else if(diff_sec < 0) diff_sec = -diff_sec;
-//						dbg("diff_sec: %d \n", diff_sec);
-						sleep(diff_sec);
-					}
-					else sleep(3600 - SECONDS_TO_WAIT);
-				}
-				else	/* every 12 hours */
-				{
-					sleep(3600 * 12 - SECONDS_TO_WAIT);
-				}
+				server_idx = (server_idx + 1) % 2;
 			}
 			else
-			{
-				sleep(NTP_RETRY_INTERVAL - SECONDS_TO_WAIT);
-			}
+				strcpy(server, "");
+			args[2] = server;
+
+			set_alarm();
 		}
-		else pause();
+
+		pause();
 	}
 }

@@ -55,7 +55,7 @@ much traffic. */
 #define DROPBEAR_SMALL_CODE
 
 /* Enable X11 Forwarding - server only */
-#define ENABLE_X11FWD
+/* #define ENABLE_X11FWD */
 
 /* Enable TCP Fowarding */
 /* 'Local' is "-L" style (client listening port forwarded via server)
@@ -123,8 +123,8 @@ much traffic. */
  * which are not the standard form. */
 #define DROPBEAR_SHA1_HMAC
 #define DROPBEAR_SHA1_96_HMAC
-/*#define DROPBEAR_SHA2_256_HMAC*/
-/*#define DROPBEAR_SHA2_512_HMAC*/
+#define DROPBEAR_SHA2_256_HMAC
+#define DROPBEAR_SHA2_512_HMAC
 #define DROPBEAR_MD5_HMAC
 
 /* You can also disable integrity. Don't bother disabling this if you're
@@ -222,12 +222,11 @@ much traffic. */
  * return the password on standard output */
 /*#define ENABLE_CLI_ASKPASS_HELPER*/
 
-/* Send a real auth request first rather than requesting a list of available methods.
- * It saves a network round trip at login but prevents immediate login to
- * accounts with no password, and might be rejected by some strict servers (none
- * encountered yet) - hence it isn't enabled by default. */
-/* #define CLI_IMMEDIATE_AUTH */
-
+/* Save a network roundtrip by sendng a real auth request immediately after
+ * sending a query for the available methods.  It is at the expense of < 100
+ * bytes of extra network traffic. This is not yet enabled by default since it
+ * could cause problems with non-compliant servers */
+/* #define DROPBEAR_CLI_IMMEDIATE_AUTH */
 
 /* Source for randomness. This must be able to provide hundreds of bytes per SSH
  * connection without blocking. In addition /dev/random is used for seeding
@@ -265,7 +264,7 @@ much traffic. */
 /* The command to invoke for xauth when using X11 forwarding.
  * "-q" for quiet */
 #ifndef XAUTH_COMMAND
-#define XAUTH_COMMAND "/usr/bin/X11/xauth -q"
+#define XAUTH_COMMAND "/usr/bin/xauth -q"
 #endif
 
 /* if you want to enable running an sftp server (such as the one included with
@@ -308,6 +307,11 @@ much traffic. */
 /* Ensure that data is transmitted every KEEPALIVE seconds. This can
 be overridden at runtime with -K. 0 disables keepalives */
 #define DEFAULT_KEEPALIVE 0
+
+/* If this many KEEPALIVES are sent with no packets received from the
+other side, exit. Not run-time configurable - if you have a need
+for runtime configuration please mail the Dropbear list */
+#define DEFAULT_KEEPALIVE_LIMIT 3
 
 /* Ensure that data is received within IDLE_TIMEOUT seconds. This can
 be overridden at runtime with -I. 0 disables idle timeouts */

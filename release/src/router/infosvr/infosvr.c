@@ -65,7 +65,7 @@ void sig_do_nothing(int sig)
 
 void load_sysparam(void)
 {
-	char macstr[32];
+	char *p, macstr[32];
 #if defined(RTCONFIG_WIRELESSREPEATER) || defined(RTCONFIG_PROXYSTA)
 	char tmp[100], prefix[] = "wlXXXXXXXXXXXXXX";
 #endif
@@ -79,9 +79,9 @@ void load_sysparam(void)
 #endif
 #ifdef RTCONFIG_BCMWL6
 #ifdef RTCONFIG_PROXYSTA
-	if (is_psta(0) || is_psta(1))
+	if (is_psta(nvram_get_int("wlc_band")) || is_psr(nvram_get_int("wlc_band")))
 	{
-		snprintf(prefix, sizeof(prefix), "wl%d_", 1 - nvram_get_int("wlc_band"));
+		snprintf(prefix, sizeof(prefix), "wl%d_", nvram_get_int("wlc_band"));
 		strncpy(ssid_g, nvram_safe_get(strcat_r(prefix, "ssid", tmp)), 32);
 	}
 	else
@@ -93,7 +93,7 @@ void load_sysparam(void)
 
 	snprintf(firmver_g, sizeof(firmver_g), "%s.%s", nvram_safe_get("firmver"), nvram_safe_get("buildno"));
 
-	strcpy(macstr, nvram_safe_get("et0macaddr"));
+	strcpy(macstr, nvram_safe_get("lan_hwaddr"));
 //	printf("mac: %d\n", strlen(macstr));
 	if (strlen(macstr)!=0) ether_atoe(macstr, mac);
 }
@@ -122,15 +122,6 @@ int main(int argc , char* argv[])
 
 	// Load system related static parameter
 	load_sysparam();
-
-#ifdef WCLIENT
-	// Signal for other tools
-	signal(SIGUSR1, sig_usr1);
-	signal(SIGUSR2, sig_usr2);
-
-	// Start state transaction
-	sta_info_init();
-#endif
 
 #ifdef PRNINFO //JYWeng: 20030325 for WL500g/WL500b
 	// Signal for reading Printer Information
@@ -199,9 +190,6 @@ int main(int argc , char* argv[])
 //			printf("got packet\n");
 			processReq(sockfd);
 		}
-#ifdef WCLIENT
-		sta_status_check();
-#endif
 	}
 }
 
@@ -213,6 +201,7 @@ int processReq(int sockfd)
     char		*hdr;
     char		pdubuf[INFO_PDU_LENGTH];
     struct sockaddr_in  from_addr;
+    unsigned short cli_port;
 
     memset(pdubuf,0,sizeof(pdubuf));
 
@@ -235,8 +224,9 @@ int processReq(int sockfd)
     }
 
     hdr = pdubuf;
-
-    processPacket(sockfd, hdr);
+    cli_port = ntohs(from_addr.sin_port);
+    //_dprintf("[InfoSvr] Client Port: %d\n", cli_port);
+    processPacket(sockfd, hdr, cli_port);
 /*						J++
     closesocket(sockfd);
 */
@@ -655,27 +645,6 @@ void sig_usr1(int sig)
 }
 #endif
 
-#ifdef WCLIENT
-extern int wl_scan_disabled;
-void sig_usr1(int sig)
-{
-    //if (wl_scan_disabled) wl_scan_disabled=0;
-    //else wl_scan_disabled=1;
-    //sta_status_report(0, 1);
-    check_tools();
-}
-
-void sig_alrm(int sig)
-{
-    timeup = 1;
-}
-
-// Write current status of wireless
-void sig_usr2(int sig)
-{
-    sta_status_report(NULL, 1);
-}
-#endif
 /* to check use usb or parport printer */
 /* return TRUE when using USB		   */
 /* James Yeh 2002/12/25 02:13	       */
@@ -763,7 +732,7 @@ int set_pid(int pid)
 	return 1;
 }
 
-void sendInfo(int sockfd, char *pdubuf)
+void sendInfo(int sockfd, char *pdubuf, unsigned short cli_port)
 {
     struct sockaddr_in		  cli;
 //    IBOX_COMM_PKT_HDR		   hdr;
@@ -771,7 +740,8 @@ void sendInfo(int sockfd, char *pdubuf)
 
     cli.sin_family    = AF_INET;
     cli.sin_addr.s_addr = inet_addr("255.255.255.255");;
-    cli.sin_port = htons(SRV_PORT);
+    //cli.sin_port = htons(SRV_PORT);
+    cli.sin_port = htons(cli_port);
 
     while (count < g_intfCount)
     {

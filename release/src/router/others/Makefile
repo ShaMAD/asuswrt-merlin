@@ -33,14 +33,16 @@ endif
 ifeq ($(RTCONFIG_OPENVPN),y)
 	install -m 0700 setuprsa.sh $(INSTALLDIR)/usr/sbin
 	install -m 0700 -D updown.sh $(INSTALLDIR)/usr/sbin
+	install -m 0700 -D vpnrouting.sh $(INSTALLDIR)/usr/sbin
 endif
 
 # Entware setup script
-ifneq ($(RTCONFIG_BCMARM),y)
 	install -m 0700 entware-setup.sh $(INSTALLDIR)/usr/sbin
-endif
 
-ifeq ($(RTN14U)$(RTAC52U)$(RTAC51U),y)
+# Postconf helper script
+	install -m 0755 helper.sh $(INSTALLDIR)/usr/sbin
+
+ifeq ($(RTN14U)$(RTAC52U)$(RTAC51U)$(RTN11P)$(RTN300)$(RTN54U)$(RTAC1200HP)$(RTN56UB1)$(RTN56UB2)$(RTAC54U),y)
 # for read/write Ralink PHY registers
         install -D mii_mgr $(INSTALLDIR)/bin/mii_mgr
 endif

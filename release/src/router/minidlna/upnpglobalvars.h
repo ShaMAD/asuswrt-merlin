@@ -57,7 +57,7 @@
 
 #include <sqlite3.h>
 
-#define MINIDLNA_VERSION "1.1.0"
+#define MINIDLNA_VERSION "1.1.5"
 
 #ifdef NETGEAR
 # define SERVER_NAME "ReadyDLNA"
@@ -73,6 +73,7 @@
 #else
 #define _(string) (string)
 #endif
+#define THISORNUL(s) (s ? s : "")
 
 #ifndef PNPX
 #define PNPX 0
@@ -168,7 +169,8 @@
 	"http-get:*:audio/mp4:*," \
 	"http-get:*:audio/x-wav:*," \
 	"http-get:*:audio/x-flac:*," \
-	"http-get:*:application/ogg:*"
+	"http-get:*:application/ogg:*" \
+	"http-get:*:video/x-pn-realvideo:*"
 
 #define DLNA_FLAG_DLNA_V1_5      0x00100000
 #define DLNA_FLAG_HTTP_STALLING  0x00200000
@@ -189,6 +191,7 @@ extern uint32_t runtime_flags;
 #define DLNA_STRICT_MASK      0x0004
 #define NO_PLAYLIST_MASK      0x0008
 #define SYSTEMD_MASK          0x0010
+#define MERGE_MEDIA_DIRS_MASK 0x0020
 
 #define SETFLAG(mask)	runtime_flags |= mask
 #define GETFLAG(mask)	(runtime_flags & mask)
@@ -198,16 +201,16 @@ extern const char *pidfilename;
 
 extern char uuidvalue[];
 
-#define MODELNAME_MAX_LEN (64)
+#define MODELNAME_MAX_LEN 64
 extern char modelname[];
 
-#define MODELNUMBER_MAX_LEN (16)
+#define MODELNUMBER_MAX_LEN 16
 extern char modelnumber[];
 
-#define SERIALNUMBER_MAX_LEN (18)
+#define SERIALNUMBER_MAX_LEN 18
 extern char serialnumber[];
 
-#define PRESENTATIONURL_MAX_LEN (64)
+#define PRESENTATIONURL_MAX_LEN 64
 extern char presentationurl[];
 
 #if PNPX
@@ -215,24 +218,25 @@ extern char pnpx_hwid[];
 #endif
 
 /* lan addresses */
-/* MAX_LAN_ADDR : maximum number of interfaces
- * to listen to SSDP traffic */
-#define MAX_LAN_ADDR (4)
 extern int n_lan_addr;
 extern struct lan_addr_s lan_addr[];
+extern int sssdp;
 
-extern const char * minissdpdsocketpath;
+extern const char *minissdpdsocketpath;
 
 /* UPnP-A/V [DLNA] */
 extern sqlite3 *db;
-#define FRIENDLYNAME_MAX_LEN (64)
+#define FRIENDLYNAME_MAX_LEN 64
 extern char friendly_name[];
 extern char db_path[];
+extern char db_path_spec[];
 extern char log_path[];
 extern struct media_dir_s *media_dirs;
 extern struct album_art_name_s *album_art_names;
 extern short int scanning;
 extern volatile short int quitting;
 extern volatile uint32_t updateID;
+extern const char *force_sort_criteria;
+extern short int rescan_db;
 
 #endif

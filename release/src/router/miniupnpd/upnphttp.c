@@ -1,8 +1,9 @@
-/* $Id: upnphttp.c,v 1.86 2013/02/07 10:26:07 nanard Exp $ */
+/* $Id: upnphttp.c,v 1.103 2015/12/16 10:21:49 nanard Exp $ */
+/* vim: tabstop=4 shiftwidth=4 noexpandtab */
 /* Project :  miniupnp
  * Website :  http://miniupnp.free.fr/ or http://miniupnp.tuxfamily.org/
  * Author :   Thomas Bernard
- * Copyright (c) 2005-2012 Thomas Bernard
+ * Copyright (c) 2005-2015 Thomas Bernard
  * This software is subject to the conditions detailed in the
  * LICENCE file included in this distribution.
  * */
@@ -12,7 +13,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <arpa/inet.h>	//!!TB
 #include <sys/param.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -30,6 +30,93 @@
 #include "upnpevents.h"
 #include "upnputils.h"
 
+#ifdef ENABLE_HTTPS
+#include <openssl/err.h>
+#include <openssl/engine.h>
+#include <openssl/conf.h>
+static SSL_CTX *ssl_ctx = NULL;
+
+#ifndef HTTPS_CERTFILE
+#define HTTPS_CERTFILE "/etc/ssl/certs/ssl-cert-snakeoil.pem"
+#endif
+#ifndef HTTPS_KEYFILE
+#define HTTPS_KEYFILE "/etc/ssl/private/ssl-cert-snakeoil.key"
+#endif
+
+static void
+syslogsslerr(void)
+{
+	unsigned long err;
+	char buffer[256];
+	while((err = ERR_get_error()) != 0) {
+		syslog(LOG_ERR, "%s", ERR_error_string(err, buffer));
+	}
+}
+
+static int verify_callback(int preverify_ok, X509_STORE_CTX *ctx)
+{
+	syslog(LOG_DEBUG, "verify_callback(%d, %p)", preverify_ok, ctx);
+	return preverify_ok;
+}
+
+int init_ssl(void)
+{
+	const SSL_METHOD *method;
+	SSL_library_init();
+	SSL_load_error_strings();
+	method = TLSv1_server_method();
+	if(method == NULL) {
+		syslog(LOG_ERR, "TLSv1_server_method() failed");
+		syslogsslerr();
+		return -1;
+	}
+	ssl_ctx = SSL_CTX_new(method);
+	if(ssl_ctx == NULL) {
+		syslog(LOG_ERR, "SSL_CTX_new() failed");
+		syslogsslerr();
+		return -1;
+	}
+	/* set the local certificate */
+	if(!SSL_CTX_use_certificate_file(ssl_ctx, HTTPS_CERTFILE, SSL_FILETYPE_PEM)) {
+		syslog(LOG_ERR, "SSL_CTX_use_certificate_file(%s) failed", HTTPS_CERTFILE);
+		syslogsslerr();
+		return -1;
+	}
+	/* set the private key */
+	if(!SSL_CTX_use_PrivateKey_file(ssl_ctx, HTTPS_KEYFILE, SSL_FILETYPE_PEM)) {
+		syslog(LOG_ERR, "SSL_CTX_use_PrivateKey_file(%s) failed", HTTPS_KEYFILE);
+		syslogsslerr();
+		return -1;
+	}
+	/* verify private key */
+	if(!SSL_CTX_check_private_key(ssl_ctx)) {
+		syslog(LOG_ERR, "SSL_CTX_check_private_key() failed");
+		syslogsslerr();
+		return -1;
+	}
+	/*SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER|SSL_VERIFY_CLIENT_ONCE, verify_callback);*/
+	SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_NONE, verify_callback);
+	/*SSL_CTX_set_verify_depth(depth);*/
+	syslog(LOG_INFO, "using %s", SSLeay_version(SSLEAY_VERSION));
+	return 0;
+}
+
+void free_ssl(void)
+{
+	/* free context */
+	if(ssl_ctx != NULL) {
+		SSL_CTX_free(ssl_ctx);
+		ssl_ctx = NULL;
+	}
+	ERR_remove_state(0);
+	ENGINE_cleanup();
+	CONF_modules_unload(1);
+	ERR_free_strings();
+	EVP_cleanup();
+	CRYPTO_cleanup_all_ex_data();
+}
+#endif /* ENABLE_HTTPS */
+
 struct upnphttp *
 New_upnphttp(int s)
 {
@@ -46,9 +133,40 @@ New_upnphttp(int s)
 	return ret;
 }
 
+#ifdef ENABLE_HTTPS
+void
+InitSSL_upnphttp(struct upnphttp * h)
+{
+	int r;
+	h->ssl = SSL_new(ssl_ctx);
+	if(h->ssl == NULL) {
+		syslog(LOG_ERR, "SSL_new() failed");
+		syslogsslerr();
+		abort();
+	}
+	if(!SSL_set_fd(h->ssl, h->socket)) {
+		syslog(LOG_ERR, "SSL_set_fd() failed");
+		syslogsslerr();
+		abort();
+	}
+	r = SSL_accept(h->ssl); /* start the handshaking */
+	if(r < 0) {
+		int err;
+		err = SSL_get_error(h->ssl, r);
+		syslog(LOG_DEBUG, "SSL_accept() returned %d, SSL_get_error() %d", r, err);
+		if(err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
+			syslog(LOG_ERR, "SSL_accept() failed");
+			syslogsslerr();
+			abort();
+		}
+	}
+}
+#endif /* ENABLE_HTTPS */
+
 void
 CloseSocket_upnphttp(struct upnphttp * h)
 {
+	/* SSL_shutdown() ? */
 	if(close(h->socket) < 0)
 	{
 		syslog(LOG_ERR, "CloseSocket_upnphttp: close(%d): %m", h->socket);
@@ -62,6 +180,10 @@ Delete_upnphttp(struct upnphttp * h)
 {
 	if(h)
 	{
+#ifdef ENABLE_HTTPS
+		if(h->ssl)
+			SSL_free(h->ssl);
+#endif
 		if(h->socket >= 0)
 			CloseSocket_upnphttp(h);
 		if(h->req_buf)
@@ -99,10 +221,10 @@ ParseHttpHeaders(struct upnphttp * h)
 		}
 		if(colon)
 		{
-			if(strncasecmp(line, "Content-Length", 14)==0)
+			if(strncasecmp(line, "Content-Length:", 15)==0)
 			{
 				p = colon;
-				while(*p < '0' || *p > '9')
+				while((*p < '0' || *p > '9') && (*p != '\r') && (*p != '\n'))
 					p++;
 				h->req_contentlen = atoi(p);
 				if(h->req_contentlen < 0) {
@@ -113,7 +235,18 @@ ParseHttpHeaders(struct upnphttp * h)
 				printf("    readbufflen=%d contentoff = %d\n",
 					h->req_buflen, h->req_contentoff);*/
 			}
-			else if(strncasecmp(line, "SOAPAction", 10)==0)
+			else if(strncasecmp(line, "Host:", 5)==0)
+			{
+				p = colon;
+				n = 0;
+				while(*p == ':' || *p == ' ' || *p == '\t')
+					p++;
+				while(p[n]>' ')
+					n++;
+				h->req_HostOff = p - h->req_buf;
+				h->req_HostLen = n;
+			}
+			else if(strncasecmp(line, "SOAPAction:", 11)==0)
 			{
 				p = colon;
 				n = 0;
@@ -129,7 +262,7 @@ ParseHttpHeaders(struct upnphttp * h)
 				h->req_soapActionOff = p - h->req_buf;
 				h->req_soapActionLen = n;
 			}
-			else if(strncasecmp(line, "accept-language", 15) == 0)
+			else if(strncasecmp(line, "accept-language:", 16) == 0)
 			{
 				p = colon;
 				n = 0;
@@ -147,7 +280,7 @@ ParseHttpHeaders(struct upnphttp * h)
 				memcpy(h->accept_language, p, n);
 				h->accept_language[n] = '\0';
 			}
-			else if(strncasecmp(line, "expect", 6) == 0)
+			else if(strncasecmp(line, "expect:", 7) == 0)
 			{
 				p = colon;
 				n = 0;
@@ -161,21 +294,29 @@ ParseHttpHeaders(struct upnphttp * h)
 				}
 			}
 #ifdef ENABLE_EVENTS
-			else if(strncasecmp(line, "Callback", 8)==0)
+			else if(strncasecmp(line, "Callback:", 9)==0)
 			{
+				/* The Callback can contain several urls :
+				 * If there is more than one URL, when the service sends
+				 * events, it will try these URLs in order until one
+				 * succeeds. One or more URLs each enclosed by angle
+				 * brackets ("<" and ">") */
 				p = colon;
 				while(*p != '<' && *p != '\r' )
 					p++;
 				n = 0;
-				while(p[n] != '>' && p[n] != '\r' )
+				while(p[n] != '\r')
 					n++;
-				h->req_CallbackOff = p + 1 - h->req_buf;
-				h->req_CallbackLen = MAX(0, n - 1);
+				while(n > 0 && p[n] != '>')
+					n--;
+				/* found last > character */
+				h->req_CallbackOff = p - h->req_buf;
+				h->req_CallbackLen = MAX(0, n + 1);
 			}
-			else if(strncasecmp(line, "SID", 3)==0)
+			else if(strncasecmp(line, "SID:", 4)==0)
 			{
 				p = colon + 1;
-				while(isspace(*p))
+				while((*p == ' ') || (*p == '\t'))
 					p++;
 				n = 0;
 				while(!isspace(p[n]))
@@ -190,20 +331,20 @@ either number of seconds or infinite. Recommendation
 by a UPnP Forum working committee. Defined by UPnP vendor.
  Consists of the keyword "Second-" followed (without an
 intervening space) by either an integer or the keyword "infinite". */
-			else if(strncasecmp(line, "Timeout", 7)==0)
+			else if(strncasecmp(line, "Timeout:", 8)==0)
 			{
 				p = colon + 1;
-				while(isspace(*p))
+				while((*p == ' ') || (*p == '\t'))
 					p++;
 				if(strncasecmp(p, "Second-", 7)==0) {
 					h->req_Timeout = atoi(p+7);
 				}
 			}
 #ifdef UPNP_STRICT
-			else if(strncasecmp(line, "nt", 2)==0)
+			else if(strncasecmp(line, "nt:", 3)==0)
 			{
 				p = colon + 1;
-				while(isspace(*p))
+				while((*p == ' ') || (*p == '\t'))
 					p++;
 				n = 0;
 				while(!isspace(p[n]))
@@ -211,8 +352,8 @@ intervening space) by either an integer or the keyword "infinite". */
 				h->req_NTOff = p - h->req_buf;
 				h->req_NTLen = n;
 			}
-#endif
-#endif
+#endif /* UPNP_STRICT */
+#endif /* ENABLE_EVENTS */
 		}
 		/* the loop below won't run off the end of the buffer
 		 * because the buffer is guaranteed to contain the \r\n\r\n
@@ -375,6 +516,9 @@ ProcessHTTPPOST_upnphttp(struct upnphttp * h)
 
 #ifdef ENABLE_EVENTS
 /**
+ * checkCallbackURL()
+ * check that url is on originating IP
+ * extract first correct URL
  * returns 0 if the callback header value is not valid
  * 1 if it is valid.
  */
@@ -386,56 +530,76 @@ checkCallbackURL(struct upnphttp * h)
 	const char * p;
 	unsigned int i;
 
-	if(h->req_CallbackOff <= 0 || h->req_CallbackLen < 8)
+start_again:
+	if(h->req_CallbackOff <= 0 || h->req_CallbackLen < 10)
 		return 0;
-	if(memcmp(h->req_buf + h->req_CallbackOff, "http://", 7) != 0)
-		return 0;
-	ipv6 = 0;
+	if(memcmp(h->req_buf + h->req_CallbackOff, "<http://", 8) != 0) {
+		p = h->req_buf + h->req_CallbackOff + 1;
+		goto invalid;
+	}
+	/* extract host from url to addrstr[] */
 	i = 0;
-	p = h->req_buf + h->req_CallbackOff + 7;
+	p = h->req_buf + h->req_CallbackOff + 8;
 	if(*p == '[') {
 		p++;
 		ipv6 = 1;
-		while(*p != ']' && i < (sizeof(addrstr)-1)
+		while(*p != ']' && *p != '>' && i < (sizeof(addrstr)-1)
 		      && p < (h->req_buf + h->req_CallbackOff + h->req_CallbackLen))
 			addrstr[i++] = *(p++);
 	} else {
-		while(*p != '/' && *p != ':' && i < (sizeof(addrstr)-1)
+		ipv6 = 0;
+		while(*p != '/' && *p != ':' && *p != '>' && i < (sizeof(addrstr)-1)
 		      && p < (h->req_buf + h->req_CallbackOff + h->req_CallbackLen))
 			addrstr[i++] = *(p++);
 	}
 	addrstr[i] = '\0';
+	/* check addrstr */
 	if(ipv6) {
+#ifdef ENABLE_IPV6
 		struct in6_addr addr;
 		if(inet_pton(AF_INET6, addrstr, &addr) <= 0)
-			return 0;
-#ifdef ENABLE_IPV6
+			goto invalid;
 		if(!h->ipv6
 		  || (0!=memcmp(&addr, &(h->clientaddr_v6), sizeof(struct in6_addr))))
-			return 0;
+			goto invalid;
 #else
-		return 0;
+		goto invalid;
 #endif
 	} else {
 		struct in_addr addr;
 		if(inet_pton(AF_INET, addrstr, &addr) <= 0)
-			return 0;
+			goto invalid;
 #ifdef ENABLE_IPV6
 		if(h->ipv6) {
 			if(!IN6_IS_ADDR_V4MAPPED(&(h->clientaddr_v6)))
-				return 0;
+				goto invalid;
 			if(0!=memcmp(&addr, ((const char *)&(h->clientaddr_v6) + 12), 4))
-				return 0;
+				goto invalid;
 		} else {
 			if(0!=memcmp(&addr, &(h->clientaddr), sizeof(struct in_addr)))
-				return 0;
+				goto invalid;
 		}
 #else
 		if(0!=memcmp(&addr, &(h->clientaddr), sizeof(struct in_addr)))
-			return 0;
+			goto invalid;
 #endif
 	}
+	/* select only the good callback url */
+	while(p < h->req_buf + h->req_CallbackOff + h->req_CallbackLen && *p != '>')
+		p++;
+	h->req_CallbackOff++;	/* skip initial '<' */
+	h->req_CallbackLen = (int)(p - h->req_buf - h->req_CallbackOff);
 	return 1;
+invalid:
+	while(p < h->req_buf + h->req_CallbackOff + h->req_CallbackLen && *p != '>')
+		p++;
+	if(*p != '>') return 0;
+	while(p < h->req_buf + h->req_CallbackOff + h->req_CallbackLen && *p != '<')
+		p++;
+	if(*p != '<') return 0;
+	h->req_CallbackLen -= (int)(p - h->req_buf - h->req_CallbackOff);
+	h->req_CallbackOff = (int)(p - h->req_buf);
+	goto start_again;
 }
 
 static void
@@ -447,6 +611,21 @@ ProcessHTTPSubscribe_upnphttp(struct upnphttp * h, const char * path)
 	       h->req_CallbackLen, h->req_buf + h->req_CallbackOff,
 	       h->req_Timeout);
 	syslog(LOG_DEBUG, "SID '%.*s'", h->req_SIDLen, h->req_buf + h->req_SIDOff);
+#if defined(UPNP_STRICT) && (UPNP_VERSION_MAJOR > 1) || (UPNP_VERSION_MINOR > 0)
+	/*if(h->req_Timeout < 1800) {*/
+	if(h->req_Timeout == 0) {
+		/* Second-infinite is forbidden with UDA v1.1 and later :
+		 * (UDA 1.1 : 4.1.1 Subscription)
+		 * UPnP 1.1 control points MUST NOT subscribe using keyword infinite,
+		 * UPnP 1.1 devices MUST NOT set actual subscription durations to
+		 * "infinite". The presence of infinite in a request MUST be silently
+		 * ignored by a UPnP 1.1 device (the presence of infinite is handled
+		 * by the device as if the TIMEOUT header field in a request was not
+		 * present) . The keyword infinite MUST NOT be returned by a UPnP 1.1
+		 * device. */
+		h->req_Timeout = 1800;	/* default to 30 minutes */
+	}
+#endif /* UPNP_STRICT */
 	if((h->req_CallbackOff <= 0) && (h->req_SIDOff <= 0)) {
 		/* Missing or invalid CALLBACK : 412 Precondition Failed.
 		 * If CALLBACK header is missing or does not contain a valid HTTP URL,
@@ -500,15 +679,20 @@ with HTTP error 412 Precondition Failed. */
 			if(h->req_NTOff > 0) {
 				syslog(LOG_WARNING, "Both NT: and SID: in SUBSCRIBE");
 				BuildResp2_upnphttp(h, 400, "Incompatible header fields", 0, 0);
-			} else
-#endif
-			if(renewSubscription(h->req_buf + h->req_SIDOff, h->req_SIDLen,
-			                     h->req_Timeout) < 0) {
-				BuildResp2_upnphttp(h, 412, "Precondition Failed", 0, 0);
 			} else {
-				h->respflags = FLAG_TIMEOUT;
-				BuildResp_upnphttp(h, 0, 0);
+#endif /* UPNP_STRICT */
+				sid = upnpevents_renewSubscription(h->req_buf + h->req_SIDOff,
+				                                   h->req_SIDLen, h->req_Timeout);
+				if(!sid) {
+					BuildResp2_upnphttp(h, 412, "Precondition Failed", 0, 0);
+				} else {
+					h->respflags = FLAG_TIMEOUT | FLAG_SID;
+					h->res_SID = sid;
+					BuildResp_upnphttp(h, 0, 0);
+				}
+#ifdef UPNP_STRICT
 			}
+#endif /* UPNP_STRICT */
 		}
 		SendRespAndClose_upnphttp(h);
 	}
@@ -571,6 +755,7 @@ ProcessHttpQuery_upnphttp(struct upnphttp * h)
 	char * HttpVer;
 	char * p;
 	int i;
+
 	p = h->req_buf;
 	if(!p)
 		return;
@@ -591,9 +776,38 @@ ProcessHttpQuery_upnphttp(struct upnphttp * h)
 	for(i = 0; i<15 && *p != '\r'; i++)
 		HttpVer[i] = *(p++);
 	HttpVer[i] = '\0';
-	syslog(LOG_INFO, "HTTP REQUEST : %s %s (%s)",
-	       HttpCommand, HttpUrl, HttpVer);
+	syslog(LOG_INFO, "HTTP REQUEST from %s : %s %s (%s)",
+	       h->clientaddr_str, HttpCommand, HttpUrl, HttpVer);
 	ParseHttpHeaders(h);
+	if(h->req_HostOff > 0 && h->req_HostLen > 0) {
+		syslog(LOG_DEBUG, "Host: %.*s", h->req_HostLen, h->req_buf + h->req_HostOff);
+		p = h->req_buf + h->req_HostOff;
+		if(*p == '[') {
+			/* IPv6 */
+			p++;
+			while(p < h->req_buf + h->req_HostOff + h->req_HostLen) {
+				if(*p == ']') break;
+				/* TODO check *p in [0-9a-f:.] */
+				p++;
+			}
+			if(*p != ']') {
+				syslog(LOG_NOTICE, "DNS rebinding attack suspected (Host: %.*s)", h->req_HostLen, h->req_buf + h->req_HostOff);
+				Send404(h);/* 403 */
+				return;
+			}
+			p++;
+			/* TODO : Check port */
+		} else {
+			for(i = 0; i < h->req_HostLen; i++) {
+				if(*p != ':' && *p != '.' && (*p > '9' || *p < '0')) {
+					syslog(LOG_NOTICE, "DNS rebinding attack suspected (Host: %.*s)", h->req_HostLen, h->req_buf + h->req_HostOff);
+					Send404(h);/* 403 */
+					return;
+				}
+				p++;
+			}
+		}
+	}
 	if(strcmp("POST", HttpCommand) == 0)
 	{
 		h->req_command = EPost;
@@ -672,9 +886,29 @@ Process_upnphttp(struct upnphttp * h)
 	switch(h->state)
 	{
 	case EWaitingForHttpRequest:
+#ifdef ENABLE_HTTPS
+		if(h->ssl) {
+			n = SSL_read(h->ssl, buf, sizeof(buf));
+		} else {
+			n = recv(h->socket, buf, sizeof(buf), 0);
+		}
+#else
 		n = recv(h->socket, buf, sizeof(buf), 0);
+#endif
 		if(n<0)
 		{
+#ifdef ENABLE_HTTPS
+			if(h->ssl) {
+				int err;
+				err = SSL_get_error(h->ssl, n);
+				if(err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
+				{
+					syslog(LOG_ERR, "SSL_read() failed");
+					syslogsslerr();
+					h->state = EToDelete;
+				}
+			} else {
+#endif
 			if(errno != EAGAIN &&
 			   errno != EWOULDBLOCK &&
 			   errno != EINTR)
@@ -683,11 +917,13 @@ Process_upnphttp(struct upnphttp * h)
 				h->state = EToDelete;
 			}
 			/* if errno is EAGAIN, EWOULDBLOCK or EINTR, try again later */
+#ifdef ENABLE_HTTPS
+			}
+#endif
 		}
 		else if(n==0)
 		{
-			syslog(LOG_WARNING, "HTTP Connection from %s closed unexpectedly",
-				inet_ntoa(h->clientaddr));	//!!TB - added client address
+			syslog(LOG_WARNING, "HTTP Connection from %s closed unexpectedly", inet_ntoa(h->clientaddr));
 			h->state = EToDelete;
 		}
 		else
@@ -720,9 +956,29 @@ Process_upnphttp(struct upnphttp * h)
 		}
 		break;
 	case EWaitingForHttpContent:
+#ifdef ENABLE_HTTPS
+		if(h->ssl) {
+			n = SSL_read(h->ssl, buf, sizeof(buf));
+		} else {
+			n = recv(h->socket, buf, sizeof(buf), 0);
+		}
+#else
 		n = recv(h->socket, buf, sizeof(buf), 0);
+#endif
 		if(n<0)
 		{
+#ifdef ENABLE_HTTPS
+			if(h->ssl) {
+				int err;
+				err = SSL_get_error(h->ssl, n);
+				if(err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE)
+				{
+					syslog(LOG_ERR, "SSL_read() failed");
+					syslogsslerr();
+					h->state = EToDelete;
+				}
+			} else {
+#endif
 			if(errno != EAGAIN &&
 			   errno != EWOULDBLOCK &&
 			   errno != EINTR)
@@ -731,11 +987,13 @@ Process_upnphttp(struct upnphttp * h)
 				h->state = EToDelete;
 			}
 			/* if errno is EAGAIN, EWOULDBLOCK or EINTR, try again later */
+#ifdef ENABLE_HTTPS
+			}
+#endif
 		}
 		else if(n==0)
 		{
-			syslog(LOG_WARNING, "HTTP Connection from %s closed unexpectedly",
-				inet_ntoa(h->clientaddr));	//!!TB - added client address
+			syslog(LOG_WARNING, "HTTP Connection from %s closed unexpectedly", inet_ntoa(h->clientaddr));
 			h->state = EToDelete;
 		}
 		else
@@ -790,7 +1048,7 @@ static const char httpresphead[] =
 /* with response code and response message
  * also allocate enough memory */
 
-void
+int
 BuildHeader_upnphttp(struct upnphttp * h, int respcode,
                      const char * respmsg,
                      int bodylen)
@@ -804,7 +1062,7 @@ BuildHeader_upnphttp(struct upnphttp * h, int respcode,
 		h->res_buf = (char *)malloc(templen);
 		if(!h->res_buf) {
 			syslog(LOG_ERR, "malloc error in BuildHeader_upnphttp()");
-			return;
+			return -1;
 		}
 		h->res_buf_alloclen = templen;
 	}
@@ -883,8 +1141,10 @@ BuildHeader_upnphttp(struct upnphttp * h, int respcode,
 		else
 		{
 			syslog(LOG_ERR, "realloc error in BuildHeader_upnphttp()");
+			return -1;
 		}
 	}
+	return 0;
 }
 
 void
@@ -892,16 +1152,17 @@ BuildResp2_upnphttp(struct upnphttp * h, int respcode,
                     const char * respmsg,
                     const char * body, int bodylen)
 {
-	BuildHeader_upnphttp(h, respcode, respmsg, bodylen);
-	if(body)
+	int r = BuildHeader_upnphttp(h, respcode, respmsg, bodylen);
+	if(body && (r >= 0)) {
 		memcpy(h->res_buf + h->res_buflen, body, bodylen);
-	h->res_buflen += bodylen;
+		h->res_buflen += bodylen;
+	}
 }
 
 /* responding 200 OK ! */
 void
 BuildResp_upnphttp(struct upnphttp * h,
-                        const char * body, int bodylen)
+                   const char * body, int bodylen)
 {
 	BuildResp2_upnphttp(h, 200, "OK", body, bodylen);
 }
@@ -913,10 +1174,33 @@ SendResp_upnphttp(struct upnphttp * h)
 
 	while (h->res_sent < h->res_buflen)
 	{
+#ifdef ENABLE_HTTPS
+		if(h->ssl) {
+			n = SSL_write(h->ssl, h->res_buf + h->res_sent,
+			         h->res_buflen - h->res_sent);
+		} else {
+			n = send(h->socket, h->res_buf + h->res_sent,
+			         h->res_buflen - h->res_sent, 0);
+		}
+#else
 		n = send(h->socket, h->res_buf + h->res_sent,
 		         h->res_buflen - h->res_sent, 0);
+#endif
 		if(n<0)
 		{
+#ifdef ENABLE_HTTPS
+			if(h->ssl) {
+				int err;
+				err = SSL_get_error(h->ssl, n);
+				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					/* try again later */
+					return 0;
+				}
+				syslog(LOG_ERR, "SSL_write() failed");
+				syslogsslerr();
+				break;
+			} else {
+#endif
 			if(errno == EINTR)
 				continue;	/* try again immediatly */
 			if(errno == EAGAIN || errno == EWOULDBLOCK)
@@ -926,6 +1210,9 @@ SendResp_upnphttp(struct upnphttp * h)
 			}
 			syslog(LOG_ERR, "send(res_buf): %m");
 			break; /* avoid infinite loop */
+#ifdef ENABLE_HTTPS
+			}
+#endif
 		}
 		else if(n == 0)
 		{
@@ -948,10 +1235,34 @@ SendRespAndClose_upnphttp(struct upnphttp * h)
 
 	while (h->res_sent < h->res_buflen)
 	{
+#ifdef ENABLE_HTTPS
+		if(h->ssl) {
+			n = SSL_write(h->ssl, h->res_buf + h->res_sent,
+			         h->res_buflen - h->res_sent);
+		} else {
+			n = send(h->socket, h->res_buf + h->res_sent,
+			         h->res_buflen - h->res_sent, 0);
+		}
+#else
 		n = send(h->socket, h->res_buf + h->res_sent,
 		         h->res_buflen - h->res_sent, 0);
+#endif
 		if(n<0)
 		{
+#ifdef ENABLE_HTTPS
+			if(h->ssl) {
+				int err;
+				err = SSL_get_error(h->ssl, n);
+				if(err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
+					/* try again later */
+					h->state = ESendingAndClosing;
+					return;
+				}
+				syslog(LOG_ERR, "SSL_write() failed");
+				syslogsslerr();
+				break; /* avoid infinite loop */
+			} else {
+#endif
 			if(errno == EINTR)
 				continue;	/* try again immediatly */
 			if(errno == EAGAIN || errno == EWOULDBLOCK)
@@ -962,6 +1273,9 @@ SendRespAndClose_upnphttp(struct upnphttp * h)
 			}
 			syslog(LOG_ERR, "send(res_buf): %m");
 			break; /* avoid infinite loop */
+#ifdef ENABLE_HTTPS
+			}
+#endif
 		}
 		else if(n == 0)
 		{

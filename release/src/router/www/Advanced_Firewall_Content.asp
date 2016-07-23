@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -15,14 +15,8 @@
 <script language="JavaScript" type="text/javascript" src="/general.js"></script>
 <script language="JavaScript" type="text/javascript" src="/popup.js"></script>
 <script language="JavaScript" type="text/javascript" src="/help.js"></script>
-<script language="JavaScript" type="text/javascript" src="/detect.js"></script>
+<script language="JavaScript" type="text/javascript" src="/validator.js"></script>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
-<% login_state_hook(); %>
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
 var filter_lwlist_array = '<% nvram_get("filter_lwlist"); %>';
 
 function initial(){
@@ -31,7 +25,7 @@ function initial(){
 	init_setting();
 	check_Timefield_checkbox();
 	if(svc_ready == "0")
-		$('svc_hint_div').style.display = "";	
+		document.getElementById('svc_hint_div').style.display = "";	
 	corrected_timezone();	
 }
 
@@ -62,14 +56,14 @@ function init_setting(){
 
 function applyRule(){
 	if(validForm()){
-		var rule_num = $('filter_lwlist_table').rows.length;
-		var item_num = $('filter_lwlist_table').rows[0].cells.length;
+		var rule_num = document.getElementById('filter_lwlist_table').rows.length;
+		var item_num = document.getElementById('filter_lwlist_table').rows[0].cells.length;
 		var tmp_value = "";
 	
 		for(i=0; i<rule_num; i++){
 			tmp_value += "<"		
 			for(j=0; j<item_num-1; j++){	
-				tmp_value += $('filter_lwlist_table').rows[i].cells[j].innerHTML;
+				tmp_value += document.getElementById('filter_lwlist_table').rows[i].cells[j].innerHTML;
 				if(j != item_num-2)	
 					tmp_value += ">";
 			}
@@ -86,14 +80,14 @@ function applyRule(){
 }
 
 function validForm(){
-	if(!validate_timerange(document.form.filter_lw_time_x_starthour, 0)||!validate_timerange(document.form.filter_lw_time2_x_starthour, 0)
-			|| !validate_timerange(document.form.filter_lw_time_x_startmin, 1)||!validate_timerange(document.form.filter_lw_time2_x_startmin, 1)
-			|| !validate_timerange(document.form.filter_lw_time_x_endhour, 2)||!validate_timerange(document.form.filter_lw_time2_x_endhour, 2)
-			|| !validate_timerange(document.form.filter_lw_time_x_endmin, 3)||!validate_timerange(document.form.filter_lw_time2_x_endmin, 3)
+	if(!validator.timeRange(document.form.filter_lw_time_x_starthour, 0)||!validator.timeRange(document.form.filter_lw_time2_x_starthour, 0)
+			|| !validator.timeRange(document.form.filter_lw_time_x_startmin, 1)||!validator.timeRange(document.form.filter_lw_time2_x_startmin, 1)
+			|| !validator.timeRange(document.form.filter_lw_time_x_endhour, 2)||!validator.timeRange(document.form.filter_lw_time2_x_endhour, 2)
+			|| !validator.timeRange(document.form.filter_lw_time_x_endmin, 3)||!validator.timeRange(document.form.filter_lw_time2_x_endmin, 3)
 			)
 		return false;
 	
-	if(!validate_portlist(document.form.filter_lw_icmp_x, 'filter_lw_icmp_x'))
+	if(!validator.portList(document.form.filter_lw_icmp_x, 'filter_lw_icmp_x'))
 		return false;
 		
 	/*if(document.form.filter_lw_time_x_starthour.value > document.form.filter_lw_time_x_endhour.value){
@@ -120,7 +114,7 @@ function validForm(){
 		 !document.form.filter_lw_date_x_Tue.checked && !document.form.filter_lw_date_x_Wed.checked &&
 		 !document.form.filter_lw_date_x_Thu.checked && !document.form.filter_lw_date_x_Fri.checked &&
 		 !document.form.filter_lw_date_x_Sat.checked && !document.form.fw_lw_enable_x[1].checked){
-		alert("Please select at least one day or disable this feature.");
+		alert(Untranslated.filter_lw_date_valid);
 		document.form.filter_lw_date_x_Sun.focus();
 		return false;
 	}
@@ -142,7 +136,7 @@ function change_wizard(o, id){
 					else if(wItem[i][2] == "UDP")
 						document.form.filter_lw_proto_x_0.options[8].selected = 1;
 					
-					document.form.filter_wl_srcport_x_0.value = wItem[i][1];
+					document.form.filter_lw_srcport_x_0.value = wItem[i][1];
 				}
 				else{
 					if(wItem[i][2] == "TCP")
@@ -170,8 +164,8 @@ function addRow(obj, head){
 function addRow_Group(upper){ 
 	if('<% nvram_get("fw_lw_enable_x"); %>' != "1")
 		document.form.fw_lw_enable_x[0].checked = true;
-		var rule_num = $('filter_lwlist_table').rows.length;
-		var item_num = $('filter_lwlist_table').rows[0].cells.length;
+		var rule_num = document.getElementById('filter_lwlist_table').rows.length;
+		var item_num = document.getElementById('filter_lwlist_table').rows[0].cells.length;
 	
 	if(rule_num >= upper){
 		alert("<#JS_itemlimit1#> " + upper + " <#JS_itemlimit2#>");
@@ -185,17 +179,10 @@ function addRow_Group(upper){
 					document.form.filter_lw_srcip_x_0.select();
 					return false;
 	}else{		
-					if(document.form.filter_lw_srcip_x_0.value.split("*").length >= 2){
-								if(!valid_IP_subnet(document.form.filter_lw_srcip_x_0))
-										return false;
-					}else if(!valid_IP_form(document.form.filter_lw_srcip_x_0, 0))
-								return false;
-
-					if(document.form.filter_lw_dstip_x_0.value.split("*").length >= 2){
-								if(!valid_IP_subnet(document.form.filter_lw_dstip_x_0))
-										return false;
-					}else if(!valid_IP_form(document.form.filter_lw_dstip_x_0, 0))
-								return false;		
+					if(!validator.ipv4cidr(document.form.filter_lw_srcip_x_0))
+                                                return false;
+					if(!validator.ipv4cidr(document.form.filter_lw_dstip_x_0))
+						return false;
 	}
 		
 	if(document.form.filter_lw_srcport_x_0.value != "" || document.form.filter_lw_dstport_x_0.value != "")
@@ -205,16 +192,16 @@ function addRow_Group(upper){
 	if(document.form.filter_lw_srcport_x_0.value == "" && document.form.filter_lw_dstport_x_0.value == ""){
 		
 	}else	if(document.form.filter_lw_srcport_x_0.value==""){
-					if(!validate_number_range(document.form.filter_lw_dstport_x_0, 1, 65535) )
+					if(!validator.numberRange(document.form.filter_lw_dstport_x_0, 1, 65535) )
 							return false;					
 					
 	}else if(document.form.filter_lw_dstport_x_0.value==""){	
-					if(!validate_number_range(document.form.filter_lw_srcport_x_0, 1, 65535))
+					if(!validator.numberRange(document.form.filter_lw_srcport_x_0, 1, 65535))
 							return false;
 
 	}else{
-					if(!validate_number_range(document.form.filter_lw_srcport_x_0, 1, 65535)							
-							|| !validate_number_range(document.form.filter_lw_dstport_x_0, 1, 65535) )
+					if(!validator.numberRange(document.form.filter_lw_srcport_x_0, 1, 65535)							
+							|| !validator.numberRange(document.form.filter_lw_dstport_x_0, 1, 65535) )
 								return false;					
 	}
 	
@@ -250,25 +237,25 @@ function replace_symbol(){
 //} Viz add 2011.11 for replace ">" to ":65535"   &   "<" to "1:"  	
 
 function check_duplicate(){
-		var rule_num = $('filter_lwlist_table').rows.length;
-		var item_num = $('filter_lwlist_table').rows[0].cells.length;	
+		var rule_num = document.getElementById('filter_lwlist_table').rows.length;
+		var item_num = document.getElementById('filter_lwlist_table').rows[0].cells.length;	
 //Viz check same rule  //match(src ip + src port + dst ip + dst port + proto) is not accepted
 		for(i=0; i<rule_num; i++){
-			if(entry_cmp($('filter_lwlist_table').rows[i].cells[0].innerHTML, document.form.filter_lw_srcip_x_0.value, 15)==0 
-				&& entry_cmp($('filter_lwlist_table').rows[i].cells[2].innerHTML, document.form.filter_lw_dstip_x_0.value, 15)==0 
-				&& entry_cmp($('filter_lwlist_table').rows[i].cells[4].innerHTML.toLowerCase(), document.form.filter_lw_proto_x_0.value.toLowerCase(), 8)==0 ){
+			if(entry_cmp(document.getElementById('filter_lwlist_table').rows[i].cells[0].innerHTML, document.form.filter_lw_srcip_x_0.value, 15)==0 
+				&& entry_cmp(document.getElementById('filter_lwlist_table').rows[i].cells[2].innerHTML, document.form.filter_lw_dstip_x_0.value, 15)==0 
+				&& entry_cmp(document.getElementById('filter_lwlist_table').rows[i].cells[4].innerHTML.toLowerCase(), document.form.filter_lw_proto_x_0.value.toLowerCase(), 8)==0 ){
 
-						if(portrange_min(document.form.filter_lw_srcport_x_0.value, 11) > portrange_max($('filter_lwlist_table').rows[i].cells[1].innerHTML, 11) 
-							|| portrange_max(document.form.filter_lw_srcport_x_0.value, 11) < portrange_min($('filter_lwlist_table').rows[i].cells[1].innerHTML, 11)
-							|| (document.form.filter_lw_srcport_x_0.value=="" && $('filter_lwlist_table').rows[i].cells[1].innerHTML !="")
-							|| (document.form.filter_lw_srcport_x_0.value!="" && $('filter_lwlist_table').rows[i].cells[1].innerHTML =="") ){
+						if(portrange_min(document.form.filter_lw_srcport_x_0.value, 11) > portrange_max(document.getElementById('filter_lwlist_table').rows[i].cells[1].innerHTML, 11) 
+							|| portrange_max(document.form.filter_lw_srcport_x_0.value, 11) < portrange_min(document.getElementById('filter_lwlist_table').rows[i].cells[1].innerHTML, 11)
+							|| (document.form.filter_lw_srcport_x_0.value=="" && document.getElementById('filter_lwlist_table').rows[i].cells[1].innerHTML !="")
+							|| (document.form.filter_lw_srcport_x_0.value!="" && document.getElementById('filter_lwlist_table').rows[i].cells[1].innerHTML =="") ){
 											return false;
 						}else{
 
-									if(portrange_min(document.form.filter_lw_dstport_x_0.value, 11) > portrange_max($('filter_lwlist_table').rows[i].cells[3].innerHTML, 11) 
-											|| portrange_max(document.form.filter_lw_dstport_x_0.value, 11) < portrange_min($('filter_lwlist_table').rows[i].cells[3].innerHTML, 11)
-											|| (document.form.filter_lw_dstport_x_0.value=="" && $('filter_lwlist_table').rows[i].cells[3].innerHTML !="")
-											|| (document.form.filter_lw_dstport_x_0.value!="" && $('filter_lwlist_table').rows[i].cells[3].innerHTML =="") ){											
+									if(portrange_min(document.form.filter_lw_dstport_x_0.value, 11) > portrange_max(document.getElementById('filter_lwlist_table').rows[i].cells[3].innerHTML, 11) 
+											|| portrange_max(document.form.filter_lw_dstport_x_0.value, 11) < portrange_min(document.getElementById('filter_lwlist_table').rows[i].cells[3].innerHTML, 11)
+											|| (document.form.filter_lw_dstport_x_0.value=="" && document.getElementById('filter_lwlist_table').rows[i].cells[3].innerHTML !="")
+											|| (document.form.filter_lw_dstport_x_0.value!="" && document.getElementById('filter_lwlist_table').rows[i].cells[3].innerHTML =="") ){											
 													return false;
 									}else{
 											alert("<#JS_duplicate#>");
@@ -292,27 +279,27 @@ function Do_addRow_Group(){
 function edit_Row(r){ 	
 	var i=r.parentNode.parentNode.rowIndex;
   	
-	document.form.filter_lw_srcip_x_0.value = $('filter_lwlist_table').rows[i].cells[0].innerHTML;
-	document.form.filter_lw_srcport_x_0.value = $('filter_lwlist_table').rows[i].cells[1].innerHTML; 
-	document.form.filter_lw_dstip_x_0.value = $('filter_lwlist_table').rows[i].cells[2].innerHTML; 
-	document.form.filter_lw_dstport_x_0.value = $('filter_lwlist_table').rows[i].cells[3].innerHTML;
-	document.form.filter_lw_proto_x_0.value = $('filter_lwlist_table').rows[i].cells[4].innerHTML;
+	document.form.filter_lw_srcip_x_0.value = document.getElementById('filter_lwlist_table').rows[i].cells[0].innerHTML;
+	document.form.filter_lw_srcport_x_0.value = document.getElementById('filter_lwlist_table').rows[i].cells[1].innerHTML; 
+	document.form.filter_lw_dstip_x_0.value = document.getElementById('filter_lwlist_table').rows[i].cells[2].innerHTML; 
+	document.form.filter_lw_dstport_x_0.value = document.getElementById('filter_lwlist_table').rows[i].cells[3].innerHTML;
+	document.form.filter_lw_proto_x_0.value = document.getElementById('filter_lwlist_table').rows[i].cells[4].innerHTML;
 
   del_Row(r);	
 }
 
 function del_Row(r){
   var i=r.parentNode.parentNode.rowIndex;
-  $('filter_lwlist_table').deleteRow(i);
+  document.getElementById('filter_lwlist_table').deleteRow(i);
   
   var filter_lwlist_value = "";
-	for(k=0; k<$('filter_lwlist_table').rows.length; k++){
-		for(j=0; j<$('filter_lwlist_table').rows[k].cells.length-1; j++){
+	for(k=0; k<document.getElementById('filter_lwlist_table').rows.length; k++){
+		for(j=0; j<document.getElementById('filter_lwlist_table').rows[k].cells.length-1; j++){
 			if(j == 0)	
 				filter_lwlist_value += "&#60";
 			else
 				filter_lwlist_value += "&#62";
-			filter_lwlist_value += $('filter_lwlist_table').rows[k].cells[j].innerHTML;		
+			filter_lwlist_value += document.getElementById('filter_lwlist_table').rows[k].cells[j].innerHTML;		
 		}
 	}
 	
@@ -341,7 +328,7 @@ function showfilter_lwlist(){
 		}
 	}
   code +='</table>';
-	$("filter_lwlist_Block").innerHTML = code;
+	document.getElementById("filter_lwlist_Block").innerHTML = code;
 }
 function check_Timefield_checkbox(){	// To check Date checkbox checked or not and control Time field disabled or not, Jieming add at 2012/10/05
 	if(	   document.form.filter_lw_date_x_Mon.checked == true 
@@ -361,7 +348,7 @@ function check_Timefield_checkbox(){	// To check Date checkbox checked or not an
 			inputCtrl(document.form.filter_lw_time_x_endhour,0);
 			inputCtrl(document.form.filter_lw_time_x_endmin,0);
 			document.form.filter_lw_time_x.disabled = true;
-			$('enable_time_week_tr').style.display ="";
+			document.getElementById('enable_time_week_tr').style.display ="";
 	}
 		
 	if(document.form.filter_lw_date_x_Sun.checked == true || document.form.filter_lw_date_x_Sat.checked == true){
@@ -377,7 +364,7 @@ function check_Timefield_checkbox(){	// To check Date checkbox checked or not an
 		inputCtrl(document.form.filter_lw_time2_x_endhour,0);
 		inputCtrl(document.form.filter_lw_time2_x_endmin,0);
 		document.form.filter_lw_time2_x.disabled = true;
-		$("enable_time_weekend_tr").style.display = ""; 
+		document.getElementById("enable_time_weekend_tr").style.display = ""; 
 	}
 }
 function updateDateTime(){
@@ -400,6 +387,7 @@ function updateDateTime(){
 		document.form.filter_lw_time2_x_endhour,
 		document.form.filter_lw_time2_x_endmin);	
 }
+
 </script>
 </head>
 
@@ -450,9 +438,10 @@ function updateDateTime(){
 		  				<div class="formfonttitle"><#menu5_5#> - <#menu5_5_4#></div>
 		  				<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
 		  				<div class="formfontdesc"><#FirewallConfig_display1_sectiondesc#></div>
+						<div class="formfontdesc">The IP address can be a simple IP (1.2.3.4), or use the CIDR format (1.2.3.4/24) to handle a whole subnet.</div>
 		  				<div class="formfontdesc"><#FirewallConfig_display3_sectiondesc#></div>
 		  				<div class="formfontdesc" style="color:#FFCC00;"><#FirewallConfig_display4_sectiondesc#></div>	
-		  				<div id="svc_hint_div" style="display:none;"><span onClick="location.href='Advanced_System_Content.asp?af=ntp_server0'" style="color:#FFCC00;text-decoration:underline;cursor:pointer;">* Remind: Did not synchronize your system time with NTP server yet.</span></div>
+		  				<div id="svc_hint_div" style="display:none;"><span onClick="location.href='Advanced_System_Content.asp?af=ntp_server0'" style="color:#FFCC00;text-decoration:underline;cursor:pointer;"><#General_x_SystemTime_syncNTP#></span></div>
 		  				<div id="timezone_hint_div" style="display:none;"><span id="timezone_hint" onclick="location.href='Advanced_System_Content.asp?af=time_zone_select'" style="color:#FFCC00;text-decoration:underline;cursor:pointer;"></span></div>
 
 						<table width="100%" border="1" align="center" cellpadding="4" cellspacing="0" bordercolor="#6b8fa3"  class="FormTable">
@@ -502,10 +491,10 @@ function updateDateTime(){
         					<tr id="enable_time_week_tr">
           						<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(10,2);"><#FirewallConfig_LanWanActiveTime_itemname#></a></th>
           						<td>
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_starthour" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 0);"> :
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_startmin" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 1);"> -
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_endhour" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 2);"> :
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_endmin" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 3);">		  
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_starthour" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 0);" autocorrect="off" autocapitalize="off"> :
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_startmin" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 1);" autocorrect="off" autocapitalize="off"> -
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_endhour" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 2);" autocorrect="off" autocapitalize="off"> :
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time_x_endmin" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 3);" autocorrect="off" autocapitalize="off">
 		  					</td>
         					</tr>
 							<tr>
@@ -518,16 +507,16 @@ function updateDateTime(){
 							<tr id="enable_time_weekend_tr">
           						<th><a class="hintstyle" href="javascript:void(0);" onClick="openHint(10,2);"><#FirewallConfig_LanWanActiveTime_itemname#></a></th>
           						<td>
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_starthour" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 0);"> :
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_startmin" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 1);"> -
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_endhour" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 2);"> :
-								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_endmin" onKeyPress="return is_number(this,event);" onblur="validate_timerange(this, 3);">		  
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_starthour" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 0);" autocorrect="off" autocapitalize="off"> :
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_startmin" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 1);" autocorrect="off" autocapitalize="off"> -
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_endhour" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 2);" autocorrect="off" autocapitalize="off"> :
+								<input type="text" maxlength="2" class="input_3_table" name="filter_lw_time2_x_endmin" onKeyPress="return validator.isNumber(this,event);" onblur="validator.timeRange(this, 3);" autocorrect="off" autocapitalize="off">		  
 		  					</td>
         					</tr>
         					<tr>
           						<th ><a class="hintstyle" href="javascript:void(0);" onClick="openHint(10,4);"><#FirewallConfig_LanWanICMP_itemname#></a></th>
           						<td>
-          							<input type="text" maxlength="32" class="input_32_table" name="filter_lw_icmp_x" value="<% nvram_get("filter_lw_icmp_x"); %>" onKeyPress="return is_portlist(this,event)">
+          							<input type="text" maxlength="32" class="input_32_table" name="filter_lw_icmp_x" value="<% nvram_get("filter_lw_icmp_x"); %>" onKeyPress="return validator.isPortlist(this,event)" autocorrect="off" autocapitalize="off">
           						</td>
         					</tr>
 
@@ -548,10 +537,10 @@ function updateDateTime(){
             					<th><#list_add_delete#></th>
           					</tr>
           					<tr>
-          						<td width="20%"><input type="text" maxlength="15" class="input_15_table" name="filter_lw_srcip_x_0" onKeyPress="return is_iprange(this, event)"></td>
-            					<td width="15%"><input type="text" maxlength="11" class="input_12_table" name="filter_lw_srcport_x_0" onKeyPress="return is_portrange(this,event)" value=""></td>
-            					<td width="20%"><input type="text" maxlength="15" class="input_15_table" name="filter_lw_dstip_x_0" onKeyPress="return is_iprange(this, event)"></td>
-            					<td width="15%"><input type="text" maxlength="11" class="input_12_table" name="filter_lw_dstport_x_0" onKeyPress="return is_portrange(this,event)" value=""></td>
+          						<td width="20%"><input type="text" maxlength="18" class="input_15_table" name="filter_lw_srcip_x_0" autocorrect="off" autocapitalize="off"></td>
+            					<td width="15%"><input type="text" maxlength="11" class="input_12_table" name="filter_lw_srcport_x_0" onKeyPress="return validator.isPortRange(this,event)" value="" autocorrect="off" autocapitalize="off"></td>
+            					<td width="20%"><input type="text" maxlength="18" class="input_15_table" name="filter_lw_dstip_x_0" autocorrect="off" autocapitalize="off"></td>
+            					<td width="15%"><input type="text" maxlength="11" class="input_12_table" name="filter_lw_dstport_x_0" onKeyPress="return validator.isPortRange(this,event)" value="" autocorrect="off" autocapitalize="off"></td>
             					<td width="15%">
 								<select name="filter_lw_proto_x_0" class="input_option">
 									<option value="TCP">TCP</option>

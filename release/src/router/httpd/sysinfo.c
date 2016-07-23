@@ -62,10 +62,42 @@ typedef unsigned long long u64;
 
 #include "sysinfo.h"
 
+#ifdef RTCONFIG_QTN
+#include "web-qtn.h"
+#endif
+
+#ifdef RTCONFIG_EXT_RTL8365MB
+#include <linux/major.h>
+#include <rtk_switch.h>
+#include <rtk_types.h>
+#include <sys/ioctl.h>
+
+#define RTKSWITCH_DEV   "/dev/rtkswitch"
+
+typedef struct {
+        unsigned int link[4];
+        unsigned int speed[4];
+} phyState;
+#endif
+
+
+
 unsigned int get_phy_temperature(int radio);
 unsigned int get_wifi_clients(int radio, int querytype);
 
+#ifdef RTCONFIG_QTN
+unsigned int get_qtn_temperature(void);
+unsigned int get_qtn_version(char *version, int len);
+int GetPhyStatus_qtn(void);
+#endif
+
+#ifdef RTCONFIG_EXT_RTL8365MB
+void GetPhyStatus_rtk(int *states);
+#endif
+
+
 #define MBYTES 1024 / 1024
+#define KBYTES 1024
 
 #define SI_WL_QUERY_ASSOC 1
 #define SI_WL_QUERY_AUTHE 2
@@ -104,10 +136,15 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 					tmp++;
 					count++;
 				}
-				if (count > 1)
-					sprintf(result, "%s&nbsp;&nbsp;-&nbsp;&nbsp;(Cores: %d)", model, count);
-				else
+				if (count > 1) {
+					tmp = nvram_get("cpurev");
+					if ((tmp) && (*tmp))
+						sprintf(result, "%s&nbsp;&nbsp;-&nbsp;&nbsp; Rev. %s (Cores: %d)", model, tmp, count);
+					else
+						sprintf(result, "%s&nbsp;&nbsp;-&nbsp;&nbsp; (Cores: %d)", model, count);
+				} else {
 					strcpy(result, model);
+				}
 #else
                                 tmp = strstr(buffer, "system type");
                                 if (tmp)
@@ -118,11 +155,6 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 
 		} else if(strcmp(type,"cpu.freq") == 0) {
 			tmp = nvram_get("clkfreq");
-
-#ifdef RTCONFIG_TURBO
-			if (nvram_get_int("btn_turbo"))	
-				strcpy(tmp, "1000,0,0");	// RT-AC68U Turbo mode enabled = 1000 MHz
-#endif
 			if (tmp)
 				sscanf(tmp,"%[^,]s", result);
 
@@ -141,6 +173,19 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 		} else if(strcmp(type,"memory.swap.used") == 0) {
 			sysinfo(&sys);
 			sprintf(result,"%.2f",((sys.totalswap - sys.freeswap) / (float)MBYTES));
+		} else if(strcmp(type,"memory.cache") == 0) {
+			int size = 0;
+			char *buffer = read_whole_file("/proc/meminfo");
+
+			if (buffer) {
+				tmp = strstr(buffer, "Cached");
+				if (tmp)
+					sscanf(tmp, "Cached:            %d kB\n", &size);
+				free(buffer);
+				sprintf(result,"%.2f", (size / (float)KBYTES));
+			} else {
+				strcpy(result,"??");
+			}
 		} else if(strcmp(type,"cpu.load.1") == 0) {
 			sysinfo(&sys);
 			sprintf(result,"%.2f",(sys.loads[0] / (float)(1<<SI_LOAD_SHIFT)));
@@ -187,8 +232,14 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			if (sscanf(type,"temperature.%d", &radio) != 1)
 				temperature = 0;
 			else
-				temperature = get_phy_temperature(radio);
-
+			{
+#ifdef RTCONFIG_QTN
+				if (radio == 5)
+					temperature = get_qtn_temperature();
+				else
+#endif
+					temperature = get_phy_temperature(radio);
+			}
 			if (temperature == 0)
 				strcpy(result,"<i>disabled</i>");
 			else
@@ -254,14 +305,23 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 
 			if (buffer) {
 				if ((tmp = strstr(buffer, "\n")))
-					strncpy(result, tmp+1, sizeof result);
+					strlcpy(result, tmp+1, sizeof result);
 				else
-					strncpy(result, buffer, sizeof result);
+					strlcpy(result, buffer, sizeof result);
 
 				free(buffer);
 			}
 			unlink("/tmp/output.txt");
+#ifdef RTCONFIG_QTN
+                } else if(strcmp(type,"qtn_version") == 0 ) {
+
+			if (!get_qtn_version(result, sizeof(result)))
+				strcpy(result,"<unknown>");
+#endif
 		} else if(strcmp(type,"cfe_version") == 0 ) {
+#if defined(RTCONFIG_CFEZ)
+			snprintf(result, sizeof result, "%s", nvram_get("bl_version"));
+#else
 			system("cat /dev/mtd0ro | grep bl_version >/tmp/output.txt");
 			char *buffer = read_whole_file("/tmp/output.txt");
 
@@ -269,10 +329,15 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 			if (buffer) {
 				tmp = strstr(buffer, "bl_version=");
 
-				if (tmp) sscanf(tmp, "bl_version=%s", result);
+				if (tmp) {
+					sscanf(tmp, "bl_version=%s", result);
+				} else {
+					snprintf(result, sizeof result, "%s", nvram_get("bl_version"));
+				}
 				free(buffer);
 			}
 			unlink("/tmp/output.txt");
+#endif
 		} else if(strncmp(type,"pid",3) ==0 ) {
 			char service[32];
 			sscanf(type, "pid.%31s", service);
@@ -281,31 +346,53 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 				sprintf(result, "%d", pidof(service));
 
 		} else if(strncmp(type,"vpnstatus",9) == 0 ) {
-			int num = 0, pid;
+			int num = 0;
 			char service[10], buf[256];
 
 			sscanf(type,"vpnstatus.%9[^.].%d", service, &num);
 
 			if ((strlen(service)) && (num > 0) )
 			{
-				// Trigger OpenVPN to update the status file
 				snprintf(buf, sizeof(buf), "vpn%s%d", service, num);
-				if ((pid = pidof(buf)) > 0) {
-					kill(pid, SIGUSR2);
-
-					// Give it a chance to update the file
-					sleep(1);
+				if (pidof(buf) > 0) {
 
 					// Read the status file and repeat it verbatim to the caller
 					sprintf(buf,"/etc/openvpn/%s%d/status", service, num);
+
+					// Give it some time if it doesn't exist yet
+					if (!check_if_file_exist(buf))
+					{
+						sleep(5);
+					}
+
 					char *buffer = read_whole_file(buf);
 					if (buffer)
 					{
-						strncpy(result, buffer, sizeof(result));
+						strlcpy(result, buffer, sizeof(result));
 						free(buffer);
 					}
 				}
 			}
+		} else if(strcmp(type,"ethernet.rtk") == 0 ) {
+#ifdef RTCONFIG_EXT_RTL8365MB
+			int states[4];
+
+			states[0] = states[1] = states[2] = states[3] = 0;
+
+			GetPhyStatus_rtk((int *)&states);
+
+			snprintf(result, sizeof result, "[[\"%d\", \"%d\"],"
+			                                " [\"%d\", \"%d\"],"
+			                                " [\"%d\", \"%d\"],"
+			                                " [\"%d\", \"%d\"]]",
+			                                 5, states[0],
+			                                 6, states[1],
+			                                 7, states[2],
+			                                 8, states[3]);
+#else
+			strcpy(result, "[]");
+#endif
+
 		} else if(strcmp(type,"ethernet") == 0 ) {
 			int len, j;
 
@@ -318,9 +405,16 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 				for (j=0; (j < len); j++) {
 					if (buffer[j] == '\n') buffer[j] = '>';
 				}
-				strncpy(result, buffer, sizeof result);
+#ifdef RTCONFIG_QTN
+				j = GetPhyStatus_qtn();
+				snprintf(result, sizeof result, (j > 0 ? "%sPort 5: %dFD enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>" :
+							 "%sPort 5: DOWN enabled stp: none vlan: 1 jumbo: off mac: 00:00:00:00:00:00>"),
+							  buffer, j);
+#else
+                                strlcpy(result, buffer, sizeof result);
+#endif
+                                free(buffer);
 
-				free(buffer);
 			}
 			unlink("/tmp/output.txt");
 		} else {
@@ -333,6 +427,58 @@ int ej_show_sysinfo(int eid, webs_t wp, int argc, char_t ** argv)
 	return retval;
 }
 
+#ifdef RTCONFIG_QTN
+unsigned int get_qtn_temperature(void)
+{
+        int temp_external, temp_internal, temp_bb;
+	if (!rpc_qtn_ready())
+		return 0;
+
+        if (qcsapi_get_temperature_info(&temp_external, &temp_internal, &temp_bb) >= 0)
+		return temp_internal / 1000000.0f;
+
+	return 0;
+}
+
+int GetPhyStatus_qtn(void)
+{
+	int ret;
+
+	if (!rpc_qtn_ready()) {
+		return -1;
+	}
+	ret = qcsapi_wifi_run_script("set_test_mode", "get_eth_1000m");
+	if (ret < 0) {
+		ret = qcsapi_wifi_run_script("set_test_mode", "get_eth_100m");
+		if (ret < 0) {
+			ret = qcsapi_wifi_run_script("set_test_mode", "get_eth_10m");
+			if (ret < 0) {
+				// fprintf(stderr, "ATE command error\n");
+				return 0;
+			}else{
+				return 10;
+			}
+		}else{
+			return 100;
+		}
+		return -1;
+	}else{
+		return 1000;
+	}
+	return 0;
+}
+
+unsigned int get_qtn_version(char *version, int len)
+{
+        if (!rpc_qtn_ready())
+                return 0;
+
+        if (qcsapi_firmware_get_version(version, len) >= 0)
+                return 1;
+
+        return 0;
+}
+#endif
 
 unsigned int get_phy_temperature(int radio)
 {
@@ -344,9 +490,9 @@ unsigned int get_phy_temperature(int radio)
 	strcpy(buf, "phy_tempsense");
 
 	if (radio == 2) {
-		interface = "eth1";
+		interface = nvram_get("wl0_ifname");
 	} else if (radio == 5) {
-		interface = "eth2";
+		interface = nvram_get("wl1_ifname");
 	} else {
 		return 0;
 	}
@@ -362,18 +508,34 @@ unsigned int get_phy_temperature(int radio)
 
 unsigned int get_wifi_clients(int radio, int querytype)
 {
-	char *name;
+	char *name, ifname[]="wlXXXXXXXXXX";
 	struct maclist *clientlist;
 	int max_sta_count, maclist_size;
 	int val, count = 0;
+#ifdef RTCONFIG_QTN
+	qcsapi_unsigned_int association_count = 0;
+#endif
 
-	if (radio == 2) {
-		name = "eth1";
-	} else if (radio == 5) {
-		name = "eth2";
-	} else {
-		return 0;
+	snprintf(ifname, sizeof(ifname), "wl%d_ifname", radio);
+	name = nvram_get(ifname);
+	if ((!name) || (!strlen(name))) return 0;
+
+#ifdef RTCONFIG_QTN
+	if (radio == 1) {
+
+		if (nvram_match("wl1_radio", "0"))
+			return -1;	// Best way I can find to check if it's disabled
+
+		if (!rpc_qtn_ready())
+			return -1;
+
+		if (querytype == SI_WL_QUERY_ASSOC) {
+			if (qcsapi_wifi_get_count_associations(name, &association_count) >= 0)
+				return association_count;
+		}
+		return -1;	// All other queries aren't supported by QTN
 	}
+#endif
 
 	wl_ioctl(name, WLC_GET_RADIO, &val, sizeof(val));
 	if (val == 1)
@@ -411,3 +573,70 @@ exit:
 	free(clientlist);
 	return count;
 }
+
+
+#ifdef RTCONFIG_EXT_RTL8365MB
+void GetPhyStatus_rtk(int *states)
+{
+	int model;
+	const int *o;
+	int fd = open(RTKSWITCH_DEV, O_RDONLY);
+
+	if (fd < 0) {
+		perror(RTKSWITCH_DEV);
+		return;
+	}
+
+	phyState pS;
+
+	pS.link[0] = pS.link[1] = pS.link[2] = pS.link[3] = 0;
+	pS.speed[0] = pS.speed[1] = pS.speed[2] = pS.speed[3] = 0;
+
+        switch(model = get_model()) {
+        case MODEL_RTAC5300:
+		{
+		/* RTK_LAN  BRCM_LAN  WAN  POWER */
+		/* R0 R1 R2 R3 B4 B0 B1 B2 B3 */
+		/* L8 L7 L6 L5 L4 L3 L2 L1 W0 */
+
+		const int porder[4] = {3,2,1,0};
+		o = porder;
+
+		break;
+		}
+        case MODEL_RTAC88U:
+		{
+		/* RTK_LAN  BRCM_LAN  WAN  POWER */
+		/* R3 R2 R1 R0 B3 B2 B1 B0 B4 */
+		/* L8 L7 L6 L5 L4 L3 L2 L1 W0 */
+
+		const int porder[4] = {0,1,2,3};
+		o = porder;
+
+		break;
+		}
+	default:
+		{
+		const int porder[4] = {0,1,2,3};
+		o = porder;
+
+		break;
+		}
+	}
+
+
+	if (ioctl(fd, GET_RTK_PHYSTATES, &pS) < 0) {
+		perror("rtkswitch ioctl");
+		close(fd);
+		return;
+	}
+
+	close(fd);
+
+	states[0] = (pS.link[o[0]] == 1) ? (pS.speed[o[0]] == 2) ? 1000 : 100 : 0;
+	states[1] = (pS.link[o[1]] == 1) ? (pS.speed[o[1]] == 2) ? 1000 : 100 : 0;
+	states[2] = (pS.link[o[2]] == 1) ? (pS.speed[o[2]] == 2) ? 1000 : 100 : 0;
+	states[3] = (pS.link[o[3]] == 1) ? (pS.speed[o[3]] == 2) ? 1000 : 100 : 0;
+}
+#endif
+

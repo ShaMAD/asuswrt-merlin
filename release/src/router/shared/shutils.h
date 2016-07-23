@@ -15,9 +15,24 @@
 #ifndef _shutils_h_
 #define _shutils_h_
 #include <string.h>
+#include <rtconfig.h>
 
-#define MAX_NVPARSE 255
+#ifndef MAX_NVPARSE
+#define MAX_NVPARSE 16
+#endif
 #define sin_addr(s) (((struct sockaddr_in *)(s))->sin_addr)
+
+#ifndef max
+#define max(a,b)  (((a) > (b)) ? (a) : (b))
+#endif /* max */
+
+#ifndef min
+#define min(a,b)  (((a) < (b)) ? (a) : (b))
+#endif /* min */
+
+#define ENC_XOR     (0x74)
+#define DATA_WORDS_LEN (120)
+#define ENC_WORDS_LEN  (384)
 
 extern int doSystem(char *fmt, ...);
 
@@ -135,11 +150,6 @@ static inline char * strcat_r(const char *s1, const char *s2, char *buf)
 	return buf;
 }	
 
-/* Check for a blank character; that is, a space or a tab */
-#ifndef isblank
-#define isblank(c) ((c) == ' ' || (c) == '\t')
-#endif
-
 /* Strip trailing CR/NL from string <s> */
 #define chomp(s) ({ \
 	char *c = (s) + strlen((s)) - 1; \
@@ -170,17 +180,31 @@ static inline char * strcat_r(const char *s1, const char *s2, char *buf)
 
 /* Copy each token in wordlist delimited by space into word */
 #define foreach(word, wordlist, next) \
-	for (next = &wordlist[strspn(wordlist, " ")], \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, " ")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, ' '); \
-	     strlen(word); \
-	     next = next ? &next[strspn(next, " ")] : "", \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, " ")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, ' '))
+		for (next = &wordlist[strspn(wordlist, " ")], \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, " ")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, ' '); \
+				strlen(word); \
+				next = next ? &next[strspn(next, " ")] : "", \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, " ")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, ' '))
+
+/* Copy each token in wordlist delimited by ascii_44 into word */
+#define foreach_44(word, wordlist, next) \
+		for (next = &wordlist[strspn(wordlist, ",")], \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, ",")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, ','); \
+				strlen(word); \
+				next = next ? &next[strspn(next, ",")] : "", \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, ",")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, ','))
 
 /* Copy each token in wordlist delimited by ascii_58 into word */
 #define foreach_58(word, wordlist, next) \
@@ -198,37 +222,44 @@ static inline char * strcat_r(const char *s1, const char *s2, char *buf)
 
 /* Copy each token in wordlist delimited by ascii_60 into word */
 #define foreach_60(word, wordlist, next) \
-	for (next = &wordlist[strspn(wordlist, "<")], \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, "<")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, '<'); \
-	     strlen(word); \
-	     next = next ? &next[strspn(next, "<")] : "", \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, "<")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, '<'))
+		for (next = &wordlist[strspn(wordlist, "<")], \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, "<")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, '<'); \
+				strlen(word); \
+				next = next ? &next[strspn(next, "<")] : "", \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, "<")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, '<'))
 
 /* Copy each token in wordlist delimited by ascii_62 into word */
 #define foreach_62(word, wordlist, next) \
-	for (next = &wordlist[strspn(wordlist, ">")], \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, ">")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, '>'); \
-	     strlen(word); \
-	     next = next ? &next[strspn(next, ">")] : "", \
-	     strncpy(word, next, sizeof(word)), \
-	     word[strcspn(word, ">")] = '\0', \
-	     word[sizeof(word) - 1] = '\0', \
-	     next = strchr(next, '>'))
+		for (next = &wordlist[strspn(wordlist, ">")], \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, ">")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, '>'); \
+				strlen(word); \
+				next = next ? &next[strspn(next, ">")] : "", \
+				strncpy(word, next, sizeof(word)), \
+				word[strcspn(word, ">")] = '\0', \
+				word[sizeof(word) - 1] = '\0', \
+				next = strchr(next, '>'))
 
 /* Return NUL instead of NULL if undefined */
 #define safe_getenv(s) (getenv(s) ? : "")
 
-//#define dbg(fmt, args...) do { FILE *fp = fopen("/dev/console", "w"); if (fp) { fprintf(fp, fmt, ## args); fclose(fp); } } while (0)
-#define dbg(fmt, args...) do { FILE *fp = fopen("/dev/console", "w"); if (fp) { fprintf(fp, fmt, ## args); fclose(fp); } else fprintf(stderr, fmt, ## args); } while (0)
+#define ONE_ENTRANT()                               \
+do {                                                            \
+	static int served = 0;  \
+	if(served ++ > 0)       \
+		return;         \
+} while (0)
+
+//#define dbg(fmt, args...) do { FILE *fp = fopen("/dev/console", "w"); if (fp) { fprintf(fp, fmt, ## args); fclose(fp); } else fprintf(stderr, fmt, ## args); } while (0)
+extern void dbg(const char * format, ...);
 #define dbG(fmt, args...) dbg("%s(0x%04x): " fmt , __FUNCTION__ , __LINE__, ## args)
 extern void cprintf(const char *format, ...);
 
@@ -305,9 +336,9 @@ extern char *find_in_list(const char *haystack, const char *needle);
 extern char *remove_dups(char *inlist, int inlist_size);
 
 extern int nvifname_to_osifname(const char *nvifname, char *osifname_buf,
-                                int osifname_buf_len);
+				int osifname_buf_len);
 extern int osifname_to_nvifname(const char *osifname, char *nvifname_buf,
-                                int nvifname_buf_len);
+				int nvifname_buf_len);
 
 int ure_any_enabled(void);
 
@@ -316,4 +347,23 @@ int ure_any_enabled(void);
 #define vstrsep(buf, sep, args...) _vstrsep(buf, sep, args, NULL)
 extern int _vstrsep(char *buf, const char *sep, ...);
 
+/* Buffer structure for collecting string-formatted data
+ * using str_bprintf() API.
+ * Use str_binit() to initialize before use
+ */
+struct strbuf {
+        char *buf;              /* pointer to current position in origbuf */
+        unsigned int size;      /* current (residual) size in bytes */
+        char *origbuf;          /* unmodified pointer to orignal buffer */
+        unsigned int origsize;  /* unmodified orignal buffer size in bytes */
+};
+
+extern void str_binit(struct strbuf *b, char *buf, unsigned int size);
+extern int str_bprintf(struct strbuf *b, const char *fmt, ...);
+
 #endif /* _shutils_h_ */
+
+extern int strArgs(int argc, char **argv, char *fmt, ...);
+extern char *trimNL(char *str);
+extern pid_t get_pid_by_name(char *name);
+extern char *get_process_name_by_pid(const int pid);

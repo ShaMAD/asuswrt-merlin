@@ -15,7 +15,7 @@
 include $(TOP)/.config
 
 
-CFLAGS	+= -I. -I$(SRCBASE)/include -I$(SRCBASE)/common/include -I$(SRCBASE)/router/shared -Wall
+CFLAGS	+= -I. -I$(SRCBASE)/include ${WLAN_StdIncPathA} -I$(SRCBASE)/common/include -I$(SRCBASE)/router/shared -Wall
 #CFLAGS	+= -g -DDEBUG
 CFLAGS	+= -s
 ifeq ($(CONFIG_RTR_OPTIMIZE_SIZE),y)
@@ -31,9 +31,9 @@ OBJS := bcmgpio.o
 ifeq ($(wildcard ./*.c),)
 all:
 ifeq ($(RTCONFIG_BCMARM),y)
-	cp -f ./prebuild_arm/libbcm.so .
+	cp -f ./prebuilt_arm$(EX7)/libbcm.so .
 else
-	cp -f ./prebuild/libbcm.so .
+	cp -f ./prebuilt/libbcm.so .
 endif
 else
 all: libbcm.so

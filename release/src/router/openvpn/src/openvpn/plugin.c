@@ -40,8 +40,8 @@
 #include "error.h"
 #include "misc.h"
 #include "plugin.h"
+#include "ssl_backend.h"
 #include "win32.h"
-
 #include "memdbg.h"
 
 #define PLUGIN_SYMBOL_REQUIRED (1<<0)
@@ -291,7 +291,7 @@ plugin_init_item (struct plugin *p, const struct plugin_option *o)
 static void
 plugin_vlog (openvpn_plugin_log_flags_t flags, const char *name, const char *format, va_list arglist)
 {
-  unsigned int msg_flags;
+  unsigned int msg_flags = 0;
 
   if (!format)
     return;
@@ -316,7 +316,7 @@ plugin_vlog (openvpn_plugin_log_flags_t flags, const char *name, const char *for
   if (flags & PLOG_NOMUTE)
     msg_flags |= M_NOMUTE;
 
-  if (MSG_TEST (msg_flags))
+  if (msg_test (msg_flags))
     {
       struct gc_arena gc;
       char* msg_fmt;
@@ -374,7 +374,8 @@ plugin_open_item (struct plugin *p,
         struct openvpn_plugin_args_open_in args = { p->plugin_type_mask,
                                                     (const char ** const) o->argv,
                                                     (const char ** const) envp,
-                                                    &callbacks };
+                                                    &callbacks,
+                                                    SSLAPI };
         struct openvpn_plugin_args_open_return retargs;
 
         CLEAR(retargs);

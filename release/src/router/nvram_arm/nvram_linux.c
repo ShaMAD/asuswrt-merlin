@@ -207,12 +207,12 @@ nvram_unset(const char *name)
 int
 nvram_commit(void)
 {
-	int ret;
+	int ret = 0;
         FILE *fp;
 
 	if (nvram_get(ASUS_STOP_COMMIT) != NULL)
 	{
-		cprintf("# skip nvram commit #\n");
+		printf("# skip nvram commit #\n");
 		return ret;
 	}
 

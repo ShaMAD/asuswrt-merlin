@@ -9,19 +9,21 @@
 <title>Del Folder</title>
 <link rel="stylesheet" href="../form_style.css"  type="text/css">
 <script type="text/javascript" src="../state.js"></script>
-<script type="text/javascript" src="/jquery.js"></script>
+<script type="text/javascript" src="/js/jquery.js"></script>
 <script type="text/javascript">
-var PoolDevice = pool_devices()[parent.getSelectedPoolOrder()];
-var selectedFolder = get_sharedfolder_in_pool(PoolDevice)[parent.getSelectedFolderOrder()];
-var DisplayFolderName = selectedFolder;
-var folderlist = get_sharedfolder_in_pool(PoolDevice);
-var delete_flag = 0;
-var $j = jQuery.noConflict();
 <% get_AiDisk_status(); %>
+
+
+
+var PoolDevice = parent.usbDevicesList[parent.getSelectedDiskOrder()].partition[parent.getSelectedPoolOrder()].mountPoint;
+var folderlist = get_sharedfolder_in_pool(PoolDevice);
+var selectedFolder = folderlist[parent.getSelectedFolderOrder()];
+var DisplayFolderName = selectedFolder;
+var delete_flag = 0;
 
 function initial(){
 	DisplayFolderName = check_folder_length(selectedFolder);
-	showtext($("selected_Folder"), showhtmlspace(showhtmland(DisplayFolderName)));
+	showtext(document.getElementById("selected_Folder"), showhtmlspace(showhtmland(DisplayFolderName)));
 	document.deleteFolderForm.Cancel.focus();
 	get_layer_items_test(parent.document.aidiskForm.layer_order.value.substring(0,5));
 	clickevent();	
@@ -33,11 +35,11 @@ function clickevent(){
 	else{	
 		//window.attachEvent('onkeydown',keyDownHandler);
 	}
-	$("Submit").onclick = submit;
+	document.getElementById("Submit").onclick = submit;
 }
 function submit(){
-	$("pool").value = PoolDevice;
-	$("folder").value = selectedFolder;
+	document.getElementById("pool").value = PoolDevice;
+	document.getElementById("folder").value = selectedFolder;
 	if(parent.document.form.current_page.value != "mediaserver.asp" 
 	&& parent.document.form.current_page.value != "Advanced_AiDisk_NFS.asp" 
 	&& parent.document.form.current_page.value != "Tools_OtherSettings.asp" 
@@ -79,7 +81,7 @@ function keyDownHandler(event){
 }
 
 function get_layer_items_test(layer_order_t){
-	$j.ajax({
+	$.ajax({
     		url: '/gettree.asp?layer_order='+layer_order_t,
     		dataType: 'script',
     		error: function(xhr){

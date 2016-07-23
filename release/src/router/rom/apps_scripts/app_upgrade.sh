@@ -3,8 +3,25 @@
 
 
 apps_ipkg_old=`nvram get apps_ipkg_old`
-is_arm_machine=`uname -m |grep arm`
-
+f=`nvram get apps_install_folder`
+case $f in
+	"asusware.arm")
+		pkg_type=`echo $f|sed -e "s,asusware\.,,"`
+		;;
+	"asusware.big")
+		pkg_type="mipsbig"
+		;;
+	"asusware.mipsbig")
+		pkg_type=`echo $f|sed -e "s,asusware\.,,"`
+		;;
+	"asusware")
+		pkg_type="mipsel"
+		;;
+	*)
+		echo "Unknown apps_install_folder: $f"
+		exit 1
+		;;
+esac
 APPS_PATH=/opt
 CONF_FILE=$APPS_PATH/etc/ipkg.conf
 ASUS_SERVER=`nvram get apps_ipkg_server`
@@ -12,6 +29,7 @@ wget_timeout=`nvram get apps_wget_timeout`
 #wget_options="-nv -t 2 -T $wget_timeout --dns-timeout=120"
 wget_options="-q -t 2 -T $wget_timeout"
 download_file=
+
 
 # $1: package name.
 # return value. 1: have package. 0: no package.
@@ -27,7 +45,7 @@ _check_package(){
 
 # $1: package name, $2: ipkg server name, $3: force(1/0).
 _get_pkg_file_name_old(){
-	pkg_file_full=`app_get_field.sh $1 Filename 2`
+	pkg_file_full=`/usr/sbin/app_get_field.sh $1 Filename 2`
 	old_pkg_file=`echo "$pkg_file_full" |awk '{FS=".ipk";print $1}'`
 	pkg_file=`echo "$old_pkg_file" |sed 's/\./-/g'`
 
@@ -40,7 +58,7 @@ _get_pkg_file_name_old(){
 
 # $1: package name.
 _get_pkg_file_name(){
-	pkg_file_full=`app_get_field.sh $1 Filename 2`
+	pkg_file_full=`/usr/sbin/app_get_field.sh $1 Filename 2`
 
 	echo "$pkg_file_full"
 }
@@ -89,14 +107,14 @@ _check_log_message(){
 _loop_delay(){
 	i=0
 	while [ $i -lt $1 ]; do
-		i=$(($i+1))
+		i=$((i+1))
 		echo "."
 	done
 }
 
 # $1: package name, $2: ipkg log file.
 _log_ipkg_install(){
-	package_deps=`app_get_field.sh $1 Depends 2`
+	package_deps=`/usr/sbin/app_get_field.sh $1 Depends 2`
 	package_deps=`echo $package_deps |sed 's/,/ /g'`
 	package_deps_do=
 
@@ -134,8 +152,16 @@ _download_package(){
 
 	# Geting the app's file name...
 	server_names=`grep -n '^src.*' $CONF_FILE |sort -r |awk '{print $3}'`
+
+	if [ "$pkg_type" != "arm" ] && [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ]; then
+			IS_SUPPORT_SSL=`nvram get rc_support|grep -i HTTPS`
+			if [ -n "$IS_SUPPORT_SSL" ]; then
+				wget_options="$wget_options --no-check-certificate"
+			fi
+	fi
+
 	for s in $server_names; do
-		if [ -z "$is_arm_machine" ] && [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ]; then
+		if [ "$pkg_type" != "arm" ] && [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ]; then
 			pkg_file=`_get_pkg_file_name_old $1 $s 0`
 		else
 			pkg_file=`_get_pkg_file_name $1`
@@ -152,14 +178,14 @@ _download_package(){
 	fi
 
 	# Downloading the app's file name...
-	if [ -z "$is_arm_machine" ] && [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ] && [ "$pkg_server" == "$ASUS_SERVER" ]; then
+	if [ "$pkg_type" != "arm" ] && [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ] && [ "$pkg_server" == "$ASUS_SERVER" ]; then
 		download_file=`_get_pkg_file_name_old $1 $pkg_server 1`
 	else
 		download_file=$pkg_file
 	fi
 
 	target=$2/$download_file
-	nvram set apps_download_file=$target
+	nvram set apps_download_file=$download_file
 	nvram set apps_download_percent=0
 	wget -c $wget_options $pkg_server/$pkg_file -O $target &
 	wget_pid=`pidof wget`
@@ -172,26 +198,26 @@ _download_package(){
 	fi
 	i=0
 	while [ $i -lt $wget_timeout ] && [ ! -f "$target" ]; do
-		i=$(($i+1))
+		i=$((i+1))
 		sleep 1
 	done
 
 	wget_pid=`pidof wget`
-	size=`app_get_field.sh $1 Size 2`
+	size=`/usr/sbin/app_get_field.sh $1 Size 2`
 	target_size=`ls -l $target |awk '{printf $5}'`
-	percent=$(($target_size*100/$size))
+	percent=$((target_size*100/size))
 	nvram set apps_download_percent=$percent
 	while [ -n "$wget_pid" ] && [ -n "$target_size" ] && [ $target_size -lt $size ]; do
 		sleep 1
 
 		wget_pid=`pidof wget`
 		target_size=`ls -l $target |awk '{printf $5}'`
-		percent=$(($target_size*100/$size))
+		percent=$((target_size*100/size))
 		nvram set apps_download_percent=$percent
 	done
 
 	target_size=`ls -l $target |awk '{printf $5}'`
-	percent=$(($target_size*100/$size))
+	percent=$((target_size*100/size))
 	nvram set apps_download_percent=$percent
 	if [ -z "$percent" ] || [ $percent -ne 100 ]; then
 		rm -rf $target
@@ -214,8 +240,8 @@ if [ -z "$1" ]; then
 	exit 1
 fi
 
-version=`app_get_field.sh $1 Version 1`
-new_version=`app_get_field.sh $1 Version 2`
+version=`/usr/sbin/app_get_field.sh $1 Version 1`
+new_version=`/usr/sbin/app_get_field.sh $1 Version 2`
 
 if [ "$version" == "$new_version" ]; then
 	echo "The package: $1 is the newest one."
@@ -236,8 +262,8 @@ need_asuslighttpd=0
 need_asusffmpeg=0
 need_smartsync=0
 if [ "$1" == "downloadmaster" ]; then
-	DM_version1=`app_get_field.sh downloadmaster Version 2 |awk '{FS=".";print $1}'`
-	DM_version4=`app_get_field.sh downloadmaster Version 2 |awk '{FS=".";print $4}'`
+	DM_version1=`/usr/sbin/app_get_field.sh downloadmaster Version 2 |awk '{FS=".";print $1}'`
+	DM_version4=`/usr/sbin/app_get_field.sh downloadmaster Version 2 |awk '{FS=".";print $4}'`
 
 	if [ "$DM_version1" -gt "3" ]; then
 		need_asuslighttpd=1
@@ -245,8 +271,8 @@ if [ "$1" == "downloadmaster" ]; then
 		need_asuslighttpd=1
 	fi
 elif [ "$1" == "mediaserver" ]; then
-	MS_version1=`app_get_field.sh mediaserver Version 2 |awk '{FS=".";print $1}'`
-	MS_version4=`app_get_field.sh mediaserver Version 2 |awk '{FS=".";print $4}'`
+	MS_version1=`/usr/sbin/app_get_field.sh mediaserver Version 2 |awk '{FS=".";print $1}'`
+	MS_version4=`/usr/sbin/app_get_field.sh mediaserver Version 2 |awk '{FS=".";print $4}'`
 
 	if [ "$MS_version1" -gt "1" ]; then
 		need_asuslighttpd=1
@@ -260,8 +286,8 @@ elif [ "$1" == "mediaserver" ]; then
 		need_asusffmpeg=1
 	fi
 elif [ "$1" == "aicloud" ]; then
-	AC_version1=`app_get_field.sh aicloud Version 2 |awk '{FS=".";print $1}'`
-	AC_version4=`app_get_field.sh aicloud Version 2 |awk '{FS=".";print $4}'`
+	AC_version1=`/usr/sbin/app_get_field.sh aicloud Version 2 |awk '{FS=".";print $1}'`
+	AC_version4=`/usr/sbin/app_get_field.sh aicloud Version 2 |awk '{FS=".";print $4}'`
 
 	if [ "$AC_version1" -gt "1" ]; then
 		need_smartsync=1
@@ -301,7 +327,7 @@ if [ "$need_asusffmpeg" == "1" ]; then
 fi
 if [ "$need_smartsync" == "1" ]; then
 	if [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ]; then
-		deps=`app_get_field.sh smartsync Depends 2 |sed 's/,/ /g'`
+		deps=`/usr/sbin/app_get_field.sh smartsync Depends 2 |sed 's/,/ /g'`
 
 		for dep in $deps; do
 			echo "Downloading the dependent package of smartsync: $dep..."
@@ -346,7 +372,7 @@ fi
 nvram set apps_state_upgrade=2 # REMOVING
 _check_package $1
 if [ "$?" != "0" ]; then
-	app_remove.sh $1
+	/usr/sbin/app_remove.sh $1
 	if [ "$?" != "0" ]; then
 		# apps_state_error was already set by app_remove.sh.
 		exit 1
@@ -371,15 +397,15 @@ for file in $target_file; do
 done
 
 APPS_MOUNTED_TYPE=`mount |grep "/dev/$APPS_DEV on " |awk '{print $5}'`
-if [ "$APPS_MOUNTED_TYPE" == "vfat" ]; then
-	app_move_to_pool.sh $APPS_DEV
+if [ "$APPS_MOUNTED_TYPE" == "vfat" ] || [ "$APPS_MOUNTED_TYPE" == "tfat" ]; then
+	/usr/sbin/app_move_to_pool.sh $APPS_DEV
 	if [ "$?" != "0" ]; then
 		# apps_state_error was already set by app_move_to_pool.sh.
 		exit 1
 	fi
 fi
 
-app_base_link.sh
+/usr/sbin/app_base_link.sh
 if [ "$?" != "0" ]; then
 	# apps_state_error was already set by app_base_link.sh.
 	exit 1
@@ -387,28 +413,28 @@ fi
 
 if [ "$need_asuslighttpd" == "1" ]; then
 	echo "Enabling the dependent package: asuslighttpd..."
-	app_set_enabled.sh asuslighttpd "yes"
+	/usr/sbin/app_set_enabled.sh asuslighttpd "yes"
 fi
 if [ "$need_asusffmpeg" == "1" ]; then
 	echo "Enabling the dependent package: asusffmpeg..."
-	app_set_enabled.sh asusffmpeg "yes"
+	/usr/sbin/app_set_enabled.sh asusffmpeg "yes"
 fi
 if [ "$need_smartsync" == "1" ]; then
 	if [ -n "$apps_ipkg_old" ] && [ "$apps_ipkg_old" == "1" ]; then
-		deps=`app_get_field.sh smartsync Depends 2 |sed 's/,/ /g'`
+		deps=`/usr/sbin/app_get_field.sh smartsync Depends 2 |sed 's/,/ /g'`
 
 		for dep in $deps; do
 			echo "Enabling the dependent package of smartsync: $dep..."
-			app_set_enabled.sh $dep "yes"
+			/usr/sbin/app_set_enabled.sh $dep "yes"
 		done
 	fi
 
 	echo "Enabling the dependent package: smartsync..."
-	app_set_enabled.sh smartsync "yes"
+	/usr/sbin/app_set_enabled.sh smartsync "yes"
 fi
 
 echo "Enabling the package: $1..."
-app_set_enabled.sh $1 "yes"
+/usr/sbin/app_set_enabled.sh $1 "yes"
 
 nvram set apps_download_file=
 nvram set apps_download_percent=

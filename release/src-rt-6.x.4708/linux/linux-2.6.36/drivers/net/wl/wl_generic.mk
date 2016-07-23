@@ -7,8 +7,7 @@
 # $Id: wl_generic.mk,v 1.10 2011-01-21 22:12:09 $
 #
 
-#REBUILD_WL_MODULE=$(shell if [ -d "$(src)/$(SRCBASE_OFFSET)/wl/sys" -a "$(REUSE_PREBUILT_WL)" != "1" ]; then echo 1; else echo 0; fi)
-REBUILD_WL_MODULE=0
+REBUILD_WL_MODULE=$(shell if [ -d "$(src)/$(SRCBASE_OFFSET)/wl/sys" -a "$(REUSE_PREBUILT_WL)" != "1" ]; then echo 1; else echo 0; fi)
 
 # If source directory (src/wl/sys) exists and REUSE_PREBUILT_WL is undefined, 
 # then build inside $(SRCBASE_OFFSET)/wl/sys, otherwise use pre-builts
@@ -40,8 +39,11 @@ endif
     include $(WLCFGDIR)/wl.mk
 
     ifeq ($(WLCLMAPI),1)
-        WLAN_ComponentsInUse := bcmwifi clm ppr
+        WLAN_ComponentsInUse := bcmwifi clm ppr olpc keymgmt
         include $(src)/$(SRCBASE_OFFSET)/makefiles/WLAN_Common.mk
+	else
+		WLAN_ComponentsInUse := keymgmt
+		include $(src)/$(SRCBASE_OFFSET)/makefiles/WLAN_Common.mk
     endif
     
     ifeq ($(WLFILES_SRC),)
@@ -49,7 +51,7 @@ endif
     endif
     
     ifeq ($(WLCLMAPI),1)
-    CLM_TYPE := generic
+    CLM_TYPE ?= router
     $(call WLAN_GenClmCompilerRule,$(src)/$(SRCBASE_OFFSET)/wl/clm/src,$(src)/$(SRCBASE_OFFSET))
     endif
     
@@ -66,7 +68,8 @@ endif
     EXTRA_CFLAGS    += -DWL_PL310_WAR
     endif
     EXTRA_CFLAGS += -DDMA $(WLFLAGS) -I$(src) -I$(src)/.. -I$(src)/$(SRCBASE_OFFSET)/wl/linux \
-		    -I$(src)/$(SRCBASE_OFFSET)/wl/sys $(WLAN_ComponentIncPath) -Werror
+		    -I$(src)/$(SRCBASE_OFFSET)/wl/sys -I$(src)/$(SRCBASE_OFFSET)/wl/keymgmt/src \
+			$(WLAN_ComponentIncPath) -Werror
 
     ifneq ("$(CONFIG_CC_OPTIMIZE_FOR_SIZE)","y")
          EXTRA_CFLAGS += -finline-limit=2048
@@ -92,8 +95,8 @@ endif
 else # SRCBASE/wl/sys doesn't exist
 
     # Otherwise, assume prebuilt object module(s) in src/wl/linux directory
-    #prebuilt := wl_$(wl_suffix).o
-    $(TARGET)-objs := $(SRCBASE_OFFSET)/wl/linux/wl.o
+    prebuilt := wl_$(wl_suffix).o
+    $(TARGET)-objs := $(SRCBASE_OFFSET)/wl/linux/$(prebuilt)
     obj-$(CONFIG_WL) := $(TARGET).o
 
     ifeq ("$(CONFIG_WL_USBAP)","y")

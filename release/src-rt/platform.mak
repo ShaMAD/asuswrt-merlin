@@ -1,13 +1,54 @@
 export LINUXDIR := $(SRCBASE)/linux/linux-2.6
 
-EXTRA_CFLAGS := -DLINUX26 -DCONFIG_BCMWL5 -DDEBUG_NOISY -DDEBUG_RCTEST -pipe
+ifeq ($(RTCONFIG_BCMARM),y)
+ifeq ($(EXTRACFLAGS),)
+export EXTRACFLAGS := -DBCMWPA2 -DBCMARM -fno-delete-null-pointer-checks -marm
+endif
 
-export PARALLEL_BUILD :=
-#export PARALLEL_BUILD := -j`grep -c '^processor' /proc/cpuinfo`
+export KERNEL_BINARY=$(LINUXDIR)/arch/arm/boot/zImage
+export PLATFORM := arm-uclibc
+export CROSS_COMPILE := arm-brcm-linux-uclibcgnueabi-
+export CROSS_COMPILER := $(CROSS_COMPILE)
+export CONFIGURE := ./configure --host=arm-linux --build=$(BUILD)
+export HOSTCONFIG := linux-armv4
+export BCMEX := _arm
+export EXTRA_FLAG := -lgcc_s
+export ARCH := arm
+export HOST := arm-linux
+export TOOLS := $(SRCBASE)/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3
+export RTVER := 0.9.32.1
+export BCMSUB := brcmarm
+else ifeq ($(RTCONFIG_BCM_ARM_GCLIBC),y)
+export CROSS_COMPILE ?= arm-buildroot-linux-gnueabi-
+export CONFIGURE := ./configure arm-linux --build=$(BUILD)
+export TOOLCHAIN := $(shell cd $(dir $(shell which $(CROSS_COMPILE)gcc))/../.. && pwd -P)
+export CFLAGS += -fno-strict-aliasing
+SUBMAKE_SETTINGS += ARCH=$(ARCH)
+EXTRA_LDFLAGS := "-lgcc_s -lwlcsm"
+else
+ifeq ($(EXTRACFLAGS),)
+export EXTRACFLAGS := -DBCMWPA2 -fno-delete-null-pointer-checks -mips32$(MIPS32) -mtune=mips32$(MIPS32)
+endif
+
+export KERNEL_BINARY=$(LINUXDIR)/arch/mips/brcm-boards/bcm947xx/compressed/zImage
+export PLATFORM := mipsel-uclibc
+export CROSS_COMPILE := mipsel-uclibc-
+export CROSS_COMPILER := $(CROSS_COMPILE)
+export READELF := mipsel-linux-readelf
+export CONFIGURE := ./configure --host=mipsel-linux --build=$(BUILD)
+export HOSTCONFIG := linux-mips32
+export ARCH := mips
+export HOST := mipsel-linux
+export TOOLS := $(SRCBASE)/../../tools/brcm/hndtools-mipsel-linux
+export RTVER := 0.9.30.1
+endif
+EXTRA_CFLAGS := -DLINUX26 -DCONFIG_BCMWL5 -DDEBUG_NOISY -DDEBUG_RCTEST -pipe -DTTEST
 
 export CONFIG_LINUX26=y
 export CONFIG_BCMWL5=y
 
+#export PARALLEL_BUILD :=
+export PARALLEL_BUILD := -j`grep -c '^processor' /proc/cpuinfo`
 
 define platformRouterOptions
 endef
@@ -19,6 +60,18 @@ define platformKernelConfig
 # prepare config_base
 # prepare prebuilt kernel binary
 	@( \
+	sed -i "/CONFIG_RGMII_BCM_FA/d" $(1); \
+	if [ "$(RGMII_BCM_FA)" = "y" ]; then \
+		echo "CONFIG_RGMII_BCM_FA=y" >> $(1); \
+	else \
+		echo "# CONFIG_RGMII_BCM_FA is not set" >> $(1); \
+	fi; \
+	if [ "$(LACP)" = "y" ]; then \
+		sed -i "/CONFIG_LACP/d" $(1); \
+		echo "CONFIG_LACP=m" >>$(1); \
+		sed -i "/CONFIG_BCM_AGG/d" $(1); \
+		echo "CONFIG_BCM_AGG=y" >>$(1); \
+	fi; \
 	if [ "$(BCMNAND)" = "y" ]; then \
 		sed -i "/CONFIG_MTD_NFLASH/d" $(1); \
 		echo "CONFIG_MTD_NFLASH=y" >>$(1); \
@@ -28,6 +81,8 @@ define platformKernelConfig
 		echo "# CONFIG_MTD_NAND_VERIFY_WRITE is not set" >>$(1); \
 		echo "# CONFIG_MTD_NAND_ECC_SMC is not set" >>$(1); \
 		echo "# CONFIG_MTD_NAND_MUSEUM_IDS is not set" >>$(1); \
+		echo "# CONFIG_MTD_NAND_DENALI is not set" >>$(1); \
+		echo "# CONFIG_MTD_NAND_RICOH is not set" >>$(1); \
 		echo "# CONFIG_MTD_NAND_DISKONCHIP is not set" >>$(1); \
 		echo "# CONFIG_MTD_NAND_CAFE is not set" >>$(1); \
 		echo "# CONFIG_MTD_NAND_NANDSIM is not set" >>$(1); \
@@ -35,6 +90,38 @@ define platformKernelConfig
 		echo "# CONFIG_MTD_NAND_ONENAND is not set" >>$(1); \
 		sed -i "/CONFIG_MTD_BRCMNAND/d" $(1); \
 		echo "CONFIG_MTD_BRCMNAND=y" >>$(1); \
+	fi; \
+	if [ "$(ARM)" = "y" ]; then \
+		mkdir -p $(SRCBASE)/router/ctf_arm/linux; \
+		if [ "$(BCM7)" = "y" ]; then \
+			if [ "$(ARMCPUSMP)" = "up" ]; then \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm7_up/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			else \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm7/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+				cp -f $(SRCBASE)/router/dpsta/bcm7_3200/dpsta.o $(SRCBASE)/router/dpsta/linux; \
+			fi; \
+		elif [ "$(BCM_7114)" = "y" ]; then \
+			if [ "$(GMAC3)" = "y" ]; then \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm_7114_gmac3/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			else \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm_7114/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			fi; \
+			cp -f $(SRCBASE)/router/dpsta/bcm7114/dpsta.o $(SRCBASE)/router/dpsta/linux; \
+		elif [ "$(BCM10)" = "y" ]; then \
+			if [ "$(ARMCPUSMP)" = "up" ]; then \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm7_up/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			else \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm7/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			fi; \
+		elif [ "$(BCM9)" = "y" ]; then \
+                                cp -f $(SRCBASE)/router/ctf_arm/bcm9/ctf.* $(SRCBASE)/router/ctf_arm/linux/;\
+		else \
+			if [ "$(ARMCPUSMP)" = "up" ]; then \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm6_up/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			else \
+				cp -f $(SRCBASE)/router/ctf_arm/bcm6/ctf.* $(SRCBASE)/router/ctf_arm/linux/; \
+			fi; \
+		fi; \
 	fi; \
 	if [ "$(SFPRAM16M)" = "y" ]; then \
 		sed -i "/CONFIG_WL_USE_AP/d" $(1); \
@@ -153,10 +240,116 @@ define platformKernelConfig
 		sed -i "/CONFIG_CRYPTO_CBC/d" $(1); \
 		echo "# CONFIG_CRYPTO_CBC is not set" >> $(1); \
 	fi; \
-	[ -d $(SRCBASE)/wl/sysdeps/default ] && \
-		cp -rf $(SRCBASE)/wl/sysdeps/default/* $(SRCBASE)/wl/; \
-	[ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME) ] && \
-		cp -rf $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/* $(SRCBASE)/wl/; \
+	if [ "$(ARM)" = "y" ]; then \
+		if [ "$(BCM7)" = "y" ]; then \
+			if [ -d $(SRCBASE)/../../43602/src/wl/sysdeps/$(BUILD_NAME) ]; then \
+				if [ -d $(SRCBASE)/../../43602/src/wl/sysdeps/$(BUILD_NAME)/clm ]; then \
+					cp -f $(SRCBASE)/../../43602/src/wl/sysdeps/$(BUILD_NAME)/clm/src/wlc_clm_data.c $(SRCBASE)/../../43602/src/wl/clm/src/. ; \
+					cp -f $(SRCBASE)/../../43602/src/wl/sysdeps/$(BUILD_NAME)/clm/src/wlc_clm_data_inc.c $(SRCBASE)/../../43602/src/wl/clm/src/. ; \
+				fi; \
+			else \
+				if [ -d $(SRCBASE)/../../43602/src/wl/sysdeps/default/clm ]; then \
+					cp -f $(SRCBASE)/../../43602/src/wl/sysdeps/default/clm/src/wlc_clm_data.c $(SRCBASE)/../../43602/src/wl/clm/src/. ; \
+					cp -f $(SRCBASE)/../../43602/src/wl/sysdeps/default/clm/src/wlc_clm_data_inc.c $(SRCBASE)/../../43602/src/wl/clm/src/. ; \
+				fi; \
+			fi; \
+			if [ -d $(SRCBASE)/router/wl_arm_7/prebuilt ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm_7/prebuilt/wl*.o $(SRCBASE)/wl/linux ; \
+				mkdir -p $(SRCBASE)/../../dhd/src/dhd/linux ; \
+				cp $(SRCBASE)/router/wl_arm_7/prebuilt/dhd.o $(SRCBASE)/../../dhd/src/dhd/linux ; \
+			fi; \
+			if [ -d $(SRCBASE)/router/et_arm_7/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/et/linux ; \
+				cp $(SRCBASE)/router/et_arm_7/prebuilt/et.o $(SRCBASE)/et/linux ; \
+			fi; \
+		elif [ "$(BCM_7114)" = "y" ]; then \
+			if [ -d $(SRCBASE)/router/wl_arm_7114/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/../dhd/src/dhd/linux ; \
+				cp $(SRCBASE)/router/wl_arm_7114/prebuilt/$(BUILD_NAME)/dhd.o $(SRCBASE)/../dhd/src/dhd/linux ; \
+			fi; \
+			if [ -d $(SRCBASE)/router/et_arm_7114/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/et/linux ; \
+				cp $(SRCBASE)/router/et_arm_7114/prebuilt/et.o $(SRCBASE)/et/linux ; \
+			fi; \
+		elif [ "$(BCM_10)" = "y" ]; then \
+			if [ -d $(SRCBASE)/router/wl_arm_10/prebuilt ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm_10/prebuilt/wl*.o $(SRCBASE)/wl/linux ; \
+			fi; \
+			if [ -d $(SRCBASE)/router/et_arm_10/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/et/linux ; \
+				cp $(SRCBASE)/router/et_arm_10/prebuilt/et.o $(SRCBASE)/et/linux ; \
+			fi; \
+		elif [ "$(BCM9)" = "y" ]; then \
+			if [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME) ]; then \
+				if [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/linux ]; then \
+					cp -rf $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/linux $(SRCBASE)/wl/. ; \
+				fi; \
+				if [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/clm ]; then \
+					cp -f $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/clm/src/wlc_clm_data.c $(SRCBASE)/wl/clm/src/. ; \
+				fi; \
+			elif [ -d $(SRCBASE)/wl/sysdeps/default ]; then \
+				if [ -d $(SRCBASE)/wl/sysdeps/default/linux ]; then \
+					cp -rf $(SRCBASE)/wl/sysdeps/default/linux $(SRCBASE)/wl/. ; \
+				fi; \
+				if [ -d $(SRCBASE)/wl/sysdeps/default/clm ]; then \
+					cp -f $(SRCBASE)/wl/sysdeps/default/clm/src/wlc_clm_data.c $(SRCBASE)/wl/clm/src/. ; \
+				fi; \
+			fi; \
+			if [ -d $(SRCBASE)/router/wl_arm_9/prebuilt ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm_9/prebuilt/wl*.o $(SRCBASE)/wl/linux ; \
+			fi; \
+			if [ -d $(SRCBASE)/router/et_arm_9/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/et/linux ; \
+				cp $(SRCBASE)/router/et_arm_9/prebuilt/et.o $(SRCBASE)/et/linux ; \
+			fi; \
+		else \
+			if [ -d $(SRCBASE)/router/wl_arm/$(BUILD_NAME) ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm/$(BUILD_NAME)/prebuilt/* $(SRCBASE)/wl/linux ; \
+			elif [ -d $(SRCBASE)/router/wl_arm/prebuilt ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm/prebuilt/* $(SRCBASE)/wl/linux ; \
+			elif [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME) ]; then \
+				if [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/linux ]; then \
+					cp -rf $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/linux $(SRCBASE)/wl/. ; \
+				fi; \
+				if [ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/clm ]; then \
+					cp -f $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/clm/src/wlc_clm_data.c $(SRCBASE)/wl/clm/src/. ; \
+				fi; \
+			else \
+				if [ -d $(SRCBASE)/wl/sysdeps/default/linux ]; then \
+					cp -rf $(SRCBASE)/wl/sysdeps/default/linux $(SRCBASE)/wl/. ; \
+				fi; \
+				if [ -d $(SRCBASE)/wl/sysdeps/default/clm ]; then \
+					cp -f $(SRCBASE)/wl/sysdeps/default/clm/src/wlc_clm_data.c $(SRCBASE)/wl/clm/src/. ; \
+				fi; \
+			fi; \
+			if [ -d $(SRCBASE)/router/wl_arm/prebuilt ]; then \
+				mkdir $(SRCBASE)/wl/linux ; \
+				cp $(SRCBASE)/router/wl_arm/prebuilt/wl*.o $(SRCBASE)/wl/linux ; \
+			fi; \
+			if [ -d $(SRCBASE)/router/et_arm/prebuilt ]; then \
+				mkdir -p $(SRCBASE)/et/linux ; \
+				cp $(SRCBASE)/router/et_arm/prebuilt/et.o $(SRCBASE)/et/linux ; \
+			fi; \
+		fi; \
+	else \
+		[ -d $(SRCBASE)/wl/sysdeps/default ] && \
+			cp -rf $(SRCBASE)/wl/sysdeps/default/* $(SRCBASE)/wl/; \
+		[ -d $(SRCBASE)/wl/sysdeps/$(BUILD_NAME) ] && \
+			cp -rf $(SRCBASE)/wl/sysdeps/$(BUILD_NAME)/* $(SRCBASE)/wl/; \
+	fi; \
+	if [ "$(SNMPD)" = "y" ]; then \
+		if [ -d $(SRCBASE)/router/net-snmp-5.7.2/asus_mibs/sysdeps/$(BUILD_NAME) ]; then \
+			rm -f  $(SRCBASE)/router/net-snmp-5.7.2/mibs/RT-*.txt ; \
+			rm -f  $(SRCBASE)/router/net-snmp-5.7.2/mibs/TM-*.txt ; \
+			rm -rf $(SRCBASE)/router/net-snmp-5.7.2/agent/mibgroup/asus-mib ; \
+			cp -rf $(SRCBASE)/router/net-snmp-5.7.2/asus_mibs/sysdeps/$(BUILD_NAME)/$(BUILD_NAME)-MIB.txt $(SRCBASE)/router/net-snmp-5.7.2/mibs ; \
+			cp -rf $(SRCBASE)/router/net-snmp-5.7.2/asus_mibs/sysdeps/$(BUILD_NAME)/asus-mib $(SRCBASE)/router/net-snmp-5.7.2/agent/mibgroup ; \
+		fi; \
+	fi; \
 	)
 endef
-

@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2013 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2016 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -340,7 +340,7 @@ void lease_update_file(time_t now)
 	file_dirty = 0;
     }
   
-  /* Set alarm for when the first lease expires + slop. */
+  /* Set alarm for when the first lease expires. */
   next_event = 0;
 
 #ifdef HAVE_DHCP6
@@ -365,8 +365,8 @@ void lease_update_file(time_t now)
 
   for (lease = leases; lease; lease = lease->next)
     if (lease->expires != 0 &&
-	(next_event == 0 || difftime(next_event, lease->expires + 10) > 0.0))
-      next_event = lease->expires + 10;
+	(next_event == 0 || difftime(next_event, lease->expires) > 0.0))
+      next_event = lease->expires;
    
   if (err)
     {
@@ -386,16 +386,21 @@ static int find_interface_v4(struct in_addr local, int if_index, char *label,
 			     struct in_addr netmask, struct in_addr broadcast, void *vparam)
 {
   struct dhcp_lease *lease;
-  
+  int prefix = netmask_length(netmask);
+
   (void) label;
   (void) broadcast;
   (void) vparam;
 
   for (lease = leases; lease; lease = lease->next)
-    if (!(lease->flags & (LEASE_TA | LEASE_NA)))
-      if (is_same_net(local, lease->addr, netmask))
-	lease_set_interface(lease, if_index, *((time_t *)vparam));
-  
+    if (!(lease->flags & (LEASE_TA | LEASE_NA)) &&
+	is_same_net(local, lease->addr, netmask) && 
+	prefix > lease->new_prefixlen) 
+      {
+	lease->new_interface = if_index;
+        lease->new_prefixlen = prefix;
+      }
+
   return 1;
 }
 
@@ -405,17 +410,23 @@ static int find_interface_v6(struct in6_addr *local,  int prefix,
 			     int preferred, int valid, void *vparam)
 {
   struct dhcp_lease *lease;
-  
+
   (void)scope;
   (void)flags;
   (void)preferred;
   (void)valid;
+  (void)vparam;
 
   for (lease = leases; lease; lease = lease->next)
     if ((lease->flags & (LEASE_TA | LEASE_NA)))
-      if (is_same_net6(local, &lease->addr6, prefix))
-	lease_set_interface(lease, if_index, *((time_t *)vparam));
-  
+      if (is_same_net6(local, &lease->addr6, prefix) && prefix > lease->new_prefixlen) {
+        /* save prefix length for comparison, as we might get shorter matching
+         * prefix in upcoming netlink GETADDR responses
+         * */
+        lease->new_interface = if_index;
+        lease->new_prefixlen = prefix;
+      }
+
   return 1;
 }
 
@@ -448,10 +459,19 @@ void lease_update_slaac(time_t now)
    start-time. */
 void lease_find_interfaces(time_t now)
 {
+  struct dhcp_lease *lease;
+  
+  for (lease = leases; lease; lease = lease->next)
+    lease->new_prefixlen = lease->new_interface = 0;
+
   iface_enumerate(AF_INET, &now, find_interface_v4);
 #ifdef HAVE_DHCP6
   iface_enumerate(AF_INET6, &now, find_interface_v6);
 #endif
+
+  for (lease = leases; lease; lease = lease->next)
+    if (lease->new_interface != 0) 
+      lease_set_interface(lease, lease->new_interface, now);
 }
 
 #ifdef HAVE_DHCP6
@@ -779,14 +799,23 @@ struct dhcp_lease *lease6_allocate(struct in6_addr *addrp, int lease_type)
 
 void lease_set_expires(struct dhcp_lease *lease, unsigned int len, time_t now)
 {
-  time_t exp = now + (time_t)len;
-  
+  time_t exp;
+
   if (len == 0xffffffff)
     {
       exp = 0;
       len = 0;
     }
-  
+  else
+    {
+      exp = now + (time_t)len;
+      /* Check for 2038 overflow. Make the lease
+	 inifinite in that case, as the least disruptive
+	 thing we can do. */
+      if (difftime(exp, now) <= 0.0)
+	exp = 0;
+    }
+
   if (exp != lease->expires)
     {
       dns_dirty = 1;
@@ -818,9 +847,9 @@ void lease_set_iaid(struct dhcp_lease *lease, int iaid)
 }
 #endif
 
-void lease_set_hwaddr(struct dhcp_lease *lease, unsigned char *hwaddr,
-		      unsigned char *clid, int hw_len, int hw_type, int clid_len, 
-		      time_t now, int force)
+void lease_set_hwaddr(struct dhcp_lease *lease, const unsigned char *hwaddr,
+		      const unsigned char *clid, int hw_len, int hw_type,
+		      int clid_len, time_t now, int force)
 {
 #ifdef HAVE_DHCP6
   int change = force;
@@ -902,7 +931,7 @@ static void kill_name(struct dhcp_lease *lease)
   lease->hostname = lease->fqdn = NULL;
 }
 
-void lease_set_hostname(struct dhcp_lease *lease, char *name, int auth, char *domain, char *config_domain)
+void lease_set_hostname(struct dhcp_lease *lease, const char *name, int auth, char *domain, char *config_domain)
 {
   struct dhcp_lease *lease_tmp;
   char *new_name = NULL, *new_fqdn = NULL;
@@ -1115,18 +1144,22 @@ int do_script_run(time_t now)
 }
 
 #ifdef HAVE_SCRIPT
+/* delim == -1 -> delim = 0, but embeded 0s, creating extra records, are OK. */
 void lease_add_extradata(struct dhcp_lease *lease, unsigned char *data, unsigned int len, int delim)
 {
   unsigned int i;
   
-  /* check for embeded NULLs */
-  for (i = 0; i < len; i++)
-    if (data[i] == 0)
-      {
-	len = i;
-	break;
-      }
-
+  if (delim == -1)
+    delim = 0;
+  else
+    /* check for embeded NULLs */
+    for (i = 0; i < len; i++)
+      if (data[i] == 0)
+	{
+	  len = i;
+	  break;
+	}
+  
   if ((lease->extradata_size - lease->extradata_len) < (len + 1))
     {
       size_t newsz = lease->extradata_len + len + 100;

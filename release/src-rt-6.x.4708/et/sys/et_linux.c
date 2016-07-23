@@ -2,7 +2,7 @@
  * Linux device driver for
  * Broadcom BCM47XX 10/100/1000 Mbps Ethernet Controller
  *
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2015, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,7 +16,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: et_linux.c 427480 2013-10-03 19:09:47Z $
+ * $Id: et_linux.c 485723 2014-06-17 05:07:54Z $
  */
 
 #include <et_cfg.h>
@@ -131,7 +131,7 @@
 	 ((((struct ethervlan_header *)(evh))->ether_type == HTON16(ETHER_TYPE_IP)) || \
 	 (((struct ethervlan_header *)(evh))->ether_type == HTON16(ETHER_TYPE_IPV6))))
 #endif /* PLC */
-#define PKTCMC	2
+#define PKTCMC  32
 struct pktc_data {
 	void	*chead;		/* chain head */
 	void	*ctail;		/* chain tail */
@@ -165,7 +165,7 @@ static const struct ethtool_ops et_ethtool_ops =
 #ifdef ET_INGRESS_QOS
 #define TOSS_CAP	4
 #define PROC_CAP	4
-#endif /*ET_INGRESS_QOS*/
+#endif /* ET_INGRESS_QOS */
 
 MODULE_LICENSE("Proprietary");
 
@@ -210,6 +210,7 @@ typedef struct et_info {
 	spinlock_t	txq_lock;	/* lock for txq protection */
 	spinlock_t	isr_lock;	/* lock for irq reentrancy protection */
 	struct sk_buff_head txq[NUMTXQ];	/* send queue */
+	int   txq_pktcnt[NUMTXQ];	/* packets in each tx queue */
 	void *regsva;			/* opaque chip registers virtual address */
 	struct timer_list timer;	/* one second watchdog timer */
 	bool set;			/* indicate the timer is set or not */
@@ -245,7 +246,7 @@ static et_info_t *et_list = NULL;
 #ifdef PLC
 #define DATAHIWAT       280             /* data msg txq hiwat mark */
 #else
-#define	DATAHIWAT	1000		/* data msg txq hiwat mark */
+#define	DATAHIWAT	4000		/* data msg txq hiwat mark */
 #endif /* PLC */
 
 #ifdef PLC
@@ -340,6 +341,7 @@ static void et_dpc_work(struct et_task *task);
 static void et_watchdog_task(et_task_t *task);
 #endif /* ET_ALL_PASSIVE */
 static void et_txq_work(struct et_task *task);
+static inline int32 et_ctf_forward(et_info_t *et, struct sk_buff *skb);
 static void et_sendup(et_info_t *et, struct sk_buff *skb);
 #ifdef BCMDBG
 static void et_dumpet(et_info_t *et, struct bcmstrbuf *b);
@@ -587,6 +589,12 @@ et_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	if (!etc_chipmatch(pdev->vendor, pdev->device))
 		return -ENODEV;
+
+#ifdef ETFA
+	sprintf(name, "et%dmacaddr", unit);
+	if (getvar(NULL, name))
+		fa_set_aux_unit(si_kattach(SI_OSH), unit);
+#endif /* ETFA */
 
 	/* Map core unit to nvram unit for FA, otherwise, core unit is equal to nvram unit */
 	etc_unitmap(pdev->vendor, pdev->device, coreunit, &unit);
@@ -1267,6 +1275,35 @@ et_sched_tx_tasklet(void *t)
 	tasklet_schedule(&et->tx_tasklet);
 }
 
+/*
+ * Below wrapper functions for skb queue/dequeue maintain packet counters.
+ * In case of packet chaining, number of entries is not equal to no. of packets.
+ * Queuing threshold is to be compared against total packet count in a queue and
+ * not against the queue length.
+ */
+
+static void BCMFASTPATH
+et_skb_queue_tail(et_info_t *et, int qid,  struct sk_buff *skb)
+{
+	__skb_queue_tail(&et->txq[qid], skb);
+	et->txq_pktcnt[qid] += (PKTISCHAINED(skb) ? PKTCCNT(skb): 1);
+}
+
+static struct sk_buff * BCMFASTPATH
+et_skb_dequeue(et_info_t *et, int qid)
+{
+	struct sk_buff *skb;
+
+	skb = __skb_dequeue(&et->txq[qid]);
+	if (!skb) return skb;
+
+	ASSERT(et->txq_pktcnt[qid] > 0);
+	et->txq_pktcnt[qid] -= (PKTISCHAINED(skb) ? PKTCCNT(skb): 1);
+	ASSERT(et->txq_pktcnt[qid] >= 0);
+
+	return skb;
+}
+
 #ifdef CONFIG_SMP
 #define ET_CONFIG_SMP()	TRUE
 #else
@@ -1309,7 +1346,8 @@ et_start(struct sk_buff *skb, struct net_device *dev)
 	ET_LOG("et%d: et_start: len %d", et->etc->unit, skb->len);
 
 	ET_TXQ_LOCK(et);
-	if (et_txq_thresh && (skb_queue_len(&et->txq[q]) >= et_txq_thresh)) {
+
+	if (et_txq_thresh && (et->txq_pktcnt[q] >= et_txq_thresh)) {
 		ET_TXQ_UNLOCK(et);
 		PKTFRMNATIVE(et->osh, skb);
 		PKTCFREE(et->osh, skb, TRUE);
@@ -1317,7 +1355,7 @@ et_start(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/* put it on the tx queue and call sendnext */
-	__skb_queue_tail(&et->txq[q], skb);
+	et_skb_queue_tail(et, q, skb);
 	et->etc->txq_state |= (1 << q);
 	ET_TXQ_UNLOCK(et);
 
@@ -1406,7 +1444,7 @@ et_sendnext(et_info_t *et)
 #endif /* DMA */
 			break;
 
-		skb = __skb_dequeue(&et->txq[priq]);
+		skb = et_skb_dequeue(et, priq);
 
 		ET_TXQ_UNLOCK(et);
 		ET_PRHDR("tx", (struct ether_header *)skb->data, skb->len, etc->unit);
@@ -1448,20 +1486,22 @@ et_sendnext(et_info_t *et)
 	/* no flow control when qos is enabled */
 	if (!et->etc->qos) {
 		/* stop the queue whenever txq fills */
-		if ((skb_queue_len(&et->txq[TX_Q0]) > DATAHIWAT) && !netif_queue_stopped(et->dev))
+		if ((et->txq_pktcnt[TX_Q0] > DATAHIWAT) && !netif_queue_stopped(et->dev)) {
 			netif_stop_queue(et->dev);
-		else if (netif_queue_stopped(et->dev) &&
-		         (skb_queue_len(&et->txq[TX_Q0]) < (DATAHIWAT/2)))
+		} else if (netif_queue_stopped(et->dev) &&
+		         (et->txq_pktcnt[TX_Q0] < (DATAHIWAT/2))) {
 			netif_wake_queue(et->dev);
+		}
 	} else {
 		/* drop the frame if corresponding prec txq len exceeds hiwat
 		 * when qos is enabled.
 		 */
-		if ((priq != TC_NONE) && (skb_queue_len(&et->txq[priq]) > DATAHIWAT)) {
-			skb = __skb_dequeue(&et->txq[priq]);
+		if ((priq != TC_NONE) && (et->txq_pktcnt[priq] > DATAHIWAT)) {
+			skb = et_skb_dequeue(et, priq);
 			PKTCFREE(et->osh, skb, TRUE);
-			ET_TRACE(("et%d: %s: txqlen %d\n", et->etc->unit,
-			          __FUNCTION__, skb_queue_len(&et->txq[priq])));
+			ET_TRACE(("et%d: %s: txqlen %d txq_pktcnt = %d\n", et->etc->unit,
+			          __FUNCTION__, skb_queue_len(&et->txq[priq]),
+			          et->txq_pktcnt[priq]));
 		}
 	}
 
@@ -1575,7 +1615,7 @@ et_down(et_info_t *et, int reset)
 
 	/* flush the txq(s) */
 	for (i = 0; i < NUMTXQ; i++)
-		while ((skb = skb_dequeue(&et->txq[i])))
+		while ((skb = et_skb_dequeue(et, i)))
 			PKTFREE(etc->osh, skb, TRUE);
 
 	/* Shut down the hardware, reclaim Rx buffers */
@@ -2096,11 +2136,76 @@ done:
 }
 
 #ifdef PKTC
+static void
+et_sendup_chain_error_handler(et_info_t *et, struct sk_buff *skb, uint sz, int32 err)
+{
+	bool skip_vlan_update = FALSE;
+	struct sk_buff *nskb;
+	uint16 vlan_tag;
+	struct ethervlan_header *n_evh;
+
+	ASSERT(err != BCME_OK);
+
+	et->etc->chained -= sz;
+
+#ifdef PLC
+	if (et_plc_pkt(et, (uint8 *)PKTDATA(et->osh, skb)))
+		skip_vlan_update = TRUE;
+#endif /* PLC */
+	/* get original vlan tag from the first packet */
+	vlan_tag = ((struct ethervlan_header *)PKTDATA(et->osh, skb))->vlan_tag;
+
+	FOREACH_CHAINED_PKT(skb, nskb) {
+		PKTCLRCHAINED(et->osh, skb);
+		PKTCCLRFLAGS(skb);
+		if (nskb != NULL) {
+			if (!skip_vlan_update) {
+				/* update vlan header changed by CTF_HOTBRC_L2HDR_PREP */
+				n_evh = (struct ethervlan_header *)PKTDATA(et->osh, nskb);
+
+				if (n_evh->vlan_type == HTON16(ETHER_TYPE_8021Q)) {
+					/* change back original vlan tag */
+					n_evh = (struct ethervlan_header *)PKTDATA(et->osh, nskb);
+					n_evh->vlan_tag = vlan_tag;
+				}
+				else {
+					/* add back original vlan header */
+					n_evh = (struct ethervlan_header *)PKTPUSH(et->osh, nskb,
+						VLAN_TAG_LEN);
+					*n_evh = *(struct ethervlan_header *)PKTDATA(et->osh, skb);
+				}
+			}
+			nskb->dev = skb->dev;
+		}
+		et->etc->unchained++;
+		/* Update the PKTCCNT and PKTCLEN for unchained sendup cases */
+		PKTCSETCNT(skb, 1);
+		PKTCSETLEN(skb, PKTLEN(et->etc->osh, skb));
+
+		if (et_ctf_forward(et, skb) == BCME_OK) {
+			ET_ERROR(("et%d: shall not happen\n", et->etc->unit));
+		}
+
+		if (et->etc->qos)
+			pktsetprio(skb, TRUE);
+
+		skb->protocol = eth_type_trans(skb, skb->dev);
+
+			/* send it up */
+#if defined(NAPI_POLL) || defined(NAPI2_POLL)
+		netif_receive_skb(skb);
+#else /* NAPI_POLL */
+		netif_rx(skb);
+#endif /* NAPI_POLL */
+	}
+}
+
 static void BCMFASTPATH
 et_sendup_chain(et_info_t *et, void *h)
 {
 	struct sk_buff *skb;
 	uint sz = PKTCCNT(h);
+	int32 err;
 
 	ASSERT(h != NULL);
 
@@ -2123,34 +2228,34 @@ et_sendup_chain(et_info_t *et, void *h)
 	et->etc->maxchainsz = MAX(et->etc->maxchainsz, sz);
 
 	/* send up the packet chain */
-#ifdef PLC
-	ctf_forward(et->cih, h, skb->dev);
-#else
-	ctf_forward(et->cih, h, et->dev);
-#endif /* PLC */
+	if ((err = ctf_forward(et->cih, h, skb->dev)) == BCME_OK)
+		return;
+
+	et_sendup_chain_error_handler(et, skb, sz, err);
 }
 #endif /* PKTC */
 
 #ifdef ET_INGRESS_QOS
 static inline bool
-et_discard_rx(et_info_t *et, struct chops *chops, void *ch, uint8 *evh, uint8 prio, uint16 toss, int quota)
+et_discard_rx(et_info_t *et, struct chops *chops, void *ch, uint8 *evh, uint8 prio, uint16 toss,
+	int quota)
 {
 	uint16 left;
 
 	/* Regardless of DMA RX discard policy ICMP and IGMP packets are passed */
-	if (IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_IGMP \
-         && IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_ICMP) {
+	if (IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_IGMP &&
+		IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_ICMP) {
 		ASSERT(chops->activerxbuf);
 		left = (*chops->activerxbuf)(ch);
 		if (left < et->etc->dma_rx_thresh && toss < (quota << TOSS_CAP)) {
-			if ((et->etc->dma_rx_policy == DMA_RX_POLICY_TOS && \
-				prio != IPV4_TOS_CRITICAL) || \
-				(et->etc->dma_rx_policy == DMA_RX_POLICY_UDP && \
-					IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_UDP)){
-						/* post new rx bufs asap */
-						(*chops->rxfill)(ch);
-						/* discard the packet */
-						return TRUE;
+			if ((et->etc->dma_rx_policy == DMA_RX_POLICY_TOS &&
+				prio != IPV4_TOS_CRITICAL) ||
+				(et->etc->dma_rx_policy == DMA_RX_POLICY_UDP &&
+				IP_PROT46(evh + ETHERVLAN_HDR_LEN) != IP_PROT_UDP)) {
+				/* post new rx bufs asap */
+				(*chops->rxfill)(ch);
+				/* discard the packet */
+				return TRUE;
 			}
 		}
 	}
@@ -2179,6 +2284,7 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 	bool skip_check = SKIP_TCP_CTRL_CHECK(et);
 #endif /* USBAP */
 #endif /* PKTC */
+	uint16 ether_type;
 
 	/* read the buffers first */
 	while ((p = (*chops->rx)(ch))) {
@@ -2192,6 +2298,8 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 		/* Get BRCM HDR len if any */
 		if (FA_RX_BCM_HDR((fa_t *)et->etc->fa)) {
 			bcm_hdr_t bhdr;
+
+			dataoff = HWRXOFF;
 			bhdr.word = NTOH32(*((uint32 *)(PKTDATA(et->osh, p) + dataoff)));
 			if (bhdr.oc10.op_code == 0x2)
 				dataoff += 4;
@@ -2204,6 +2312,13 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 #endif /* ETFA */
 
 		evh = PKTDATA(et->osh, p) + dataoff;
+
+		ether_type = ((struct ether_header *) evh)->ether_type;
+		if (ether_type == HTON16(ETHER_TYPE_BRCM)) {
+			PKTFREE(osh, p, FALSE);
+			continue;
+		}
+
 		prio = IP_TOS46(evh + ETHERVLAN_HDR_LEN) >> IPV4_TOS_PREC_SHIFT;
 		if (cd[0].h_da == NULL) {
 			cd[0].h_da = evh; cd[0].h_sa = evh + ETHER_ADDR_LEN;
@@ -2302,11 +2417,17 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 			PKTCINCRCNT(cd[i].chead);
 			PKTSETCHAINED(et->osh, p);
 			PKTCADDLEN(cd[i].chead, PKTLEN(et->osh, p));
-                        if (PKTCCNT(cd[i].chead) >= PKTCBND)
+			if (PKTCCNT(cd[i].chead) >= PKTCBND)
 	                        stop_chain = TRUE;
 		} else
 			PKTCENQTAIL(h, t, p);
 #else /* PKTC */
+                ether_type = ((struct ether_header *) PKTDATA(et->osh, p))->ether_type;
+                if (ether_type == HTON16(ETHER_TYPE_BRCM)) {
+                        PKTFREE(osh, p, FALSE);
+                        continue;
+                }
+
 		PKTSETLINK(p, NULL);
 		if (t == NULL)
 			h = t = p;
@@ -2319,9 +2440,9 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 		processed++;
 #ifdef ET_INGRESS_QOS
 		if (et->etc->dma_rx_policy) {
-                        left = (*chops->activerxbuf)(ch);
+			left = (*chops->activerxbuf)(ch);
 			/* Either we recovered or queued too many pkts or chain buffers are full */
-                        if (left + toss >= et->etc->dma_rx_thresh || \
+			if (left + toss >= et->etc->dma_rx_thresh ||
 				processed > (quota << PROC_CAP) || stop_chain) {
 				/* we reached quota already */
 				if (processed >= quota) {
@@ -2332,7 +2453,7 @@ et_rxevent(osl_t *osh, et_info_t *et, struct chops *chops, void *ch, int quota)
 			}
 		}
 		else
-#endif /*ET_INGRESS_QOS*/
+#endif /* ET_INGRESS_QOS */
 		{
 			/* we reached quota already */
 			if (processed >= quota) {
@@ -2565,13 +2686,36 @@ et_error(et_info_t *et, struct sk_buff *skb, void *rxh)
 	}
 }
 
+#ifdef HNDCTF
+#ifdef CONFIG_IP_NF_DNSMQ
+typedef int (*dnsmqHitHook)(struct sk_buff *skb);
+extern dnsmqHitHook dnsmq_hit_hook;
+#endif
+#endif
+
 static inline int32
 et_ctf_forward(et_info_t *et, struct sk_buff *skb)
 {
 #ifdef HNDCTF
+	int ret;
+#ifdef CONFIG_IP_NF_DNSMQ
+	bool dnsmq_hit = FALSE;
+
+	if (dnsmq_hit_hook && dnsmq_hit_hook(skb))
+		dnsmq_hit = TRUE;
+#endif
 	/* try cut thru first */
-	if (CTF_ENAB(et->cih) && ctf_forward(et->cih, skb, skb->dev) != BCME_ERROR)
+	if (CTF_ENAB(et->cih) &&
+#ifdef CONFIG_IP_NF_DNSMQ
+		!dnsmq_hit &&
+#endif
+		(ret = ctf_forward(et->cih, skb, skb->dev)) != BCME_ERROR) {
+		if (ret == BCME_EPERM) {
+			PKTFRMNATIVE(et->osh, skb);
+			PKTFREE(et->osh, skb, FALSE);
+		}
 		return (BCME_OK);
+	}
 
 	/* clear skipct flag before sending up */
 	PKTCLRSKIPCT(et->osh, skb);
@@ -2662,6 +2806,7 @@ et_sendup(et_info_t *et, struct sk_buff *skb)
 	if (et_ctf_forward(et, skb) != BCME_ERROR)
 		return;
 
+	PKTCLRTOBR(etc->osh, skb);
 	if (PKTISFAFREED(skb)) {
 		/* HW FA ate it */
 		PKTCLRFAAUX(skb);

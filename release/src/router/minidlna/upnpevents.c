@@ -67,6 +67,7 @@
 #include "upnpglobalvars.h"
 #include "upnpdescgen.h"
 #include "uuid.h"
+#include "utils.h"
 #include "log.h"
 
 /* stuctures definitions */
@@ -130,7 +131,7 @@ newSubscriber(const char * eventurl, const char * callback, int callbacklen)
 	memcpy(tmp->callback, callback, callbacklen);
 	tmp->callback[callbacklen] = '\0';
 	/* make a dummy uuid */
-	strncpy(tmp->uuid, uuidvalue, sizeof(tmp->uuid));
+	strncpyt(tmp->uuid, uuidvalue, sizeof(tmp->uuid));
 	if( get_uuid_string(tmp->uuid+5) != 0 )
 	{
 		tmp->uuid[sizeof(tmp->uuid)-1] = '\0';
@@ -154,7 +155,7 @@ upnpevents_addSubscriber(const char * eventurl,
 	if(!tmp)
 		return NULL;
 	if(timeout)
-		tmp->timeout = time(NULL) + timeout;
+		tmp->timeout = uptime() + timeout;
 	LIST_INSERT_HEAD(&subscriberlist, tmp, entries);
 	upnp_event_create_notify(tmp);
 	return tmp->uuid;
@@ -167,7 +168,7 @@ renewSubscription(const char * sid, int sidlen, int timeout)
 	struct subscriber * sub;
 	for(sub = subscriberlist.lh_first; sub != NULL; sub = sub->entries.le_next) {
 		if(memcmp(sid, sub->uuid, 41) == 0) {
-			sub->timeout = (timeout ? time(NULL) + timeout : 0);
+			sub->timeout = (timeout ? uptime() + timeout : 0);
 			return 0;
 		}
 	}
@@ -481,7 +482,7 @@ void upnpevents_processfds(fd_set *readset, fd_set *writeset)
 		obj = next;
 	}
 	/* remove timeouted subscribers */
-	curtime = time(NULL);
+	curtime = uptime();
 	for(sub = subscriberlist.lh_first; sub != NULL; ) {
 		subnext = sub->entries.le_next;
 		if(sub->timeout && curtime > sub->timeout && sub->notify == NULL) {

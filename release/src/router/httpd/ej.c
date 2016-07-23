@@ -99,7 +99,8 @@ call(char *func, FILE *stream)
 
 	/* Call handler */
 	for (handler = &ej_handlers[0]; handler->pattern; handler++) {
-		if (strncmp(handler->pattern, func, strlen(handler->pattern)) == 0)
+//		if (strncmp(handler->pattern, func, strlen(handler->pattern)) == 0)
+		if (strcmp(handler->pattern, func) == 0)
 			handler->output(0, stream, argc, argv);
 	}
 }
@@ -112,7 +113,7 @@ process_asp (char *s, char *e, FILE *f)
 {
 	char *func = NULL, *end = NULL;
 
-	if (s == NULL || e == NULL || f == NULL || s >= e)      {
+	if (s == NULL || e == NULL || f == NULL || s >= e) {
 		return NULL;
 	}
 
@@ -139,7 +140,7 @@ static char *
 translate_lang (char *s, char *e, FILE *f, kw_t *pkw)
 {
 	char *end = NULL, *name = NULL, *desc = NULL;
-	if (s == NULL || e == NULL || f == NULL || pkw == NULL || s >= e)       {
+	if (s == NULL || e == NULL || f == NULL || pkw == NULL || s >= e) {
 		return NULL;
 	}
 
@@ -154,17 +155,17 @@ translate_lang (char *s, char *e, FILE *f, kw_t *pkw)
 		desc = search_desc (pkw, name);
 		if (desc != NULL) {
 #ifdef RTCONFIG_ODMPID
-			static char pattern1[1024];
+			static char pattern1[2048];
 			char *p_PID_STR = NULL;
 			char *PID_STR = nvram_safe_get("productid");
-			char *OEM_PID_STR = nvram_safe_get("odmpid");
+			char *ODM_PID_STR = nvram_safe_get("odmpid");
 			char *pSrc, *pDest;
 			int pid_len, odm_len;
 
 			pid_len = strlen(PID_STR);
-			odm_len = strlen(OEM_PID_STR);
+			odm_len = strlen(ODM_PID_STR);
 
-			if (odm_len && strcmp(PID_STR, OEM_PID_STR) != 0) {
+			if (odm_len && strcmp(PID_STR, ODM_PID_STR) != 0) {
 				pSrc  = desc;
 				pDest = pattern1;
 				while((p_PID_STR = strstr(pSrc, PID_STR)))
@@ -173,7 +174,7 @@ translate_lang (char *s, char *e, FILE *f, kw_t *pkw)
 					pDest += (p_PID_STR - pSrc);
 					pSrc   =  p_PID_STR + pid_len;
 
-					memcpy(pDest, OEM_PID_STR, odm_len);
+					memcpy(pDest, ODM_PID_STR, odm_len);
 					pDest += odm_len;
 				}
 				if(pDest != pattern1)
@@ -203,9 +204,9 @@ extern int is_firsttime(void);
 void
 do_ej(char *path, FILE *stream)
 {
-#define PATTERN_LENGTH  1024
-#define FRAG_SIZE	       128
-#define RESERVE_SIZE    4
+#define PATTERN_LENGTH	1024
+#define FRAG_SIZE	128
+#define RESERVE_SIZE	4
 	int frag_size = FRAG_SIZE;
 	int pattern_size = PATTERN_LENGTH - RESERVE_SIZE;
 	char pat_buf[PATTERN_LENGTH];
@@ -217,7 +218,6 @@ do_ej(char *path, FILE *stream)
 	int no_translate = 1;
 	static kw_t kw = {0, 0, NULL, NULL};
 
-
 	if (!(fp = fopen(path, "r")))
 		return;
 
@@ -225,18 +225,28 @@ do_ej(char *path, FILE *stream)
 	// Load dictionary file
 
 	// If the router is restored to default, using browser's language setting to display ALL pages
-	if (is_firsttime () && Accept_Language[0] != '\0')      {
+	if (is_firsttime () && Accept_Language[0] != '\0' && nvram_match("ui_Setting", "0")) {
 		lang = Accept_Language;
+		nvram_set("ui_Setting" , "1");
 	} else {
-		lang = nvram_safe_get ("preferred_lang");
+		lang = nvram_safe_get("preferred_lang");
+		if (!check_lang_support(lang)) {
+			nvram_set("preferred_lang", "EN");
+			lang = "EN";
+		}
 	}
+
+#if 0
+	if(!strncmp(nvram_safe_get("territory_code"), "JP", 2) && strcmp(nvram_safe_get("ATEMODE"), "1")){
+		nvram_set("preferred_lang", "JP");
+		lang = "JP";	
+	}
+#endif
 
 	if (load_dictionary (lang, &kw))	{
 		no_translate = 0;
 	}
 #endif  //defined TRANSLATE_ON_FLY
-
-
 
 	start_pat = end_pat = pattern;
 	memset (pattern + pattern_size, 0, 4);
@@ -265,7 +275,6 @@ do_ej(char *path, FILE *stream)
 		end_pat += len;
 		*end_pat = '\0';
 
-
 		asp = strstr (start_pat, asp_mark1);
 		key = NULL;
 		if (no_translate == 0)  {
@@ -274,7 +283,7 @@ do_ej(char *path, FILE *stream)
 		special = 0;
 		while ((start_pat < end_pat) && special == 0)
 		{
-			int postproc = 0;       /* 0: need more data; 1: translate; 2: execute asp; 3: write only; */
+			int postproc = 0;	/* 0: need more data; 1: translate; 2: execute asp; 3: write only; */
 			char *s, *e, *p;
 
 			/*				 asp      asp_end
@@ -297,7 +306,7 @@ do_ej(char *path, FILE *stream)
 			if (key != NULL && asp == NULL) {
 				e = key;						// Write start_pat ~ (key - 1)
 				key_end = strstr (key, kw_mark2);
-				if (key_end != NULL)    {	       // We do have <#...#> in pattern[].
+				if (key_end != NULL) {	// We do have <#...#> in pattern[].
 					postproc = 1;
 				}
 			} else if (key != NULL && asp != NULL)  {
@@ -305,20 +314,20 @@ do_ej(char *path, FILE *stream)
 				if (asp < key)  {
 					e = asp;					// Write start_pat ~ (asp - 1)
 					asp_end = strstr (asp, asp_mark2);
-					if (asp_end != NULL)    {       // We do have whole <%...%>.
+					if (asp_end != NULL) {	// We do have whole <%...%>.
 						postproc = 2;
 					}
 				} else {
 					e = key;					// Write start_pat ~ (key - 1)
 					key_end = strstr (key, kw_mark2);
-					if (key_end != NULL)    {       // We do have whole <#...#>.
+					if (key_end != NULL) {	// We do have whole <#...#>.
 						postproc = 1;
 					}
 				}
 			} else if (key == NULL && asp != NULL)  {
 				e = asp;						// Write start_pat ~ (asp - 1)
 				asp_end = strstr (asp, asp_mark2);
-				if (asp_end != NULL)    {	       // We do have whole <%...%>.
+				if (asp_end != NULL) {	// We do have whole <%...%>.
 					postproc = 2;
 				}
 			} else {
@@ -333,12 +342,12 @@ do_ej(char *path, FILE *stream)
 			}
 
 			// process text preceeding <# or <%
-			if (e > s)      {
+			if (e > s) {
 				ret = fwrite (s, 1, (size_t) (e - s), stream);
 				if (ret == 0 || ret < (e - s))  {
 					/* the connection had been damaged. DO NOT process another data. */
 					/* (reduce response time of httpd) */
-//				      cprintf ("fwrite() ret %d, s %p e %p len %d, break do_ej()'s while loop\n", ret, s, e, e-s);
+//					cprintf ("fwrite() ret %d, s %p e %p len %d, break do_ej()'s while loop\n", ret, s, e, e-s);
 					conn_break = 1;
 					break;
 				} else {
@@ -347,19 +356,19 @@ do_ej(char *path, FILE *stream)
 			}
 			// post process
 			p = NULL;
-			if (postproc == 1) {			    // translate
+			if (postproc == 1) {				// translate
 				p = translate_lang (key + strlen (kw_mark1), key_end, stream, &kw);
-				if (no_translate == 0 && p != NULL)     {
+				if (no_translate == 0 && p != NULL) {
 					key = strstr (p, kw_mark1);
 				}
-			} else if (postproc == 2)       {	       // execute asp
+			} else if (postproc == 2) {			// execute asp
 				p = process_asp (asp + strlen (asp_mark1), asp_end, stream);
 				if (p != NULL)  {
 					asp = strstr (p, asp_mark1);
 				}
-			} else if (postproc == 3)       {	       // no <%...%> or <#...#>
+			} else if (postproc == 3) {			// no <%...%> or <#...#>
 				p = e;
-			} else if (postproc == 0)       {	       // read more data
+			} else if (postproc == 0) {			// read more data
 				break;
 			}
 
@@ -367,9 +376,8 @@ do_ej(char *path, FILE *stream)
 				start_pat = p;
 			}
 
-		}       /* while ((start_pat < end_pat) && special == 0) */
-	}	       /* while (conn_break == 0) */
-
+		}	/* while ((start_pat < end_pat) && special == 0) */
+	}		/* while (conn_break == 0) */
 
 	fflush (stream);
 	fclose(fp);
@@ -379,7 +387,6 @@ do_ej(char *path, FILE *stream)
 	}
 }
 #endif  // defined TRANSLATE_ON_FLY
-
 
 int
 ejArgs(int argc, char **argv, char *fmt, ...)

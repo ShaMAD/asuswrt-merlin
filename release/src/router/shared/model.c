@@ -14,15 +14,50 @@ struct model_s {
 };
 
 static const struct model_s model_list[] = {
-#if !defined(RTCONFIG_RALINK)
+#if defined(RTCONFIG_RALINK)
+#ifdef RTCONFIG_DSL
+	{ "DSL-N55U",	MODEL_DSLN55U	},
+	{ "DSL-N55U-B",	MODEL_DSLN55U	},
+#endif
+	{ "EA-N66",	MODEL_EAN66	},
+	{ "RT-N11P",	MODEL_RTN11P	},
+	{ "RT-N300",	MODEL_RTN300	},
+	{ "RT-N13U",	MODEL_RTN13U	},
+	{ "RT-N14U",	MODEL_RTN14U	},
+	{ "RT-AC52U",	MODEL_RTAC52U	},
+	{ "RT-AC51U",	MODEL_RTAC51U	},
+	{ "RT-N54U",	MODEL_RTN54U	},
+	{ "RT-AC54U",	MODEL_RTAC54U	},
+	{ "RT-N56UB1",	MODEL_RTN56UB1	},
+	{ "RT-N56UB2",	MODEL_RTN56UB2	},
+	{ "RT-N36U3",	MODEL_RTN36U3	},
+	{ "RT-N56U",	MODEL_RTN56U	},
+	{ "RT-N65U",	MODEL_RTN65U	},
+	{ "RT-N67U",	MODEL_RTN67U	},
+	{ "RT-AC1200HP",MODEL_RTAC1200HP},
+#elif defined(RTCONFIG_QCA)
+	{ "RT-AC55U",	MODEL_RTAC55U	},
+	{ "RT-AC55UHP",	MODEL_RTAC55UHP	},
+	{ "4G-AC55U",	MODEL_RT4GAC55U	},
+	{ "PL-N12",	MODEL_PLN12	},
+	{ "PL-AC56",	MODEL_PLAC56	},
+	{ "PL-AC66U",	MODEL_PLAC66U	},
+#else
 	{ "RT-N66U",	MODEL_RTN66U	},
 	{ "RT-AC56S",	MODEL_RTAC56S	},
 	{ "RT-AC56U",	MODEL_RTAC56U	},
 	{ "RT-AC66U",	MODEL_RTAC66U	},
 	{ "RT-AC68U",	MODEL_RTAC68U	},
-	{ "RT-AC68U_V2",MODEL_RTAC68U	},
-	{ "RT-AC69U",	MODEL_RTAC68U	},
+	{ "RP-AC68U",	MODEL_RPAC68U	},
+	{ "RT-AC68A",   MODEL_RTAC68U   },
+	{ "4G-AC68U",   MODEL_RTAC68U   },
+	{ "RT-AC87U",	MODEL_RTAC87U	},
 	{ "RT-AC53U",	MODEL_RTAC53U	},
+	{ "RT-AC3200",	MODEL_RTAC3200	},
+	{ "RT-AC88U",	MODEL_RTAC88U	},
+	{ "RT-AC3100",	MODEL_RTAC3100	},
+	{ "RT-AC5300",	MODEL_RTAC5300	},
+	{ "RT-AC5300R",	MODEL_RTAC5300R	},
 	{ "RT-N53",	MODEL_RTN53	},
 	{ "RT-N16",	MODEL_RTN16	},
 	{ "RT-N18U",	MODEL_RTN18U	},
@@ -42,25 +77,16 @@ static const struct model_s model_list[] = {
 	{ "RT-N10P",	MODEL_RTN10P	},
 	{ "RT-N10D1",	MODEL_RTN10D1	},
 	{ "RT-N10PV2",	MODEL_RTN10PV2	},
-#else	/* RTCONFIG_RALINK */
-#ifdef RTCONFIG_DSL
-	{ "DSL-N55U",	MODEL_DSLN55U	},
-	{ "DSL-N55U-B",	MODEL_DSLN55U	},
-#endif
-	{ "EA-N66",	MODEL_EAN66	},
-	{ "RT-N13U",	MODEL_RTN13U	},
-	{ "RT-N14U",	MODEL_RTN14U	},
-	{ "RT-AC52U",	MODEL_RTAC52U	},
-	{ "RT-AC51U",	MODEL_RTAC51U	},
-	{ "RT-N36U3",	MODEL_RTN36U3	},
-	{ "RT-N56U",	MODEL_RTN56U	},
-	{ "RT-N65U",	MODEL_RTN65U	},
-	{ "RT-N67U",	MODEL_RTN67U	},
+	{ "DSL-AC68U",	MODEL_DSLAC68U	},
+	{ "RT-AC1200G", MODEL_RTAC1200G	},
+	{ "RT-AC1200G+", MODEL_RTAC1200GP},
 #endif	/* !RTCONFIG_RALINK */
 	{ NULL, 0 },
 };
 
-#if !defined(RTCONFIG_RALINK)
+#if defined(RTCONFIG_RALINK)
+#elif defined(RTCONFIG_QCA)
+#else
 static int get_model_by_hw(void)
 {
 	char *hw_version = nvram_safe_get("hardware_version");
@@ -102,7 +128,7 @@ int get_blver(char *bls) {
         if(bls)
 		strcpy(buf, bls);
 	bp = buf;
-	while(tok = strsep((char**)&bp, delim))
+	while((tok = strsep((char**)&bp, delim)))
 		if(i < BLV_MAX)
 			bv[i++] = atoi(tok);
 
@@ -111,6 +137,10 @@ int get_blver(char *bls) {
         return blver;
 }
 
+int get_fwver(char *buildno, char *extendno) {
+	
+	return atoi(buildno)*100000 + atoi(extendno);
+}
 
 /* returns MODEL ID
  * result is cached for safe multiple use */
@@ -130,7 +160,9 @@ int get_model(void)
 			break;
 		}
 	}
-#if !defined(RTCONFIG_RALINK)
+#if defined(RTCONFIG_RALINK)
+#elif defined(RTCONFIG_QCA)
+#else
 	if (model == MODEL_RTN12)
 		model = get_model_by_hw();
 	if (model == MODEL_APN12)
@@ -139,7 +171,9 @@ int get_model(void)
 	return model;
 }
 
-#if !defined(RTCONFIG_RALINK)
+#if defined(RTCONFIG_RALINK)
+#elif defined(RTCONFIG_QCA)
+#else
 /* returns product id */
 char *get_modelid(int model)
 {

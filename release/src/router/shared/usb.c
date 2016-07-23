@@ -20,6 +20,7 @@
 #include <arpa/inet.h>
 #include <sys/sysinfo.h>
 #include <sys/types.h>
+#include <linux/version.h>
 
 #include <bcmnvram.h>
 #include <bcmdevs.h>
@@ -28,35 +29,36 @@
 #include "shutils.h"
 #include "shared.h"
 
+#include <linux/version.h>
+#ifndef LINUX_KERNEL_VERSION
+#define LINUX_KERNEL_VERSION LINUX_VERSION_CODE
+#endif
 
 /* Serialize using fcntl() calls 
  */
 
-int check_magic(char *buf, char *magic)
-{
-	if (strncmp(magic, "ext3_chk", 8) == 0) 
-	{
-		if (!((uint32_t)(buf) & 4))
+int check_magic(char *buf, char *magic){
+	if(!strncmp(magic, "ext3_chk", 8)){
+		if(!((*buf)&4))
 			return 0;
-		if ((uint32_t)(buf+4) >= 0x40)
+		if(*(buf+4) >= 0x40)
 			return 0;
-		if((uint32_t)(buf+8) >=8)
+		if(*(buf+8) >= 8)
 			return 0;
 		return 1;
 	}
  
-	if (strncmp(magic, "ext4_chk", 8) == 0) 
-	{
-		if (!((uint32_t)(buf) & 4))
+	if(!strncmp(magic, "ext4_chk", 8)){
+		if(!((*buf)&4))
 			return 0;
-		if ((uint32_t)(buf+4) > 0x3F)
+		if(*(buf+4) > 0x3F)
 			return 1;
-		if ((uint32_t)(buf+4) >= 0x40)
+		if(*(buf+4) >= 0x40)
 			return 0;
-		if((uint32_t)(buf+8) <= 7)
+		if(*(buf+8) <= 7)
 			return 0;
 		return 1;
-	} 
+	}
 
 	return 0;
 }
@@ -96,9 +98,9 @@ char *detect_fs_type(char *device)
 	/* detect ext2/3/4 */
 	else if (buf[0x438] == 0x53 && buf[0x439] == 0xEF)
 	{
-		if(check_magic(&buf[0x45c], "ext3_chk"))
+		if(check_magic((char *) &buf[0x45c], "ext3_chk"))
 			return "ext3";
-		else if(check_magic(&buf[0x45c], "ext4_chk"))
+		else if(check_magic((char *) &buf[0x45c], "ext4_chk"))
 			return "ext4";
 		else
 			return "ext2";
@@ -257,7 +259,11 @@ int exec_for_host(int host, int obsolete, uint flags, host_exec func)
 		    !strcmp(dp->d_name, "..")
 		   )
 			continue;
+#if LINUX_KERNEL_VERSION >= KERNEL_VERSION(3,3,0)
+		snprintf(device_path, sizeof(device_path), "/sys/block/%s", dp->d_name);
+#else
 		snprintf(device_path, sizeof(device_path), "/sys/block/%s/device", dp->d_name);
+#endif
 		if (readlink(device_path, linkbuf, sizeof(linkbuf)) == -1)
 			continue;
 		h = strstr(linkbuf, "/host");
@@ -496,6 +502,7 @@ extern int volume_id_probe_ext();
 extern int volume_id_probe_vfat();
 extern int volume_id_probe_ntfs();
 extern int volume_id_probe_linux_swap();
+extern int volume_id_probe_hfs_hfsplus(struct volume_id *id);
 
 /* Put the label in *label and uuid in *uuid.
  * Return 0 if no label/uuid found, NZ if there is a label or uuid.
@@ -520,6 +527,10 @@ int find_label_or_uuid(char *dev_name, char *label, char *uuid)
 		goto ret;
 	if (volume_id_probe_ntfs(&id) == 0 || id.error)
 		goto ret;
+#if defined(RTCONFIG_HFS)
+	if(volume_id_probe_hfs_hfsplus(&id) == 0 || id.error)
+		goto ret;
+#endif
 ret:
 	volume_id_free_buffer(&id);
 	if (label && (*id.label != 0))
@@ -534,12 +545,12 @@ void *xmalloc(size_t siz)
 {
 	return (malloc(siz));
 }
-
+#if 0
 static void *xrealloc(void *old, size_t size)
 {
 	return realloc(old, size);
 }
-
+#endif
 ssize_t full_read(int fd, void *buf, size_t len)
 {
 	return read(fd, buf, len);

@@ -22,6 +22,19 @@ function inet_network(ip_str){
 	return -2;
 }
 
+//Filtering ip address with leading zero, if end-user keyin IP 192.168.02.1, system auto filtering IP 192.168.2.1
+function ipFilterZero(ip_str){ 
+	var re = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/;
+	if(re.test(ip_str)){
+		var v1 = parseInt(RegExp.$1);
+		var v2 = parseInt(RegExp.$2);
+		var v3 = parseInt(RegExp.$3);
+		var v4 = parseInt(RegExp.$4);
+		return v1+"."+v2+"."+v3+"."+v4;
+	}
+	return -2;
+}
+
 function isMask(ip_str){
 	if(!ip_str)
 		return 0;
@@ -166,655 +179,6 @@ function entry_cmp(entry, match, len){  //compare string length function
 	return 0;
 }
 
-function is_functionButton(e){
-//function keycode for Firefox/Opera
-	var keyCode = e.keyCode;
-	if(e.which == 0) {
-		if (keyCode == 0
-			|| keyCode == 27 //Esc
-			|| keyCode == 35 //end
-			|| keyCode == 36 //home
-			|| keyCode == 37 //<-
-			|| keyCode == 39 //->
-			|| keyCode == 45 //Insert
-			|| keyCode == 46 //Del
-			){
-			return true;
-		}
-	}
-	if (       keyCode == 8 	//backspace
-		|| keyCode == 9 	//tab
-		){
-		return true;
-	}
-	return false;
-}
-
-function is_hwaddr(o,event){
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-
-	if (is_functionButton(event)){
-		return true;
-	}
-
-	if((keyPressed>47 && keyPressed<58)||(keyPressed>64 && keyPressed<71)||(keyPressed>96 && keyPressed<103)){	//Hex
-		j = 0;
-		
-		for(i = 0; i < o.value.length; i++){
-			if(o.value.charAt(i) == ':'){
-				j++;
-			}
-		}
-		
-		if(j < 5 && i >= 2){
-			if(o.value.charAt(i-2) != ':' && o.value.charAt(i-1) != ':'){
-				o.value = o.value+':';
-			}
-		}
-		
-		return true;
-	}	
-	else if(keyPressed == 58 || keyPressed == 13){	//symbol ':' & 'ENTER'
-		return true;
-	}
-	else{
-		return false;
-	}
-}
-
-function validate_string_ssid(o){
-	var c;	// character code
-	var flag=0; // notify valid characters of SSID except space
-	
-	if(o.value==""){      // to limit null SSID
-		alert('<#JS_fieldblank#>');
-		o.focus();
-		return false;
-	}	
-	
-	for(var i = 0; i < o.value.length; ++i){
-		c = o.value.charCodeAt(i);
-		
-		if(validate_ssidchar(c)){
-			alert('<#JS_validSSID1#> '+o.value.charAt(i)+' <#JS_validSSID2#>');
-			o.value = "";
-			o.focus();
-			o.select();
-			return false;
-		}
-		
-		if(c != 32)
-			flag ++;
-	}
-	
-	if(flag ==0){     // to limit SSID only include space
-		alert('<#JS_fieldblank#>');
-		return false;
-	}
-	
-	return true;
-}
-
-function validate_string_group(o){
-	var c;	// character code	
-	for(var i = 0; i < o.value.length; ++i){
-		c = o.value.charCodeAt(i);
-		
-		if(!validate_groupchar(c)){
-			alert('<#JS_validSSID1#> '+o.value.charAt(i)+' <#JS_validSSID2#>');
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	return true;
-}
-
-function validate_groupchar(ch){
-	if(ch == 60 || ch == 62) /*ch == 39 || */
-		return false;
-	
-	return true;
-}
-
-function is_number(o,event){	
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-	
-	if (is_functionButton(event)){
-		return true;
-	}
-
-	if (keyPressed>47 && keyPressed<58){
-		/*if (keyPressed==48 && o.value.length==0){	//single 0
-			return false;	
-		}*/
-		return true;
-	}
-	else{
-		return false;
-	}
-}
-
-function validate_range(o, _min, _max) {
-	if(isNaN(o.value)){
-		alert('<#JS_validrange#> ' + _min + ' <#JS_validrange_to#> ' + _max);
-		o.focus();
-		o.select();
-		return false;
-	}
-	
-	if(_min > _max){
-		var tmpNum = "";
-	
-		tmpNum = _min;
-		_min = _max;
-		_max = tmpNum;
-	}
-
-	if(o.value < _min || o.value > _max) {
-		alert('<#JS_validrange#> ' + _min + ' <#JS_validrange_to#> ' + _max);
-		o.focus();
-		o.select();
-		return false;
-	}
-	else {
-		o.value = str2val(o.value);
-		if(o.value=="")
-			o.value="0";
-			
-		return true;
-	}
-}
-
-function validate_range_sp(o, min, max, def) {		//allow to set "0"
-	if (o.value==0) return true;
-	
-	if(o.value<min || o.value>max) {
-		alert('<#JS_validrange#> ' + min + ' <#JS_validrange_to#> ' + max + '.');
-		o.value = def;
-		o.focus();
-		o.select();
-		return false;
-	}
-	else {
-		o.value = str2val(o.value);
-		if(o.value=="") 
-			o.value="0";
-		return true;
-	}
-}
-
-function is_ipaddr(o,event){
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-
-	if (is_functionButton(event)){
-		return true;
-	}
-
-	if((keyPressed > 47 && keyPressed < 58)){
-		j = 0;
-		
-		for(i = 0; i < o.value.length; i++){
-			if(o.value.charAt(i) == '.'){
-				j++;
-			}
-		}
-		
-		if(j < 3 && i >= 3){
-			if(o.value.charAt(i-3) != '.' && o.value.charAt(i-2) != '.' && o.value.charAt(i-1) != '.'){
-				o.value = o.value+'.';
-			}
-		}
-		
-		return true;
-	}
-	else if(keyPressed == 46){
-		j = 0;
-		
-		for(i = 0; i < o.value.length; i++){
-			if(o.value.charAt(i) == '.'){
-				j++;
-			}
-		}
-		
-		if(o.value.charAt(i-1) == '.' || j == 3){
-			return false;
-		}
-		
-		return true;
-	}else if(keyPressed == 13){	// 'ENTER'
-		return true;
-	}
-	
-	return false;
-}
-
-function requireWANIP(v){
-	if(v == 'wan_ipaddr_x' || v == 'wan_netmask_x' ||
-			v == 'lan_ipaddr' || v == 'lan_netmask' ||
-			v == 'lan1_ipaddr' || v == 'lan1_netmask'){
-		// 2008.03 James. patch for Oleg's patch. {
-		/*if(document.form.wan_proto.value == "static" || document.form.wan_proto.value == "pptp")
-			return 1;
-		else
-			return 0;*/
-		if(document.form.wan_proto.value == "static")
-			return 1;
-		else if(document.form.wan_proto.value == "pppoe" && inet_network(document.form.wan_ipaddr_x.value))
-			return 1;
-		else if((document.form.wan_proto.value=="pptp" || document.form.wan_proto.value == "l2tp")
-				&& document.form.wan_ipaddr_x.value != '0.0.0.0')
-			return 1;
-		else
-			return 0;
-		// 2008.03 James. patch for Oleg's patch. }
-	}
-	
-	else return 0;
-}
-
-function matchSubnet2(wan_ip1, wan_sb1,lan_ip2,lan_sb2){
-	var nsb;
-	var nsb1 = inet_network(wan_sb1.value);
-	var nsb2 = inet_network(lan_sb2.value);
-	var nip1 = inet_network(wan_ip1);
-
-	if(nip1 == 0 || nip1 == -1) // check if WAN IP = 0.0.0.0 or NULL (factory default value)
-		return 1;
-
-	if(nsb1 < nsb2 && nsb1 !=0)
-		nsb = nsb1;
-	else
-		nsb = nsb2;
-	
-	if((inet_network(wan_ip1)&nsb) == (inet_network(lan_ip2)&nsb))
-		return 1;
-	else
-		return 0;
-}
-
-function validate_ipaddr_final(o, v){
-	var num = -1;
-	var pos = 0;
-		
-	if(o.value.length == 0){
-		if(v == 'dhcp_start' || v == 'dhcp_end' ||
-				v == 'wan_ipaddr_x' ||
-				v == 'dhcp1_start' || v=='dhcp1_end' ||
-				v == 'lan_ipaddr' || v=='lan_netmask' ||
-				v=='lan1_ipaddr' || v=='lan1_netmask' ||
-				v == 'wl_radius_ipaddr') {	
-			alert("<#JS_fieldblank#>");
-			
-			if(v == 'wan_ipaddr_x'){
-				document.form.wan_ipaddr_x.value = "10.1.1.1";
-				document.form.wan_netmask_x.value = "255.0.0.0";
-			}
-			else if(v == 'lan_ipaddr'){
-				document.form.lan_ipaddr.value = "192.168.1.1";
-				document.form.lan_netmask.value = "255.255.255.0";
-			}
-			else if(v == 'lan1_ipaddr'){
-				document.form.lan1_ipaddr.value = "192.168.2.1";
-				document.form.lan1_netmask.value = "255.255.255.0";
-			}
-			else if(v == 'lan_netmask')
-				document.form.lan_netmask.value = "255.255.255.0";
-			else if(v == 'lan1_netmask')
-				document.form.lan1_netmask.value = "255.255.255.0";
-			
-			o.focus();
-			o.select();
-			
-			return false;
-		}
-		else
-			return true;
-	}
-	
-	if(v == 'wan_ipaddr_x' && document.form.wan_netmask_x.value == "")
-		document.form.wan_netmask_x.value="255.255.255.0";
-	
-	for(var i = 0; i < o.value.length; ++i){
-		var c = o.value.charAt(i);
-		
-		if(c >= '0' && c <= '9'){
-			if(num == -1 ){
-				num = (c-'0');
-			}
-			else{
-				num = num*10+(c-'0');
-			}
-		}
-		else{
-			if(num < 0 || num > 255 || c != '.'){
-				alert(o.value+" <#JS_validip#>");
-				
-				o.value = "";
-				o.focus();
-				o.select();
-				
-				return false;
-			}
-			
-			if(pos == 0)
-				v1 = num;
-			else if(pos == 1)
-				v2 = num;
-			else if(pos == 2)
-				v3 = num;
-			
-			num = -1;
-			++pos;
-		}
-	}
-	
-	if(pos!=3 || num<0 || num>255){
-		alert(o.value + " <#JS_validip#>");
-		o.value = "";
-		o.focus();
-		o.select();
-		
-		return false;
-	}
-	else
-		v4 = num;
-	
-	if(v == 'dhcp_start' || v == 'dhcp_end' ||
-			v == 'wan_ipaddr_x' ||
-			v == 'dhcp1_start' || v == 'dhcp1_end' ||
-			v == 'lan_ipaddr' || v == 'lan1_ipaddr' ||
-			v == 'staticip' || v == 'wl_radius_ipaddr' ||
-			v == 'dhcp_dns1_x' || v == 'dhcp_gateway_x' || v == 'dhcp_wins_x'){
-		if((v!='wan_ipaddr_x')&& (v1==255||v4==255||v1==0||v4==0||v1==127||v1==224)){
-			alert(o.value + " <#JS_validip#>");
-			
-			o.value = "";
-			o.focus();
-			o.select();
-			
-			return false;
-		}
-		
-		if((wan_route_x == "IP_Bridged" && wan_nat_x == "0") || sw_mode=="2" || sw_mode=="3")	// variables are defined in state.js
-			;	// there is no WAN in AP mode, so it wouldn't be compared with the wan ip..., etc.
-		else if(requireWANIP(v) && (
-				(v=='wan_ipaddr_x' &&  matchSubnet2(o.value, document.form.wan_netmask_x, document.form.lan_ipaddr.value, document.form.lan_netmask)) ||
-				(v=='lan_ipaddr' &&  matchSubnet2(o.value, document.form.lan_netmask, document.form.wan_ipaddr_x.value, document.form.wan_netmask_x))
-				)){
-			alert(o.value + " <#JS_validip#>");
-			if(v == 'wan_ipaddr_x'){
-				document.form.wan_ipaddr_x.value = "10.1.1.1";
-				document.form.wan_netmask_x.value = "255.0.0.0";
-			}
-			else if(v == 'lan_ipaddr'){
-				document.form.lan_ipaddr.value = "192.168.1.1";
-				document.form.lan_netmask.value = "255.255.255.0";
-			}
-			else if(v == 'lan1_ipaddr'){
-				document.form.lan1_ipaddr.value = "192.168.2.1";
-				document.form.lan1_netmask.value = "255.255.255.0";
-			}
-			
-			o.focus();
-			o.select();
-			
-			return false;
-		}
-	}
-	else if(v=='lan_netmask' || v=='lan1_netmask'){
-		if(v1==255&&v2==255&&v3==255&&v4==255){
-			alert(o.value + " <#JS_validip#>");
-			o.value = "";
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	
-	if((wan_route_x == "IP_Bridged" && wan_nat_x == "0") || sw_mode=="2" || sw_mode=="3")	// variables are defined in state.js
-			;	// there is no WAN in AP mode, so it wouldn't be compared with the wan ip..., etc.
-	else if(requireWANIP(v) && (
-			(v=='wan_netmask_x' &&  matchSubnet2(document.form.wan_ipaddr_x.value, o, document.form.lan_ipaddr.value, document.form.lan_netmask)) ||
-			(v=='lan_netmask' &&  matchSubnet2(document.form.lan_ipaddr.value, o, document.form.wan_ipaddr_x.value, document.form.wan_netmask_x))
-			)){
-		alert(o.value + " <#JS_validip#>");
-		
-		if (v=='wan_netmask_x'){
-			document.form.wan_ipaddr_x.value = "10.1.1.1";
-			document.form.wan_netmask_x.value = "255.0.0.0";
-		}
-		else if(v=='lan_netmask'){
-			document.form.lan_ipaddr.value = "192.168.1.1";
-			document.form.lan_netmask.value = "255.255.255.0";
-		}
-		else if(v=='lan1_netmask'){
-			document.form.lan1_ipaddr.value = "192.168.2.1";
-			document.form.lan1_netmask.value = "255.255.255.0";
-		}
-		
-		o.focus();
-		o.select();
-		return false;
-	}
-		
-		
-	o.value = v1 + "." + v2 + "." + v3 + "." + v4;
-	
-	if((v1 > 0) && (v1 < 127)) mask = "255.0.0.0";
-	else if ((v1 > 127) && (v1 < 192)) mask = "255.255.0.0";
-	else if ((v1 > 191) && (v1 < 224)) mask = "255.255.255.0";
-	else mask = "0.0.0.0";
-	
-	if(v=='wan_ipaddr_x' && document.form.wan_netmask_x.value==""){
-		document.form.wan_netmask_x.value = mask;
-	}
-	else if (v=='lan_ipaddr' && document.form.lan_netmask.value=="" ){
-		document.form.lan_netmask.value = mask;
-	}else if (v=='dhcp_start'){
-		if (!matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_start.value, 3)){
-			alert(o.value + " <#JS_validip#>");
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	else if (v=='dhcp_end'){
-		if (!matchSubnet(document.form.lan_ipaddr.value, document.form.dhcp_end.value, 3)){
-			alert(o.value + " <#JS_validip#>");
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	else if (v=='lan1_ipaddr'){
-		if(document.form.lan1_netmask.value=="") document.form.lan1_netmask.value = mask;
-	}
-	else if (v=='dhcp1_start'){
-		if (!matchSubnet(document.form.lan1_ipaddr.value, document.form.dhcp1_start.value, 3)){
-			alert(o.value + " <#JS_validip#>");
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	else if (v=='dhcp1_end'){
-		if (!matchSubnet(document.form.lan1_ipaddr.value, document.form.dhcp1_end.value, 3)){
-			alert(o.value + " <#JS_validip#>");
-			o.focus();
-			o.select();
-			return false;
-		}
-	}
-	
-	return true;
-}
-
-function is_iprange(o, event){
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-
-	//function keycode for Firefox/Opera
-	if (is_functionButton(event)){
-		return true;
-	}
-
-	if ((keyPressed > 47 && keyPressed < 58)){	// 0~9
-		j = 0;
-		for(i=0; i<o.value.length; i++){
-			if (o.value.charAt(i)=='.'){
-				j++;
-			}
-		}
-		if (j<3 && i>=3){
-			if (o.value.charAt(i-3)!='.' && o.value.charAt(i-2)!='.' && o.value.charAt(i-1)!='.')
-			o.value = o.value + '.';
-		}
-		return true;
-	}
-	else if (keyPressed == 46){	// .
-		j = 0;
-		for(i=0; i<o.value.length; i++){
-			if (o.value.charAt(i)=='.'){
-				j++;
-			}
-		}
-		if (o.value.charAt(i-1)=='.' || j==3){
-			return false;
-		}
-		return true;
-	}
-	else if (keyPressed == 42){ // *
-		return true;
-	}
-	
-	return false;
-}
-function validate_iprange(o, v)
-{num = -1;
-pos = 0;
-if (o.value.length==0)
-return true;
-for(i=0; i<o.value.length; i++)
-{c=o.value.charAt(i);
-if(c>='0'&&c<='9')
-{if ( num==-1 )
-{num = (c-'0');
-}
-else
-{num = num*10 + (c-'0');
-}
-}
-else if (c=='*'&&num==-1)
-{num = 0;
-}
-else
-{if ( num<0 || num>255 || (c!='.'))
-{alert(o.value + " <#JS_validip#>");
-o.value = "";
-o.focus();
-o.select();
-return false;
-}
-num = -1;
-pos++;
-}
-}
-if (pos!=3 || num<0 || num>255)
-{alert(o.value + " <#JS_validip#>");
-o.value = "";
-o.focus();
-o.select();
-return false;
-}
-if (v=='ExternalIPAddress' && document.form.wan_netmask_x.value == '')
-{document.form.wan_netmask_x.value = "255.255.255.0";
-}
-else if (v=='IPRouters' && document.form.lan_netmask.value == '')
-{document.form.lan_netmask.value = "255.255.255.0";
-}
-return true;
-}
-function is_portrange(o,event){
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-
-	if (is_functionButton(event)){
-		return true;
-	}
-
-	if ((keyPressed > 47 && keyPressed < 58)){	//0~9
-		return true;
-	}
-	else if (keyPressed == 58 && o.value.length>0){
-		for(i=0; i<o.value.length; i++){
-			c=o.value.charAt(i);
-			if (c==':' || c=='>' || c=='<' || c=='=')
-			return false;
-		}
-		return true;
-	}
-	else if (keyPressed==44){  //"�? can be type in first charAt  ::: 0220 Lock add"
-		if (o.value.length==0)
-			return false;		
-		else
-			return true;
-	}
-	else if (keyPressed==60 || keyPressed==62){  //">" and "<" only can be type in first charAt ::: 0220 Lock add
-		if (o.value.length==0)
-			return true;		
-		else
-			return false;
-	}
-
-	return false;
-}
-
-function is_portlist(o,event){
-	keyPressed = event.keyCode ? event.keyCode : event.which;
-
-	//function keycode for Firefox/Opera
-	if (is_functionButton(event)){
-		return true;
-	}
-		
-	if ((keyPressed>47 && keyPressed<58) || keyPressed == 32){
-		return true;
-	}
-	else{
-		return false;
-	}
-}
-
-function validate_portlist(o, v){
-	if (o.value.length==0)
-		return true;
-	num = 0;
-	for(i=0; i<o.value.length; i++){
-		c=o.value.charAt(i);
-		if (c>='0'&&c<='9'){
-			num = num*10 + (c-'0');
-		}
-		else{
-			if (num>255){
-				alert(num + " <#JS_validport#>");
-				
-			o.focus();
-			o.select();
-			return false;
-			}
-			num = 0;
-		}
-	}
-		
-	if (num>255){
-		alert(num + " <#JS_validport#>");
-		o.focus();
-		o.select();
-		return false;
-	}
-	
-	return true;
-}
-
 function add_options_x2(o, arr, varr, orig){
 	free_options(o);
 	
@@ -874,27 +238,34 @@ function setTimeRange(sh, sm, eh, em){
 
 function change_firewall(r){
 	if (r == "0"){
-		//Viz 2012.08.14 move to System page inputRCtrl1(document.form.misc_http_x, 0);
-		//Viz 2012.08.14 move to System pageinputCtrl(document.form.misc_httpport_x, 0);	
 		inputCtrl(document.form.fw_log_x, 0);
+		inputRCtrl1(document.form.fw_dos_x, 0);
 		inputRCtrl1(document.form.misc_ping_x, 0);
 	}
 	else{		//r=="1"
-		//Viz 2012.08.14 move to System page inputRCtrl1(document.form.misc_http_x, 1);
-		//Viz 2012.08.14 move to System page inputCtrl(document.form.misc_httpport_x, 1);
 		inputCtrl(document.form.fw_log_x, 1);
+		inputRCtrl1(document.form.fw_dos_x, 1);
 		inputRCtrl1(document.form.misc_ping_x, 1);
 	}
 }
+
 function change_wireless_bridge(m){
 	if (m == "0"){
 		inputRCtrl2(document.form.wl_wdsapply_x, 1);
 		inputRCtrl1(document.form.wl_wdsapply_x, 0);
+		if(Qcawifi_support)
+		{
+			inputRCtrl2(document.form.wl_wds_vht, 1);
+			inputRCtrl1(document.form.wl_wds_vht, 0);
+		}   
 	}else if (m == "1" && Rawifi_support){	 // N66U-spec
 		inputRCtrl2(document.form.wl_wdsapply_x, 0);
 		inputRCtrl1(document.form.wl_wdsapply_x, 0);
 	}else{
 		inputRCtrl1(document.form.wl_wdsapply_x, 1);
+		if(Qcawifi_support)
+			inputRCtrl1(document.form.wl_wds_vht, 1);
+		
 	}
 }
 
@@ -922,100 +293,8 @@ function onSubmitCtrlOnly(o, s){
 	return true;
 }
 
-function onSubmitApply(s){
-	if(document.form.current_page.value == "Advanced_ASUSDDNS_Content.asp"){
-		if(s == "hostname_check"){
-			showLoading();
-			if(!validate_ddns_hostname(document.form.ddns_hostname_x)){
-				hideLoading();
-				return false;
-			}
-		}
-	}	
-	document.form.action_mode.value = "Update";
-	document.form.action_script.value = s;
-	return true;
-}
-
-function automode_hint(){ //Lock add 2009.11.05 for 54Mbps limitation in auto mode + WEP/TKIP.  Jieming modified at 2012.07.05
-	if(!document.form.wl_nmode_x){
-			if("<% nvram_get("wl_unit"); %>" == "1"){
-					var wl_nmode_flag = "<% nvram_get("wl1_nmode_x"); %>";
-			}else{
-				var wl_nmode_flag = "<% nvram_get("wl0_nmode_x"); %>";	
-			}	
-	}else{
-			var wl_nmode_flag = document.form.wl_nmode_x.value;
-	}		
-
-	//alert(wl_nmode_flag+" ; "+document.form.wl_unit.value+" , "+document.form.wl_auth_mode_x.value+" , "+document.form.wl_wep_x.value+" , "+document.form.wl_crypto.value);
-	if(wl_nmode_flag == "0" && 
-	  	( 
-	  		(document.form.wl_auth_mode_x.value == "open" && document.form.wl_wep_x.value != 0) ||
-	    	(document.form.wl_auth_mode_x.value == "shared" && document.form.wl_wep_x.value != 0 ) || 
-	    	(document.form.wl_auth_mode_x.value == "psk" && document.form.wl_crypto.value == "tkip") ||
-	    	(document.form.wl_auth_mode_x.value == "wpa" && document.form.wl_crypto.value == "tkip") ||
-	    	(document.form.wl_auth_mode_x.value == "radius")
-	    )
-	   ){
-		if(document.form.current_page.value == "Advanced_Wireless_Content.asp" 
-				|| document.form.current_page.value == "device-map/router.asp"
-				|| document.form.current_page.value.indexOf("Guest_network.asp")>=0){
-				$("wl_nmode_x_hint").style.display = "";
-		}
-				
-		if(psta_support
-				&& document.form.current_page.value.indexOf("device-map/router.asp") == -1
-				&& document.form.current_page.value.indexOf("Guest_network.asp") == -1 ){
-			if(!document.form.wl_bw) return false;
-			document.form.wl_bw.length = 1;
-			document.form.wl_bw[0] = new Option("20 MHz", 1);
-			wl_chanspec_list_change();
-		}
-	}
-	else{
-		if(psta_support && document.form.wl_bw){
-			genBWTable('<% nvram_get("wl_unit"); %>');
-		}
-		if(document.form.current_page.value == "Advanced_Wireless_Content.asp" 
-				|| document.form.current_page.value == "device-map/router.asp"
-				|| document.form.current_page.value.indexOf("Guest_network.asp")>=0 ){
-			$("wl_nmode_x_hint").style.display = "none";
-		}	
-	}	
-}
-
-function nmode_limitation(){ //Lock add 2009.11.05 for TKIP limitation in n mode. Only including tkip.
-	if(!document.form.wl_nmode_x){
-			if("<% nvram_get("wl_unit"); %>" == "1"){
-						var wl_nmode_x_flag = "<% nvram_get("wl1_nmode_x"); %>";
-			}else{
-						var wl_nmode_x_flag = "<% nvram_get("wl0_nmode_x"); %>";	
-			}		
-	}else{
-			var wl_nmode_x_flag = document.form.wl_nmode_x.value;	
-	}
-
-	if(wl_nmode_x_flag == "1"){
-		if((document.form.wl_auth_mode_x.value == "open" && (document.form.wl_wep_x.selectedIndex == "1" || document.form.wl_wep_x.selectedIndex == "2")) ||
-			document.form.wl_auth_mode_x.value == "shared" || 
-			document.form.wl_auth_mode_x.value == "psk" || 
-			document.form.wl_auth_mode_x.value == "radius"){
-		
-			alert("<#WLANConfig11n_nmode_limition_hint#>");
-			document.form.wl_auth_mode_x.selectedIndex = 3;
-		}
-		else if(document.form.wl_auth_mode_x.value == "wpa"){
-			alert("<#WLANConfig11n_nmode_limition_hint#>");
-			document.form.wl_auth_mode_x.selectedIndex = 6;
-		}
-
-		wl_auth_mode_change(0);
-	}
-}
-
 function handle_11ac_80MHz(){
-	if(band5g_support == false || band5g_11ac_support == false || document.form.wl_unit[0].selected == true || document.form.wl_nmode_x.value=='2') {
+	if(band5g_support == false || band5g_11ac_support == false || document.form.wl_unit[0].selected == true || document.form.wl_nmode_x.value=='2' || document.form.wl_nmode_x.value=='1') {
 		document.form.wl_bw[0].text = "20/40 MHz";
 		document.form.wl_bw.remove(3); //remove 80 Mhz when not when not required required
 	} else {
@@ -1028,6 +307,8 @@ function handle_11ac_80MHz(){
 function change_ddns_setting(v){
 		var hostname_x = '<% nvram_get("ddns_hostname_x"); %>';
 		if (v == "WWW.ASUS.COM"){
+				document.getElementById("ddns_hostname_info_tr").style.display = "none";
+				document.getElementById("ddns_hostname_tr").style.display="";
 				document.form.ddns_hostname_x.parentNode.style.display = "none";
 				document.form.DDNSName.parentNode.style.display = "";
 				var ddns_hostname_title = hostname_x.substring(0, hostname_x.indexOf('.asuscomm.com'));
@@ -1043,14 +324,53 @@ function change_ddns_setting(v){
 				showhide("link", 0);
 				showhide("linkToHome", 0);	
 				showhide("wildcard_field",0);
-		}else{
+				document.form.ddns_regular_check.value = 0;
+				showhide("check_ddns_field", 0);
+				inputCtrl(document.form.ddns_regular_period, 0);
+				showhide("customnote", 0);
+				showhide("need_custom_scripts", 0);
+		}else if (v == "CUSTOM"){
+				document.form.ddns_hostname_x.parentNode.style.display = "";
+				document.form.DDNSName.parentNode.style.display = "none";
+				inputCtrl(document.form.ddns_username_x, 0);
+				inputCtrl(document.form.ddns_passwd_x, 0);
+				document.form.ddns_wildcard_x[0].disabled= 1;
+				document.form.ddns_wildcard_x[1].disabled= 1;
+				showhide("customnote", 1);
+				showhide("link", 0);
+				showhide("linkToHome", 0);
+				showhide("wildcard_field",0);
+				showhide("check_ddns_field", 0);
+				if (('<% nvram_get("jffs2_enable"); %>' != '1') || ('<% nvram_get("jffs2_scripts"); %>' != '1'))
+					showhide("need_custom_scripts", 1);
+				else
+					showhide("need_custom_scripts", 0);
+		}
+		else if( v == "WWW.ORAY.COM"){
+			document.getElementById("ddns_hostname_tr").style.display="none";
+			inputCtrl(document.form.ddns_username_x, 1);
+			inputCtrl(document.form.ddns_passwd_x, 1);
+			document.form.ddns_wildcard_x[0].disabled= 1;
+			document.form.ddns_wildcard_x[1].disabled= 1;
+			showhide("link", 1);
+			showhide("linkToHome", 0);
+			showhide("wildcard_field",0);
+			document.form.ddns_regular_check.value = 0;
+			showhide("check_ddns_field", 0);
+			inputCtrl(document.form.ddns_regular_period, 0);			
+		}
+		else{
+				document.getElementById("ddns_hostname_info_tr").style.display = "none";
+				document.getElementById("ddns_hostname_tr").style.display="";
 				document.form.ddns_hostname_x.parentNode.style.display = "";
 				document.form.DDNSName.parentNode.style.display = "none";
 				inputCtrl(document.form.ddns_username_x, 1);
 				inputCtrl(document.form.ddns_passwd_x, 1);
 				var disable_wild = 0;
-				if(v == "WWW.TUNNELBROKER.NET" || v == "WWW.NAMECHEAP.COM")
-					disable_wild = 1;
+				if(v == "WWW.TUNNELBROKER.NET" || v == "WWW.NAMECHEAP.COM" || v == "WWW.SELFHOST.DE")
+					var disable_wild = 1;
+				else
+					var disable_wild = 0;
 				document.form.ddns_wildcard_x[0].disabled= disable_wild;
 				document.form.ddns_wildcard_x[1].disabled= disable_wild;
 				if(v == "WWW.ZONEEDIT.COM" || v == "WWW.NAMECHEAP.COM"){	 // Jieming added at 2013/03/06, remove free trail of zoneedit and add a link to direct to zoneedit 
@@ -1063,38 +383,24 @@ function change_ddns_setting(v){
 				}
 				
 				showhide("wildcard_field",!disable_wild);
+				showhide("check_ddns_field", 1);
+				if(document.form.ddns_regular_check.value == 0)
+					inputCtrl(document.form.ddns_regular_period, 0);
+				else
+					inputCtrl(document.form.ddns_regular_period, 1);
+				showhide("customnote", 0);
+				showhide("need_custom_scripts", 0);
 		}
 		if(v == "WWW.NAMECHEAP.COM")
-			$("ddns_username_th").innerHTML = Untranslated.namecheap_username_title;
+			document.getElementById("ddns_username_th").innerHTML = Untranslated.namecheap_username_title;
 		else
-			$("ddns_username_th").innerHTML = "<#LANHostConfig_x_DDNSUserName_itemname#>";
+			document.getElementById("ddns_username_th").innerHTML = "<#LANHostConfig_x_DDNSUserName_itemname#>";
 }
 
 function change_common_radio(o, s, v, r){
-	if (v=='wl_radio'){
-		if(sw_mode != "3"){
-			if(document.form.wl_radio[0].checked==true){
-				if(document.form.wl_radio_date_x_Sun.checked == false
-					&& document.form.wl_radio_date_x_Mon.checked == false
-					&& document.form.wl_radio_date_x_Tue.checked == false
-					&& document.form.wl_radio_date_x_Wed.checked == false
-					&& document.form.wl_radio_date_x_Thu.checked == false
-					&& document.form.wl_radio_date_x_Fri.checked == false
-					&& document.form.wl_radio_date_x_Sat.checked == false){
-						document.form.wl_radio_date_x_Sun.focus();
-						$('blank_warn').style.display = "";
-						return false;
-				}
-				else{
-					$('blank_warn').style.display = "none";
-				}
-			}else{
-				$('blank_warn').style.display = "none";
-			}
-		}
-	}
-	else if(v == "ddns_enable_x"){
+	if(v == "ddns_enable_x"){
 		var hostname_x = '<% nvram_get("ddns_hostname_x"); %>';
+		var ddns_updated = '<% nvram_get("ddns_updated"); %>';
 		if(r == 1){
 			inputCtrl(document.form.ddns_server_x, 1);
 			if('<% nvram_get("ddns_server_x"); %>' == 'WWW.ASUS.COM'){
@@ -1105,13 +411,18 @@ function change_common_radio(o, s, v, r){
 					if(!ddns_hostname_title)
 						document.getElementById("DDNSName").value = "<#asusddns_inputhint#>";
 					else
-						document.getElementById("DDNSName").value = ddns_hostname_title;						
+						document.getElementById("DDNSName").value = ddns_hostname_title;			
 				}else{
 					document.getElementById("DDNSName").value = "<#asusddns_inputhint#>";
 				}
 				showhide("wildcard_field",0);
 			}else{
-				document.form.ddns_hostname_x.parentNode.parentNode.parentNode.style.display = "";
+				if(document.form.ddns_server_x.value == "WWW.ORAY.COM"){
+					if(ddns_updated == "1")
+						document.getElementById("ddns_hostname_info_tr").style.display = "";
+				}
+				else
+					document.form.ddns_hostname_x.parentNode.parentNode.parentNode.style.display = "";
 				inputCtrl(document.form.ddns_username_x, 1);
 				inputCtrl(document.form.ddns_passwd_x, 1);
 				showhide("wildcard_field",1);				
@@ -1120,7 +431,10 @@ function change_common_radio(o, s, v, r){
 		}else{
 			if(document.form.ddns_server_x.value == "WWW.ASUS.COM"){
 				document.form.DDNSName.parentNode.parentNode.parentNode.style.display = "none";
-			}else{
+			}
+			else{
+				if(document.form.ddns_server_x.value == "WWW.ORAY.COM")
+					document.getElementById("ddns_hostname_info_tr").style.display = "none";
 				document.form.ddns_hostname_x.parentNode.parentNode.parentNode.style.display = "none";
 				inputCtrl(document.form.ddns_username_x, 0);
 				inputCtrl(document.form.ddns_passwd_x, 0);			
@@ -1129,6 +443,9 @@ function change_common_radio(o, s, v, r){
 			document.form.ddns_wildcard_x[0].disabled= 1;
 			document.form.ddns_wildcard_x[1].disabled= 1;
 			showhide("wildcard_field",0);
+			document.form.ddns_regular_check.value = 0;
+			showhide("check_ddns_field", 0);
+			inputCtrl(document.form.ddns_regular_period, 0);
 		}	
 	}
 	else if(v == "wan_dnsenable_x"){
@@ -1153,15 +470,6 @@ function change_common_radio(o, s, v, r){
 	return true;
 }
 
-function valid_WPAPSK(o){
-	if(o.value.length >= 64){
-		o.value = o.value.substring(0, 63);
-		alert("<#JS_wpapass#>");
-		return false;
-	}
-	
-	return true;
-}
 
 function change_wlweptype(o, isload){
 	var wflag = 0;
@@ -1190,70 +498,7 @@ function change_wlkey(o, s){
 	return true;
 }
 
-function validate_timerange(o, p)
-{
-	if (o.value.length==0) 
-		o.value = "00";
-	else if (o.value.length==1) 
-		o.value = "0" + o.value;
-		
-	if (o.value.charAt(0)<'0' || o.value.charAt(0)>'9') 
-		o.value = "00";
-	else if (o.value.charAt(1)<'0' || o.value.charAt(1)>'9') 
-		o.value = "00";
-	else if (p==0 || p==2)
-	{
-		if(o.value>23){
-			alert('<#JS_validrange#> 00 <#JS_validrange_to#> 23');
-			o.value = "00";
-			o.focus();
-			o.select();
-			return false;			
-		}	
-		return true;
-	}
-	else
-	{
-		if(o.value>59){
-			alert('<#JS_validrange#> 00 <#JS_validrange_to#> 59');
-			o.value = "00";
-			o.focus();
-			o.select();
-			return false;			
-		}	
-		return true;
-	}
-	return true;
-}
 
-function matchSubnet(ip1, ip2, count){
-	var c = 0;
-	var v1 = 0;
-	var v2 = 0;
-	for(i=0;i<ip1.length;i++){
-		if (ip1.charAt(i) == '.'){
-			if (ip2.charAt(i) != '.')
-				return false;
-				
-			c++;
-			if (v1!=v2) 
-				return false;
-				
-			v1 = 0;
-			v2 = 0;
-		}
-		else{
-			if (ip2.charAt(i)=='.') 
-				return false;
-				
-			v1 = v1*10 + (ip1.charAt(i) - '0');
-			v2 = v2*10 + (ip2.charAt(i) - '0');
-		}
-		if (c==count) 
-			return true;
-	}
-	return false;
-}
 function subnetPrefix(ip, orig, count)
 {r='';
 c=0;
@@ -1296,10 +541,10 @@ function openLink(s){
 	if (s == 'x_DDNSServer'){
 		if (document.form.ddns_server_x.value.indexOf("WWW.DYNDNS.ORG")!=-1)
 			tourl = "https://account.dyn.com/services/zones/svc/add.html?_add_dns=c&trial=standarddns";
-		else if (document.form.ddns_server_x.value == 'WWW.TZO.COM')
-			tourl = "https://controlpanel.tzo.com/cgi-bin/tzopanel.exe";
 		else if (document.form.ddns_server_x.value == 'WWW.ZONEEDIT.COM')
 			tourl = "http://www.zoneedit.com/";
+		else if (document.form.ddns_server_x.value == 'WWW.SELFHOST.DE')
+			tourl = "http://WWW.SELFHOST.DE";
 		else if (document.form.ddns_server_x.value == 'WWW.DNSOMATIC.COM')
 			tourl = "http://dnsomatic.com/create/";
 		else if (document.form.ddns_server_x.value == 'WWW.TUNNELBROKER.NET')
@@ -1310,6 +555,8 @@ function openLink(s){
 			tourl = "http://www.no-ip.com/newUser.php";
 		else if (document.form.ddns_server_x.value == 'WWW.NAMECHEAP.COM')
 			tourl = "https://www.namecheap.com";
+		else if (document.form.ddns_server_x.value == 'WWW.ORAY.COM')
+			tourl = "http://www.oray.com/";
 		else	tourl = "";
 		link = window.open(tourl, "DDNSLink","toolbar=yes,location=yes,directories=no,status=yes,menubar=yes,scrollbars=yes,resizable=yes,copyhistory=no,width=640,height=480");
 	}
@@ -1324,6 +571,16 @@ function openLink(s){
 function is_wlphrase(s, v, o){
 	var pseed = new Array;
 	var wep_key = new Array(5);
+
+	var valid_WPAPSK = function(o){
+		if(o.value.length >= 64){
+			o.value = o.value.substring(0, 63);
+			alert("<#JS_wpapass#>");
+			return false;
+		}
+		
+		return true;
+	}
 	
 	if(v=='wl_wpa_psk')
 		return(valid_WPAPSK(o));
@@ -1502,19 +759,60 @@ function insertExtChannelOption_5g(){
     free_options(document.form.wl_channel);
 		if(wl_channel_list_5g != ""){	//With wireless channel 5g hook
 				wl_channel_list_5g = eval('<% channel_list_5g(); %>');
-				if(document.form.wl_bw.value != "0")
-				{ //cut channels >= 165 when bw != 20MHz
+				if(document.form.wl_bw.value != "0" && document.form.wl_nmode_x.value != "2")
+				{ //not Legacy mode and BW > 20MHz
 					var i;
+					//cut channels >= 165 when bw != 20MHz
 					for(i=0; i < wl_channel_list_5g.length; i++)
 						if(wl_channel_list_5g[i] == "165")
 						{
 							wl_channel_list_5g.splice(i,(wl_channel_list_5g.length - i));
 							break;
 						}
-					//remove ch56 when bw != 20MHz and no ch52 is provided.
 					for(i=0; i < wl_channel_list_5g.length; i++)
+					{
+						//remove ch56 when bw == 40MHz or remove ch56,60,64 when bw == 80MHz, on NO ch52 is provided.
 						if(wl_channel_list_5g[i] == "56" && (i == 0 || wl_channel_list_5g[i-1] != "52"))
+						{
+							if(!(Rawifi_support || Qcawifi_support))
+								;
+							else if(band5g_11ac_support && (document.form.wl_bw.value == "3" || document.form.wl_bw.value == "1") && (document.form.wl_nmode_x.value == "0" || document.form.wl_nmode_x.value == "8"))
+							{
+								for(var j=wl_channel_list_5g.length; j>=i ; j--)
+									if(wl_channel_list_5g[j] >= "56" && wl_channel_list_5g[j] <= "64")
+										wl_channel_list_5g.splice(j,1);
+								i--;
+							} else {
+								wl_channel_list_5g.splice(i,1);
+								i--;
+							}
+						}
+						//remove ch116 when bw != 20MHz when bw == 80MHz, on NO ch120 is provided.
+						if(wl_channel_list_5g[i] == "116" && (i + 1 < wl_channel_list_5g.length && wl_channel_list_5g[i+1] != "120"))
+						{
+							if(Rawifi_support || Qcawifi_support)
+							{
+								wl_channel_list_5g.splice(i,1);
+								i--;
+							}
+						}
+						//remove ch132~140 when bw == 80MHz or ch140 when bw != 20MHz, on NO ch120 is provided.
+						if(!(Rawifi_support || Qcawifi_support))
+							;
+						else if((document.form.wl_bw.value == "3" || document.form.wl_bw.value == "1") && (document.form.wl_nmode_x.value == "0" || document.form.wl_nmode_x.value == "8"))
+						{
+							if(wl_channel_list_5g[i] == "132" || wl_channel_list_5g[i] == "136" || wl_channel_list_5g[i] == "140")
+							{
+								wl_channel_list_5g.splice(i,1);
+								i--;
+							}
+						}
+						else if(wl_channel_list_5g[i] == "140")
+						{
 							wl_channel_list_5g.splice(i,1);
+							i--;
+						}
+					}
 				}
 				if(wl_channel_list_5g[0] != "<#Auto#>")
 						wl_channel_list_5g.splice(0,0,"0");
@@ -2013,6 +1311,17 @@ function wl_auth_mode_change(isload){
 		}
 	}
 	
+	/*For Protected Management Frames, only enable for "(wpa)psk2" or "wpa2" on ARM platform (wl_mfp_support)*/
+	/* QTN_5G support PMF too*/
+	if(wl_mfp_support && (document.form.wl_mfp != null)){
+		if ((mode.search("psk2") >= 0 || mode.search("wpa2") >= 0)){
+			inputCtrl(document.form.wl_mfp,  1);	
+		}
+		else{
+			inputCtrl(document.form.wl_mfp,  0);	
+		}
+	}
+		
 	change_wep_type(mode, isload);
 	
 	/* Save current network key index */
@@ -2065,179 +1374,16 @@ function showhide(element, sh)
 	}
 }
 
-function valid_IP_form(obj, flag){
-	if(obj.value == ""){
-			return true;
-	}else if(flag==0){	//without netMask
-			if(!validate_ipaddr_final(obj, obj.name)){
-				obj.focus();
-				obj.select();		
-				return false;	
-			}else
-				return true;
-	}else if(flag==1){	//with netMask and generate netmask
-			var strIP = obj.value;
-			var re = new RegExp("^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$", "gi");			
-			
-			if(!validate_ipaddr_final(obj, obj.name)){
-				obj.focus();
-				obj.select();		
-				return false;	
-			}			
-			
-			if(obj.name=="sr_ipaddr_x_0" && re.test(strIP)){
-					if((RegExp.$1 > 0) && (RegExp.$1 < 127)) document.form.sr_netmask_x_0.value = "255.0.0.0";
-					else if ((RegExp.$1 > 127) && (RegExp.$1 < 192)) document.form.sr_netmask_x_0.value = "255.255.0.0";
-					else if ((RegExp.$1 > 191) && (RegExp.$1 < 224)) document.form.sr_netmask_x_0.value = "255.255.255.0";
-					else document.form.sr_netmask_x_0.value = "0.0.0.0";												
-			}else if(obj.name=="wan_ipaddr_x" && re.test(strIP)){
-					if((RegExp.$1 > 0) && (RegExp.$1 < 127)) document.form.wan_netmask_x.value = "255.0.0.0";
-					else if ((RegExp.$1 > 127) && (RegExp.$1 < 192)) document.form.wan_netmask_x.value = "255.255.0.0";
-					else if ((RegExp.$1 > 191) && (RegExp.$1 < 224)) document.form.wan_netmask_x.value = "255.255.255.0";
-					else document.form.wan_netmask_x.value = "0.0.0.0";												
-			}else if(obj.name=="lan_ipaddr" && re.test(strIP)){
-					if((RegExp.$1 > 0) && (RegExp.$1 < 127)) document.form.lan_netmask.value = "255.0.0.0";
-					else if ((RegExp.$1 > 127) && (RegExp.$1 < 192)) document.form.lan_netmask.value = "255.255.0.0";
-					else if ((RegExp.$1 > 191) && (RegExp.$1 < 224)) document.form.lan_netmask.value = "255.255.255.0";
-					else document.form.lan_netmask.value = "0.0.0.0";				
-			}
-			
-			return true;
-	}else if(flag==2){ 	//ip plus netmask
-				
-			if(obj.value.search("/") == -1){		// only IP
-					if(!validate_ipaddr_final(obj, obj.name)){
-							obj.focus();
-							obj.select();		
-							return false;	
-					}else
-							return true;
-			}else{															// IP plus netmask
-					if(obj.value.split("/").length > 2){
-							alert(obj.value + " <#JS_validip#>");
-							obj.value = "";
-							obj.focus();
-							obj.select();
-							return false;
-					}else{
-							if(obj.value.split("/")[1] == "" || obj.value.split("/")[1] == 0 || obj.value.split("/")[1] > 30){
-									alert(obj.value + " <#JS_validip#>");
-									obj.value = "";
-									obj.focus();
-									obj.select();
-									return false;								
-							}else{
-									var IP_tmp = obj.value;
-									obj.value = obj.value.split("/")[0];
-									if(!validate_ipaddr_final(obj, obj.name)){
-											obj.focus();
-											obj.select();		
-											return false;	
-									}else{
-											obj.value = IP_tmp;
-											return true;
-									}		
-							}
-					}
-			}		
-	}else
-		return false;
-}
-
-function valid_IP_subnet(obj){
-	var ipPattern1 = new RegExp("(^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.(\\*)$)", "gi");
-	var ipPattern2 = new RegExp("(^([0-9]{1,3})\\.([0-9]{1,3})\\.(\\*)\\.(\\*)$)", "gi");
-	var ipPattern3 = new RegExp("(^([0-9]{1,3})\\.(\\*)\\.(\\*)\\.(\\*)$)", "gi");
-	var ipPattern4 = new RegExp("(^(\\*)\\.(\\*)\\.(\\*)\\.(\\*)$)", "gi");
-	var parts = obj.value.split(".");
-	if(!ipPattern1.test(obj.value) && !ipPattern2.test(obj.value) && !ipPattern3.test(obj.value) && !ipPattern4.test(obj.value)){
-			alert(obj.value + " <#JS_validip#>");
-    	obj.focus();
-    	obj.select();
-    	return false;
-	
-	}else if(parts[0] == 0 || parts[0] > 255 || parts[1] > 255 || parts[2] > 255){			
-			alert(obj.value + " <#JS_validip#>");
-			obj.focus();
-    	obj.select();
-    	return false;
-    	
-	}else
-			return true;
-}
-
-function ipaddr4_valid(obj){
-	var num = -1;	
-	var pos = 0;
-	if(obj.value == "")
-			return true;
-	else{			
-		for(var i = 0; i < obj.value.length; ++i){
-			var c = obj.value.charAt(i);
-		
-			if(c >= '0' && c <= '9'){
-				if(num == -1 ){
-					num = (c-'0');
-				}
-				else{
-					num = num*10+(c-'0');
-				}
-			}
-			else{
-				if(num < 0 || num > 255 || c != '.'){
-					return false;
-				}			
-				if(pos == 0)
-					v1 = num;
-				else if(pos == 1)
-					v2 = num;
-				else if(pos == 2)
-					v3 = num;
-			
-				num = -1;
-				++pos;
-			}
-		}
-	
-		if(pos!=3 || num<0 || num>255){		
-			return false;
-		}
-		else
-			v4 = num;
-		
-		return true;
-	}	
-}
-
-function check_ipaddr_input(obj, emp){	
-	if($("check_ip_input"))
-		obj.parentNode.removeChild(obj.parentNode.childNodes[2]);	
-	if(!ipaddr4_valid(obj) || (emp == 1 && obj.value == "")){
-		var childsel=document.createElement("div");
-		childsel.setAttribute("id","check_ip_input");
-		childsel.style.color="#FFCC00";
-		obj.parentNode.appendChild(childsel);
-		$("check_ip_input").innerHTML="<#JS_validip#>";		
-		$("check_ip_input").style.display = "";
-		obj.value = obj.parentNode.childNodes[0].innerHTML;
-		obj.focus();
-		obj.select();
-		return false;	
-	}else
-				return true;
-}
-
-
 function check_port_input(obj, emp){	
-	if($("check_port_input"))
+	if(document.getElementById("check_port_input"))
 		obj.parentNode.removeChild(obj.parentNode.childNodes[2]);	
 	if(!Check_multi_range(obj, 1, 65535) || (emp == 1 && obj.value == "")){
 		var childsel=document.createElement("div");
 		childsel.setAttribute("id","check_port_input");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_port_input").innerHTML="<#BM_alert_port1#> 1 <#BM_alert_to#> 65535";		
-		$("check_port_input").style.display = "";
+		document.getElementById("check_port_input").innerHTML="<#BM_alert_port1#> 1 <#BM_alert_to#> 65535";		
+		document.getElementById("check_port_input").style.display = "";
 		obj.value = obj.parentNode.childNodes[0].innerHTML;
 		obj.focus();
 		obj.select();
@@ -2248,7 +1394,7 @@ function check_port_input(obj, emp){
 
 //Viz add 2012.07 check Editable table macaddr field
 function check_macaddr_input(obj,flag,emp){ //control hint of input mac address
-	if($("check_mac_input"))
+	if(document.getElementById("check_mac_input"))
 		obj.parentNode.removeChild(obj.parentNode.childNodes[2]);
 	
 	if(flag == 1 || (emp == 1 && obj.value == "")){		
@@ -2256,8 +1402,8 @@ function check_macaddr_input(obj,flag,emp){ //control hint of input mac address
 		childsel.setAttribute("id","check_mac_input");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac_input").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
-		$("check_mac_input").style.display = "";
+		document.getElementById("check_mac_input").innerHTML="<#LANHostConfig_ManualDHCPMacaddr_itemdesc#>";		
+		document.getElementById("check_mac_input").style.display = "";
 		obj.value = obj.parentNode.childNodes[0].innerHTML;
 		obj.focus();
 		obj.select();
@@ -2267,8 +1413,8 @@ function check_macaddr_input(obj,flag,emp){ //control hint of input mac address
 		childsel.setAttribute("id","check_mac_input");
 		childsel.style.color="#FFCC00";
 		obj.parentNode.appendChild(childsel);
-		$("check_mac_input").innerHTML=Untranslated.illegal_MAC;		
-		$("check_mac_input").style.display = "";
+		document.getElementById("check_mac_input").innerHTML=Untranslated.illegal_MAC;		
+		document.getElementById("check_mac_input").style.display = "";
 		obj.value = obj.parentNode.childNodes[0].innerHTML;
 		obj.focus();
 		obj.select();
@@ -2291,68 +1437,6 @@ function check_hwaddr_flag(obj){  //check_hwaddr() remove alert()
 		else
 			 return 0;
   }
-}
-
-function validate_number_range(obj, mini, maxi){
-	var PortRange = obj.value;
-	var rangere=new RegExp("^([0-9]{1,5})\:([0-9]{1,5})$", "gi");
-
-	if(rangere.test(PortRange)){
-			if(parseInt(RegExp.$1) >= parseInt(RegExp.$2)){
-				alert("<#JS_validport#>");	
-				obj.focus();
-				obj.select();		
-				return false;												
-			}
-			else{
-				if(!validate_each_port(obj, RegExp.$1, mini, maxi) || !validate_each_port(obj, RegExp.$2, mini, maxi)){
-					obj.focus();
-					obj.select();
-					return false;											
-				}
-				return true;								
-			}
-	}
-	else{
-		if(!validate_range(obj, mini, maxi)){		
-			obj.focus();
-			obj.select();
-			return false;
-		}
-		return true;	
-	}	
-}
-	
-function validate_each_port(o, num, min, max) {	
-	if(num<min || num>max) {
-		alert("<#JS_validport#>");
-		return false;
-	}else {
-		//o.value = str2val(o.value);
-		if(o.value=="")
-			o.value="0";
-		return true;
-	}
-}
-/*Viz 2011.03 for Input value check, end */
-
-function isPrivateIP(_val){
-  var A_class_start = inet_network("10.0.0.0");
-  var A_class_end = inet_network("10.255.255.255");
-  var B_class_start = inet_network("172.16.0.0");
-  var B_class_end = inet_network("172.31.255.255");
-  var C_class_start = inet_network("192.168.0.0");
-  var C_class_end = inet_network("192.168.255.255");
-  var ip_num = inet_network(_val);
-
-  if(ip_num > A_class_start && ip_num < A_class_end)
-		return true;
-  else if(ip_num > B_class_start && ip_num < B_class_end)
-		return true;
-  else if(ip_num > C_class_start && ip_num < C_class_end)
-		return true;
-  else 
-		return false;
 }
 
 function change_key_des(){
@@ -2386,24 +1470,11 @@ function wep_key_index_change(obj){
 /* Handle WEP encryption changed */
 function wep_encryption_change(obj){
 	change_wlweptype(obj, 0);
-	//nmode_limitation();
-	automode_hint();
 }
 
 /* Handle Authentication Method changed */
 function authentication_method_change(obj){
 	wl_auth_mode_change(0);
-	
-	//disable temporary, Jieming added
-	/*if(obj.value == "psk" || obj.value == "psk2" || obj.value == "pskpsk2" || obj.name == "wl_crypto"){
-		document.form.wl_wpa_psk.focus();
-	}
-	else if(obj.value == "shared"){ 
-		document.form.wl_key.focus();
-	}*/
-		
-	//nmode_limitation();
-	automode_hint();
 }
 
 /* Handle wireless mode changed */
@@ -2425,23 +1496,59 @@ function wireless_mode_change(obj){
 	}
 
 	limit_auth_method();
-	//nmode_limitation();
-	automode_hint();
 	check_NOnly_to_GN();
 }
 
 /* To hide Shared key, WPA-Personal/Enterprise and RADIUS with 802.1X*/
-function limit_auth_method(){
+function limit_auth_method(g_unit){
 	var auth_method_array = document.form.wl_auth_mode_x.value;
 	if(sw_mode == 2){
-		var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			if(based_modelid.search("RP-AC66") != -1)
+				var auth_array = [["Open System", "open"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else if(based_modelid == "RT-AC87U" && g_unit)
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else if(based_modelid == "RT-AC87U" && g_unit =='0')
+				var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else{		
+				if((based_modelid == "RT-AC87U" && '<% nvram_get("wl_unit"); %>' == '1'))
+					var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+				else
+					var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			}
 	}
 	else if(document.form.wl_nmode_x.value != "2"){
-		var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"]];
+		if(based_modelid == "RT-AC87U" && g_unit)
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else if(based_modelid == "RT-AC87U" && g_unit=='0')
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"]];
+		else{
+			if((based_modelid == "RT-AC87U" && '<% nvram_get("wl_unit"); %>' == '1') || (based_modelid == "RT-AC87U" && g_unit))
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"]];
+		}
 	}
-	else{
-		var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA-Enterprise", "wpa"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"], ["Radius with 802.1x", "radius"]];
+	else{		//Legacy
+		if(based_modelid == "RT-AC87U" && g_unit)
+			var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+		else if(based_modelid == "RT-AC87U" && g_unit=='0')
+			var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA-Enterprise", "wpa"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"], ["Radius with 802.1x", "radius"]];
+		else{
+			if((based_modelid == "RT-AC87U" && '<% nvram_get("wl_unit"); %>' == '1') || (based_modelid == "RT-AC87U" && g_unit))
+				var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"]];
+			else{
+				if(wifi_logo_support)
+					var auth_array = [["Open System", "open"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA-Enterprise", "wpa"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"]];
+				else
+					var auth_array = [["Open System", "open"], ["Shared Key", "shared"], ["WPA-Personal", "psk"], ["WPA2-Personal", "psk2"], ["WPA-Auto-Personal", "pskpsk2"], ["WPA-Enterprise", "wpa"], ["WPA2-Enterprise", "wpa2"], ["WPA-Auto-Enterprise", "wpawpa2"], ["Radius with 802.1x", "radius"]];
+			}	
+			
+		}
 	}
+		
+	if(is_KR_sku){	// MODELDEP by Territory_code
+		auth_array.splice(0, 1); //remove Open System
+	}	
 	
 	free_options(document.form.wl_auth_mode_x);
 	for(i = 0; i < auth_array.length; i++){
@@ -2454,3 +1561,61 @@ function limit_auth_method(){
 	authentication_method_change(document.form.wl_auth_mode_x);
 }
 
+function getDDNSState(ddns_return_code, ddns_hostname, ddns_old_hostname)
+{
+	var ddnsStateHint = "";
+	if(ddns_return_code.indexOf('-1')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_2#>";
+	else if(ddns_return_code.indexOf('200')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_3#>";
+	else if(ddns_return_code.indexOf('203')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_hostname#> '"+ddns_hostname+"' <#LANHostConfig_x_DDNS_alarm_registered#>";
+	else if(ddns_return_code.indexOf('220')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_4#>";
+	else if(ddns_return_code.indexOf('230')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_5#>";
+	else if(ddns_return_code.indexOf('233')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_hostname#> '"+ddns_hostname+"' <#LANHostConfig_x_DDNS_alarm_registered_2#> '"+ddns_old_hostname+"'";
+	else if(ddns_return_code.indexOf('296')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_6#>";
+	else if(ddns_return_code.indexOf('297')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_7#>";
+	else if(ddns_return_code.indexOf('298')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_8#>";
+	else if(ddns_return_code.indexOf('299')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_9#>";
+	else if(ddns_return_code.indexOf('401')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_10#>";
+	else if(ddns_return_code.indexOf('407')!=-1)
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_11#>";
+	else if(ddns_return_code == 'Time-out')
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_1#>";
+	else if(ddns_return_code =='unknown_error')
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_2#>";
+	else if(ddns_return_code =='connect_fail')
+		ddnsStateHint = "<#qis_fail_desc7#>";
+	else if(ddns_return_code =='no_change')
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_nochange#>";
+	/*else if(ddns_return_code =='ddns_query')
+		ddnsStateHint = "<#LANHostConfig_x_DDNSHostnameCheck_buttonname#>";*/
+	else if(ddns_return_code =='auth_fail')
+		ddnsStateHint = "<#qis_fail_desc1#>";
+	else if(ddns_return_code !='')
+		ddnsStateHint = "<#LANHostConfig_x_DDNS_alarm_2#>";
+
+	return ddnsStateHint;
+}
+
+function get_yadns_modedesc(mode)
+{
+	if (mode == 0)
+		return "<#YandexDNS_mode0#>";
+	else if(mode == 1)
+		return "<#YandexDNS_mode1#>";
+	else if(mode == 2)
+		return "<#YandexDNS_mode2#>";
+	else if(mode == -1)
+		return "<#btn_Disabled#>";
+
+	return "";
+}

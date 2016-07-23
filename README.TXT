@@ -1,76 +1,66 @@
+Build instructions
+==================
 
-The GPL source is created for ASUS wireless router related products. Please visit the ASUS support site (http://support.asus.com) to get the latest GPL tarball.It has a lot in common with many wireless router open source projects, including Oleg/Tomato/DD-WRT/OpenWRT. Thanks the developers of those projects for making the source code available.
+Please refer to the Wiki for detailed instructions on how to 
+build the firmware from source:
 
-Set Up Environment (Tested in Fedora 8/9 and Ubuntu 10.04/12.04 LTS amd64)
+https://github.com/RMerl/asuswrt-merlin/wiki#development
 
-    1. prepare environment
-	
-	a. Ubuntu
-		Install these packages (I used synaptic: "sudo synaptic")
+A Linux-based environment is required.  The firmware has been 
+successfully built under Mint-Linux and Ubuntu.  As of 
+July 2016, the official Asuswrt-Merlin build environment 
+is based on Ubuntu 16.04 LTS.
 
-		libncurses5
-		libncurses5-dev
-		m4
-		bison
-		gawk
-		flex
-		libstdc++6-4.4-dev
-		g++-4.4-multilib
-		g++
-		git
-		gitk
-		zlib1g-dev
-		autoconf
-		autopoint
-		libtool
-		shtool
-		autogen
-		mtd-utils
-		gcc-multilib
-		gconf (or gconf-editor)
-		lib32z1-dev
-		pkg-config
-		gperf
-		libssl-dev
-		libxml2-dev
-		libelf1:i386
 
-	b. Fedora
-		sudo yum groupinstall "Development Tools"
- 		sudo yum install gettext-devel libxml2-devel mtd-utils-ubi ncurses-devel zlib-devel gperf
+Installation:
+-------------
 
-		If you are using Fedora 19, you need to install below packages.
-		sudo yum groupinstall "C Development Tools and Libraries"
+1) Make sure your build environment has all the necessary 
+   software packages installed.  Under Ubuntu 16.04 LTS:
 
- 		If you are using Fedora x86_64, you may need to install 32-bit packages listed below.
- 			glibc.i686
- 			libstdc++.i686
- 			zlib.i686
+      sudo apt-get install git autoconf automake bash bison bzip2 diffutils file flex \
+      m4 g++ gawk groff-base libncurses-dev libtool libslang2 make patch perl \
+      pkg-config shtool subversion tar texinfo zlib1g zlib1g-dev git-core gettext \
+      libexpat1-dev libssl-dev cvs gperf unzip python libxml-parser-perl gcc-multilib \
+      gconf-editor libxml2-dev g++-4.7 g++-multilib gitk libncurses5 mtd-utils \
+      libncurses5-dev libstdc++6-4.7-dev libvorbis-dev g++-4.7-multilib git autopoint \
+      autogen sed build-essential intltool libelf1:i386 libglib2.0-dev
 
-   2. prepare source to, ex, $HOME/asuswrt
+   If your build environment is 64-bit, then also install the following packages:
 
-	cd $HOME
-	tar xvfz [tar file]
- 
-   3. setup development system
+      sudo apt-get install lib32z1-dev lib32stdc++6
 
-	ln -s $HOME/asuswrt/tools/brcm /opt/brcm
-	ln -s $HOME/asuswrt/release/src-rt-6.x.4708/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3 /opt/brcm-arm
-        export PATH=$PATH:/opt/brcm/hndtools-mipsel-linux/bin:/opt/brcm/hndtools-mipsel-uclibc/bin:/opt/brcm-arm/bin
 
-	Note: Broadcom (except 4708 series) platform use the same toolchain for user space program, so please set PATH to the same directory as above
-   
-  4. build firmware.
-	a. rt-n16
-		cd release/src-rt
-		make rt-n16
+2) Setup build environment and toolchain.  If the source code is located under
+   ~/asuswrt-merlin/ :
 
-	b. rt-ac66u
-		cd release/src-rt-6.x
-		make rt-ac66u
+      sudo ln -s ~/asuswrt-merlin/tools/brcm /opt/brcm
+      sudo ln -s ~/asuswrt-merlin/release/src-rt-6.x.4708/toolchains/hndtools-arm-linux-2.6.36-uclibc-4.5.3 /opt/brcm-arm
 
- 	c. rt-ac56u (/ rt-ac68u / rt-n18uhp)
- 		cd release/src-rt-6.x.4708
- 		make rt-ac56u
- 		( make rt-ac68u  )
- 		( make rt-n18uhp )
+      echo "PATH=$PATH:/opt/brcm/hndtools-mipsel-linux/bin:/opt/brcm/hndtools-mipsel-uclibc/bin:/opt/brcm-arm/bin" >> ~/.profile
+
+
+3) Either use the supplied tools/build-all script (read it
+   to see how to configure and use it), or manually launch
+   the build process from the appropriate SDK location.
+
+   MIPS (RT-N66U, RT-AC66U):
+      cd release/src-rt-6.x/
+      make rt-n66u
+
+   ARM SDK6 (RT-AC56U, RT-AC68U, RT-AC87U):
+      cd release/src-rt-6.x.4708/
+      make rt-ac56u
+
+   ARM SDK7 (RT-AC3200)
+      cd release/src-rt-7.x.main/src/
+      make rt-ac3200u
+
+   ARM SDK7.14 (RT-AC88U, RT-AC3100, RT-AC5300)
+      cd release/src-rt-7.14.114.x/src/
+      make rt-ac88u
+
+
+   The resulting FW image will be in the image/ 
+   sub-directory.
+

@@ -17,7 +17,6 @@
  */
 #include "config.h"
 
-#ifdef HAVE_INOTIFY
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -29,6 +28,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#ifdef HAVE_INOTIFY
 #include <sys/resource.h>
 #include <poll.h>
 #ifdef HAVE_SYS_INOTIFY_H
@@ -36,6 +36,7 @@
 #else
 #include "linux/inotify.h"
 #include "linux/inotify-syscalls.h"
+#endif
 #endif
 #include "libav.h"
 
@@ -49,6 +50,9 @@
 #include "playlist.h"
 #include "log.h"
 
+static time_t next_pl_fill = 0;
+
+#ifdef HAVE_INOTIFY
 #define EVENT_SIZE  ( sizeof (struct inotify_event) )
 #define BUF_LEN     ( 1024 * ( EVENT_SIZE + 16 ) )
 #define DESIRED_WATCH_LIMIT 65536
@@ -64,7 +68,6 @@ struct watch
 
 static struct watch *watches;
 static struct watch *lastwatch = NULL;
-static time_t next_pl_fill = 0;
 
 char *get_path_from_wd(int wd)
 {
@@ -277,6 +280,7 @@ int add_dir_watch(int fd, char * path, char * filename)
 
 	return(i);
 }
+#endif
 
 int
 inotify_insert_file(char * name, const char * path)
@@ -297,7 +301,7 @@ inotify_insert_file(char * name, const char * path)
 	/* Is it cover art for another file? */
 	if( is_image(path) )
 		update_if_album_art(path);
-	else if( ends_with(path, ".srt") )
+	else if( is_caption(path) )
 		check_for_captions(path, 0);
 
 	/* Check if we're supposed to be scanning for this file type in this directory */
@@ -328,6 +332,7 @@ inotify_insert_file(char * name, const char * path)
 			if( !is_audio(path) &&
 			    !is_video(path) &&
 			    !is_playlist(path) )
+				return -1;
 			break;
 		case TYPE_AUDIO|TYPE_IMAGES:
 			if( !is_image(path) &&
@@ -360,15 +365,24 @@ inotify_insert_file(char * name, const char * path)
 	ts = sql_get_int_field(db, "SELECT TIMESTAMP from DETAILS where PATH = '%q'", path);
 	if( !ts && is_playlist(path) && (sql_get_int_field(db, "SELECT ID from PLAYLISTS where PATH = '%q'", path) > 0) )
 	{
-		DPRINTF(E_DEBUG, L_INOTIFY, "Re-reading modified playlist.\n", path);
+		DPRINTF(E_DEBUG, L_INOTIFY, "Re-reading modified playlist (%s).\n", path);
 		inotify_remove_file(path);
 		next_pl_fill = 1;
 	}
-	else if( ts < st.st_mtime )
+	else if( !ts )
 	{
-		if( ts > 0 )
-			DPRINTF(E_DEBUG, L_INOTIFY, "%s is newer than the last db entry.\n", path);
+		DPRINTF(E_DEBUG, L_INOTIFY, "Adding: %s\n", path);
+	}
+	else if( ts != st.st_mtime )
+	{
+		DPRINTF(E_DEBUG, L_INOTIFY, "%s is %s than the last db entry.\n", path, (ts < st.st_mtime) ? "older" : "newer");
 		inotify_remove_file(path);
+	}
+	else
+	{
+		if( ts == st.st_mtime )
+			DPRINTF(E_DEBUG, L_INOTIFY, "%s already exists\n", path);
+		return 0;
 	}
 
 	/* Find the parentID.  If it's not found, create all necessary parents. */
@@ -422,11 +436,11 @@ inotify_insert_file(char * name, const char * path)
 	if( !depth )
 	{
 		//DEBUG DPRINTF(E_DEBUG, L_INOTIFY, "Inserting %s\n", name);
-		insert_file(name, path, id+2, get_next_available_id("OBJECTS", id));
+		insert_file(name, path, id+2, get_next_available_id("OBJECTS", id), types);
 		sqlite3_free(id);
 		if( (is_audio(path) || is_playlist(path)) && next_pl_fill != 1 )
 		{
-			next_pl_fill = time(NULL) + 120; // Schedule a playlist scan for 2 minutes from now.
+			next_pl_fill = uptime() + 120; // Schedule a playlist scan for 2 minutes from now.
 			//DEBUG DPRINTF(E_WARN, L_INOTIFY,  "Playlist scan scheduled for %s", ctime(&next_pl_fill));
 		}
 	}
@@ -440,7 +454,6 @@ inotify_insert_directory(int fd, char *name, const char * path)
 	struct dirent * e;
 	char *id, *parent_buf, *esc_name;
 	char path_buf[PATH_MAX];
-	int wd;
 	enum file_types type = TYPE_UNKNOWN;
 	media_types dir_types = ALL_MEDIA;
 	struct media_dir_s* media_path;
@@ -453,27 +466,34 @@ inotify_insert_directory(int fd, char *name, const char * path)
 	}
 	if( sql_get_int_field(db, "SELECT ID from DETAILS where PATH = '%q'", path) > 0 )
 	{
+		fd = 0;
 		DPRINTF(E_DEBUG, L_INOTIFY, "%s already exists\n", path);
-		return 0;
-	}
-
- 	parent_buf = strdup(path);
-	id = sql_get_text_field(db, "SELECT OBJECT_ID from OBJECTS o left join DETAILS d on (d.ID = o.DETAIL_ID)"
-	                            " where d.PATH = '%q' and REF_ID is NULL", dirname(parent_buf));
-	if( !id )
-		id = sqlite3_mprintf("%s", BROWSEDIR_ID);
-	insert_directory(name, path, BROWSEDIR_ID, id+2, get_next_available_id("OBJECTS", id));
-	sqlite3_free(id);
-	free(parent_buf);
-
-	wd = add_watch(fd, path);
-	if( wd == -1 )
-	{
-		DPRINTF(E_ERROR, L_INOTIFY, "add_watch() failed\n");
 	}
 	else
 	{
-		DPRINTF(E_INFO, L_INOTIFY, "Added watch to %s [%d]\n", path, wd);
+		parent_buf = strdup(path);
+		id = sql_get_text_field(db, "SELECT OBJECT_ID from OBJECTS o left join DETAILS d on (d.ID = o.DETAIL_ID)"
+	                            " where d.PATH = '%q' and REF_ID is NULL", dirname(parent_buf));
+		if( !id )
+			id = sqlite3_mprintf("%s", BROWSEDIR_ID);
+		insert_directory(name, path, BROWSEDIR_ID, id+2, get_next_available_id("OBJECTS", id));
+		sqlite3_free(id);
+		free(parent_buf);
+	}
+
+	if( fd > 0 )
+	{
+#ifdef HAVE_INOTIFY
+		int wd = add_watch(fd, path);
+		if( wd == -1 )
+		{
+			DPRINTF(E_ERROR, L_INOTIFY, "add_watch() failed\n");
+		}
+else
+		{
+			DPRINTF(E_INFO, L_INOTIFY, "Added watch to %s [%d]\n", path, wd);
+		}
+#endif
 	}
 
 	media_path = media_dirs;
@@ -538,10 +558,9 @@ inotify_remove_file(const char * path)
 	int64_t detailID;
 	int rows, playlist;
 
-	if( ends_with(path, ".srt") )
+	if( is_caption(path) )
 	{
-		rows = sql_exec(db, "DELETE from CAPTIONS where PATH = '%q'", path);
-		return rows;
+		return sql_exec(db, "DELETE from CAPTIONS where PATH = '%q'", path);
 	}
 	/* Invalidate the scanner cache so we don't insert files into non-existent containers */
 	valid_cache = 0;
@@ -563,11 +582,13 @@ inotify_remove_file(const char * path)
 	else
 	{
 		/* Delete the parent containers if we are about to empty them. */
-		snprintf(sql, sizeof(sql), "SELECT PARENT_ID from OBJECTS where DETAIL_ID = %lld", (long long int)detailID);
+		snprintf(sql, sizeof(sql), "SELECT PARENT_ID from OBJECTS where DETAIL_ID = %lld"
+		                           " and PARENT_ID not like '64$%%'",
+		                           (long long int)detailID);
 		if( (sql_get_table(db, sql, &result, &rows, NULL) == SQLITE_OK) )
 		{
 			int i, children;
-			for( i=1; i <= rows; i++ )
+			for( i = 1; i <= rows; i++ )
 			{
 				/* If it's a playlist item, adjust the item count of the playlist */
 				if( strncmp(result[i], MUSIC_PLIST_ID, strlen(MUSIC_PLIST_ID)) == 0 )
@@ -581,8 +602,6 @@ inotify_remove_file(const char * path)
 					continue;
 				if( children < 2 )
 				{
-					sql_exec(db, "DELETE from DETAILS where ID ="
-					             " (SELECT DETAIL_ID from OBJECTS where OBJECT_ID = '%s')", result[i]);
 					sql_exec(db, "DELETE from OBJECTS where OBJECT_ID = '%s'", result[i]);
 
 					ptr = strrchr(result[i], '$');
@@ -590,8 +609,6 @@ inotify_remove_file(const char * path)
 						*ptr = '\0';
 					if( sql_get_int_field(db, "SELECT count(*) from OBJECTS where PARENT_ID = '%s'", result[i]) == 0 )
 					{
-						sql_exec(db, "DELETE from DETAILS where ID ="
-						             " (SELECT DETAIL_ID from OBJECTS where OBJECT_ID = '%s')", result[i]);
 						sql_exec(db, "DELETE from OBJECTS where OBJECT_ID = '%s'", result[i]);
 					}
 				}
@@ -618,7 +635,12 @@ inotify_remove_directory(int fd, const char * path)
 
 	/* Invalidate the scanner cache so we don't insert files into non-existent containers */
 	valid_cache = 0;
-	remove_watch(fd, path);
+	if( fd > 0 )
+	{
+#ifdef HAVE_INOTIFY
+		remove_watch(fd, path);
+#endif
+	}
 	sql = sqlite3_mprintf("SELECT ID from DETAILS where (PATH > '%q/' and PATH <= '%q/%c')"
 	                      " or PATH = '%q'", path, path, 0xFF, path);
 	if( (sql_get_table(db, sql, &result, &rows, NULL) == SQLITE_OK) )
@@ -642,6 +664,7 @@ inotify_remove_directory(int fd, const char * path)
 	return ret;
 }
 
+#ifdef HAVE_INOTIFY
 void *
 start_inotify()
 {
@@ -676,7 +699,7 @@ start_inotify()
                 length = poll(pollfds, 1, timeout);
 		if( !length )
 		{
-			if( next_pl_fill && (time(NULL) >= next_pl_fill) )
+			if( next_pl_fill && (uptime() >= next_pl_fill) )
 			{
 				fill_playlists();
 				next_pl_fill = 0;
@@ -692,7 +715,8 @@ start_inotify()
 		}
 		else
 		{
-			length = read(pollfds[0].fd, buffer, BUF_LEN);  
+			length = read(pollfds[0].fd, buffer, BUF_LEN);
+			buffer[BUF_LEN-1] = '\0';
 		}
 
 		i = 0;
@@ -706,8 +730,8 @@ start_inotify()
 					i += EVENT_SIZE + event->len;
 					continue;
 				}
-				esc_name = modifyString(strdup(event->name), "&", "&amp;amp;");
-				sprintf(path_buf, "%s/%s", get_path_from_wd(event->wd), event->name);
+				esc_name = modifyString(strdup(event->name), "&", "&amp;amp;", 0);
+				snprintf(path_buf, sizeof(path_buf), "%s/%s", get_path_from_wd(event->wd), event->name);
 				if ( event->mask & IN_ISDIR && (event->mask & (IN_CREATE|IN_MOVED_TO)) )
 				{
 					DPRINTF(E_DEBUG, L_INOTIFY,  "The directory %s was %s.\n",
@@ -717,9 +741,10 @@ start_inotify()
 				else if ( (event->mask & (IN_CLOSE_WRITE|IN_MOVED_TO|IN_CREATE)) &&
 				          (lstat(path_buf, &st) == 0) )
 				{
-					if( S_ISLNK(st.st_mode) )
+					if( (event->mask & (IN_MOVED_TO|IN_CREATE)) && (S_ISLNK(st.st_mode) || st.st_nlink > 1) )
 					{
-						DPRINTF(E_DEBUG, L_INOTIFY, "The symbolic link %s was %s.\n",
+						DPRINTF(E_DEBUG, L_INOTIFY, "The %s link %s was %s.\n",
+							(S_ISLNK(st.st_mode) ? "symbolic" : "hard"),
 							path_buf, (event->mask & IN_MOVED_TO ? "moved here" : "created"));
 						if( stat(path_buf, &st) == 0 && S_ISDIR(st.st_mode) )
 							inotify_insert_directory(pollfds[0].fd, esc_name, path_buf);

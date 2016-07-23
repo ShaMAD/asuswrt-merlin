@@ -1,4 +1,4 @@
-/* dnsmasq is Copyright (c) 2000-2013 Simon Kelley
+/* dnsmasq is Copyright (c) 2000-2016 Simon Kelley
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -17,20 +17,26 @@
 #define FTABSIZ 150 /* max number of outstanding requests (default) */
 #define MAX_PROCS 20 /* max no children for TCP requests */
 #define CHILD_LIFETIME 150 /* secs 'till terminated (RFC1035 suggests > 120s) */
+#define TCP_MAX_QUERIES 100 /* Maximum number of queries per incoming TCP connection */
 #define EDNS_PKTSZ 4096 /* default max EDNS.0 UDP packet from RFC5625 */
-#define KEYBLOCK_LEN 140 /* choose to mininise fragmentation when storing DNSSEC keys */
+#define SAFE_PKTSZ 1280 /* "go anywhere" UDP packet size */
+#define KEYBLOCK_LEN 40 /* choose to mininise fragmentation when storing DNSSEC keys */
+#define DNSSEC_WORK 50 /* Max number of queries to validate one question */
 #define TIMEOUT 10 /* drop UDP queries after TIMEOUT seconds */
 #define FORWARD_TEST 50 /* try all servers every 50 queries */
 #define FORWARD_TIME 20 /* or 20 seconds */
+#define SERVERS_LOGGED 30 /* Only log this many servers when logging state */
 #define RANDOM_SOCKS 64 /* max simultaneous random ports */
 #define LEASE_RETRY 60 /* on error, retry writing leasefile after LEASE_RETRY seconds */
 #define CACHESIZ 150 /* default cache size */
+#define TTL_FLOOR_LIMIT 3600 /* don't allow --min-cache-ttl to raise TTL above this under any circumstances */
 #define MAXLEASES 1000 /* maximum number of DHCP leases */
 #define PING_WAIT 3 /* wait for ping address-in-use test */
 #define PING_CACHE_TIME 30 /* Ping test assumed to be valid this long. */
 #define DECLINE_BACKOFF 600 /* disable DECLINEd static addresses for this long */
 #define DHCP_PACKET_MAX 16384 /* hard limit on DHCP packet size */
-#define SMALLDNAME 40 /* most domain names are smaller than this */
+#define SMALLDNAME 50 /* most domain names are smaller than this */
+#define CNAME_CHAIN 10 /* chains longer than this atr dropped for loop protection */
 #define HOSTSFILE "/etc/hosts"
 #define ETHERSFILE "/etc/ethers"
 #define DEFLEASE 3600 /* default lease time, 1 hour */
@@ -45,6 +51,8 @@
 #define SOA_REFRESH 1200 /* SOA refresh default */
 #define SOA_RETRY 180 /* SOA retry default */
 #define SOA_EXPIRY 1209600 /* SOA expiry default */
+#define LOOP_TEST_DOMAIN "test" /* domain for loop testing, "test" is reserved by RFC 2606 and won't therefore clash */
+#define LOOP_TEST_TYPE T_TXT
  
 /* compile-time options: uncomment below to enable or do eg.
    make COPTS=-DHAVE_BROKEN_RTC
@@ -109,6 +117,14 @@ HAVE_AUTH
    define this to include the facility to act as an authoritative DNS
    server for one or more zones.
 
+HAVE_DNSSEC
+   include DNSSEC validator.
+
+HAVE_LOOP
+   include functionality to probe for and remove DNS forwarding loops.
+
+HAVE_INOTIFY
+   use the Linux inotify facility to efficiently re-read configuration files.
 
 NO_IPV6
 NO_TFTP
@@ -117,11 +133,16 @@ NO_DHCP6
 NO_SCRIPT
 NO_LARGEFILE
 NO_AUTH
-NO_IPSET
+NO_INOTIFY
    these are avilable to explictly disable compile time options which would 
    otherwise be enabled automatically (HAVE_IPV6, >2Gb file sizes) or 
    which are enabled  by default in the distributed source tree. Building dnsmasq
    with something like "make COPTS=-DNO_SCRIPT" will do the trick.
+
+NO_NETTLE_ECC
+   Don't include the ECDSA cypher in DNSSEC validation. Needed for older Nettle versions.
+NO_GMP
+   Don't use and link against libgmp, Useful if nettle is built with --enable-mini-gmp.
 
 LEASEFILE
 CONFFILE
@@ -131,6 +152,12 @@ RESOLVFILE
 
 */
 
+/* Defining this builds a binary which handles time differently and works better on a system without a 
+   stable RTC (it uses uptime, not epoch time) and writes the DHCP leases file less often to avoid flash wear. 
+*/
+
+/* #define HAVE_BROKEN_RTC */
+/* #define HAVE_LEASEFILE_EXPIRE */
 
 /* The default set of options to build. Built with these options, dnsmasq
    has no library dependencies other than libc */
@@ -141,12 +168,20 @@ RESOLVFILE
 #define HAVE_SCRIPT
 #define HAVE_AUTH
 #define HAVE_IPSET 
+#define HAVE_LOOP
+
+/* Build options which require external libraries.
+   
+   Defining HAVE_<opt>_STATIC as _well_ as HAVE_<opt> will link the library statically.
+
+   You can use "make COPTS=-DHAVE_<opt>" instead of editing these.
+*/
+
 /* #define HAVE_LUASCRIPT */
-/* #define HAVE_BROKEN_RTC */
-/* #define HAVE_LEASEFILE_EXPIRE */
 /* #define HAVE_DBUS */
 /* #define HAVE_IDN */
 /* #define HAVE_CONNTRACK */
+/* #define HAVE_DNSSEC */
 
 
 /* Default locations for important system files. */
@@ -256,6 +291,7 @@ HAVE_SOCKADDR_SA_LEN
 /* Select the RFC_3542 version of the IPv6 socket API. 
    Define before netinet6/in6.h is included. */
 #define __APPLE_USE_RFC_3542 
+#define NO_IPSET
 
 #elif defined(__NetBSD__)
 #define HAVE_BSD_NETWORK
@@ -311,7 +347,7 @@ HAVE_SOCKADDR_SA_LEN
 #define HAVE_DHCP
 #endif
 
-#if defined(NO_SCRIPT) || !defined(HAVE_DHCP) || defined(NO_FORK)
+#if defined(NO_SCRIPT) || defined(NO_FORK)
 #undef HAVE_SCRIPT
 #undef HAVE_LUASCRIPT
 #endif
@@ -325,8 +361,16 @@ HAVE_SOCKADDR_SA_LEN
 #undef HAVE_AUTH
 #endif
 
-#if defined(NO_IPSET) || !defined(HAVE_LINUX_NETWORK)
+#if defined(NO_IPSET)
 #undef HAVE_IPSET
+#endif
+
+#ifdef NO_LOOP
+#undef HAVE_LOOP
+#endif
+
+#if defined (HAVE_LINUX_NETWORK) && !defined(NO_INOTIFY)
+#define HAVE_INOTIFY
 #endif
 
 /* Define a string indicating which options are in use.
@@ -394,7 +438,20 @@ static char *compile_opts =
 #ifndef HAVE_AUTH
 "no-"
 #endif
-  "auth";
+"auth "
+#ifndef HAVE_DNSSEC
+"no-"
+#endif
+"DNSSEC "
+#ifndef HAVE_LOOP
+"no-"
+#endif
+"loop-detect "
+#ifndef HAVE_INOTIFY
+"no-"
+#endif
+"inotify";
+
 
 #endif
 

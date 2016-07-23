@@ -2,7 +2,7 @@
  * Chip-specific hardware definitions for
  * Broadcom 802.11abg Networking Device Driver
  *
- * Copyright (C) 2013, Broadcom Corporation
+ * Copyright (C) 2015, Broadcom Corporation
  * All Rights Reserved.
  * 
  * This is UNPUBLISHED PROPRIETARY SOURCE CODE of Broadcom Corporation;
@@ -10,7 +10,7 @@
  * or duplicated in any form, in whole or in part, without the prior
  * written permission of Broadcom Corporation.
  *
- * $Id: d11.h 427773 2013-10-04 19:53:12Z $
+ * $Id: d11.h 460918 2014-03-10 15:05:05Z $
  */
 
 #ifndef	_D11_H
@@ -439,7 +439,8 @@ union {
 	uint16	ifs_slot;		/* 0x684 */
 	uint16	PAD;			/* 0x686 */
 	uint16	ifs_ctl;		/* 0x688 */
-	uint16	PAD[0x3];		/* 0x68a - 0x68F */
+	uint16	ifs_boff;		/* 0x68a */
+	uint16	PAD[0x2];		/* 0x68c - 0x68F */
 	uint16	ifsstat;		/* 0x690 */
 	uint16	ifsmedbusyctl;		/* 0x692 */
 	uint16	iftxdur;		/* 0x694 */
@@ -774,6 +775,7 @@ union {
 #define MCMD_SLOWCAL		(1 <<  6)
 #define MCMD_SAMPLECOLL		MCMD_SKIP_SHMINIT /* reuse for sample collect */
 #define MCMD_BCNREL			(1 << 8 ) /* release anybuffered bcns from ucode  */
+#define MCMD_RX_NO_SLEEP	(1 << 13)	/* Disables sleep during RX */
 
 /* macintstatus/macintmask */
 #define	MI_MACSSPNDD		(1 <<  0)	/* MAC has gracefully suspended */
@@ -1325,9 +1327,6 @@ BWL_PRE_PACKED_STRUCT struct d11txh {
 #define ABI_MAS_FBR_ANT_PTN_MASK	0x00f0
 #define ABI_MAS_FBR_ANT_PTN_SHIFT	4
 #define ABI_MAS_MRT_ANT_PTN_MASK	0x000f
-#ifdef WLAWDL
-#define ABI_MAS_AWDL_TS_INSERT		0x1000	/* bit 12 */
-#endif
 #define ABI_MAS_TIMBC_TSF		0x2000  /* Enable TIMBC tsf field present */
 
 /* MinMBytes */
@@ -1400,7 +1399,7 @@ BWL_PRE_PACKED_STRUCT struct d11actxh_cache {
 	uint8   FallbackMpduMax;                /* 3 */
 	uint16  AmpduDur;                       /* 4 - 5 */
 	uint8   BAWin;                          /* 6 */
-	uint8   Pad;                            /* 7 */
+	uint8   MaxAggLen;                      /* 7 */
 	uint8   TkipPH1Key[10];                 /*  8 - 17 */
 	uint8   TSCPN[6];                       /* 18 - 23 */
 } BWL_POST_PACKED_STRUCT;
@@ -2634,6 +2633,8 @@ enum prxs_subband_bphy {
 #define M_CCA_NOPKT_H	(M_CCA_STATS_BLK + 0x12)
 #define M_MAC_DOZE_L	(M_CCA_STATS_BLK + 0x14)
 #define M_MAC_DOZE_H	(M_CCA_STATS_BLK + 0x16)
+#define M_CCA_TXOP_L	(M_CCA_STATS_BLK + 0x18)
+#define M_CCA_TXOP_H	(M_CCA_STATS_BLK + 0x1a)
 
 #define M_CCA_FLAGS	(0x9b7 * 2)
 

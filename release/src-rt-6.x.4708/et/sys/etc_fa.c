@@ -1,7 +1,7 @@
 /*
  *  Flow Accelerator setup functions
  *
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2014, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -190,11 +190,15 @@
 #define FA_ON_MODE_VALID()	(getintvar(NULL, "ctf_fa_mode") == CTF_FA_BYPASS || \
 				 getintvar(NULL, "ctf_fa_mode") == CTF_FA_NORMAL)
 
-#define FA_FA_ENET_UNIT		0
+static int aux_unit = -1;
+#define FA_DEFAULT_AUX_UNIT	0
+
+#define FA_FA_ENET_UNIT		((aux_unit == -1) ? FA_DEFAULT_AUX_UNIT : aux_unit)
 #define FA_AUX_ENET_UNIT	2
 
 #define FA_FA_CORE_UNIT		2
-#define FA_AUX_CORE_UNIT	0
+#define FA_AUX_CORE_UNIT	((aux_unit == -1) ? FA_DEFAULT_AUX_UNIT : aux_unit)
+
 #define FA_FA_CORE(u)	(((u) == FA_FA_CORE_UNIT) ? TRUE : FALSE)
 #define FA_AUX_CORE(u)	(((u) == FA_AUX_CORE_UNIT) ? TRUE : FALSE)
 
@@ -292,6 +296,7 @@ typedef struct fa_info {
 static fa_info_t *aux_dev = NULL;
 static fa_info_t *fa_dev = NULL;
 static void *fa_proc = NULL;
+static int	fa_rev = -1;
 
 /* Use SW hash by default */
 /* SW hash CCITT polynomial (0 5 12 16): X16+X12+X5 +1 */
@@ -1017,6 +1022,8 @@ fa_chiprev(fa_t *fa)
 
 	if(fai)
 		return fai->chiprev;
+	else if(fa_rev > 0)
+		return fa_rev;
 	else
 		return 0;
 }
@@ -1258,7 +1265,7 @@ fa_chip_rev(si_t *sih)
 		W_REG(si_osh(sih),
 			(uint32 *)((uint32)srab_base + CHIPCB_SRAB_CMDSTAT_OFFSET), 0x02400001);
 		rev = R_REG(si_osh(sih),
-			(uint32 *)((uint32)srab_base + CHIPCB_SRAB_RDL_OFFSET)) & 0x3;
+			(uint32 *)((uint32)srab_base + CHIPCB_SRAB_RDL_OFFSET)) & 0xff;
 		REG_UNMAP(srab_base);
 	}
 
@@ -1321,6 +1328,9 @@ fa_attach(si_t *sih, void *et, char *vars, uint coreunit, void *robo)
 {
 	fa_info_t *fai = NULL;
 	bool fa_capable = FA_CAPABLE(fa_chip_rev(sih));
+
+	if(fa_rev < 0)	// get the first one
+		fa_rev = fa_chip_rev(sih);
 
 	/* By pass fa attach if FA configuration is not enabled or invalid */
 	if (!FA_ON_MODE_VALID() || !fa_capable)
@@ -1523,6 +1533,10 @@ fa_napt_add(fa_t *fa, ctf_ipc_t *ipc, bool v6)
 		return BCME_ERROR;
 
 	if (v6)
+		return BCME_ERROR;
+
+	/* currently not supported for PPP */
+	if (ipc->ppp_ifp)
 		return BCME_ERROR;
 
 	sip = ipc->tuple.sip;
@@ -1807,6 +1821,17 @@ fa_et_down(fa_t *fa)
 	/* Just disable AUX, FA interface GMAC reset disable FA function */
 	if (aux_dev)
 		robo_fa_aux_enable(fai->robo, FALSE);
+}
+
+void
+fa_set_aux_unit(si_t *sih, uint unit)
+{
+	bool fa_capable = FA_CAPABLE(fa_chip_rev(sih));
+
+	if (!fa_capable || (aux_unit != -1) || (unit == FA_FA_CORE_UNIT))
+		return;
+
+	aux_unit = unit;
 }
 
 char *

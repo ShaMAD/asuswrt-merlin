@@ -1,4 +1,16 @@
 /************************************************************/
+/*  Version 2.4     by Edison      2016/5/16		    */
+/*  Using unsigned integer for 64 bits to 32 bits           */
+/************************************************************/
+/************************************************************/
+/*  Version 2.4     by Cheni      2015/5/27		    */
+/*  HW Control Info                                         */
+/************************************************************/
+/************************************************************/
+/*  Version 2.3     by Cheni      2014/01/15	            */
+/*  AAE and API Level Info                                  */
+/************************************************************/
+/************************************************************/
 /*  Version 2.2     by Cheni	  2012/11/1		    */
 /*  AppHttpPort Info                                        */
 /************************************************************/
@@ -49,8 +61,8 @@
 /*              FOR LINUX               */
 /****************************************/
 #ifndef  WIN32
-#define ULONG   unsigned long
-#define DWORD   unsigned long
+#define ULONG   unsigned int	//Using unsigned integer for 64 bits to 32 bits.
+#define DWORD   unsigned int	//Using unsigned integer for 64 bits to 32 bits.
 #define BYTE    char
 #define PBYTE   char *
 #define WORD    unsigned short
@@ -59,6 +71,7 @@
 
 #define SVRPORT 9999
 #define OTSPORT 9998
+#define MAX_NO_OF_IBOX  255
 #define OTS_IPADD "192.168.1.1"
 #define WLHDD_SUPPORT 1
 //Define Error Code
@@ -176,8 +189,11 @@ typedef struct PktGetInfo
   	BYTE ProductID[32];
   	BYTE FirmwareVersion[16];
   	BYTE OperationMode; 
-  	BYTE MacAddress[6]; 
-  	BYTE Regulation;
+	BYTE MacAddress[6];
+#ifdef WCLIENT
+	BYTE Regulation;
+#endif
+	BYTE sw_mode;
 } PKT_GET_INFO;
 
 #ifdef WAVESERVER			// eric++
@@ -210,9 +226,19 @@ typedef struct ws_info_t	{
 #define EXTEND_CAP_SYNC			0x0002
 #define EXTEND_CAP_MEDIA		0x0004
 
+#define EXTEND_CAP_AAE_BASIC		0x0010
+#define EXTEND_CAP_HWCTRL		0x0020
+#define EXTEND_CAP_SWCTRL		0x0040
+
 #define EXTEND_WEBDAV_TYPE_HTTP		0x00
 #define EXTEND_WEBDAV_TYPE_HTTPS	0x01
 #define EXTEND_WEBDAV_TYPE_BOTH		0x02
+
+#ifdef RTCONFIG_ROG
+#define EXTEND_API_LEVEL		2
+#else
+#define EXTEND_API_LEVEL                1
+#endif
 
 typedef struct webdav_info_t {
 	BYTE EnableWebDav;
@@ -226,16 +252,38 @@ typedef struct webdav_info_t {
 	WORD HttpsPort;
 } WEBDAV_INFO_T;
 
+typedef struct hwctrl_info_t {
+        BYTE EnableLed;
+        BYTE EnableBuzz;
+	BYTE Reserved[14];
+} HWCTRL_INFO_T;
+
+typedef struct swctrl_info_t {
+	BYTE ROGAPILevel;
+	BYTE AiHOMEAPILevel;
+	BYTE AiProtectionAPILevel;
+	BYTE Reserved[13];
+} SWCTRL_INFO_T;
+
+typedef struct device_info_t {
+	WEBDAV_INFO_T wt;
+	HWCTRL_INFO_T hw;
+	SWCTRL_INFO_T sw;
+} DEVICE_INFO_T;
+
 typedef struct storage_info_t {
 	WORD MagicWord;
 	WORD ExtendCap;
 	union {
 		WEBDAV_INFO_T wt;
+		DEVICE_INFO_T dev;
 		BYTE Reserved[128];
 	} u;
 	WORD AppHttpPort;      	/* Port for accessing app UI */
+	BYTE AppAPILevel;	/* API level for app */
+	BYTE EnableAAE;	
+	BYTE AAEDeviceID[64];
 } STORAGE_INFO_T;
-
 
 typedef struct PktGetInfoEx1
 {

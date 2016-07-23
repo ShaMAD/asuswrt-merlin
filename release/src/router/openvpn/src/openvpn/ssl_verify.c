@@ -425,7 +425,6 @@ verify_cert_set_env(struct env_set *es, openvpn_x509_cert_t *peer_cert, int cert
   setenv_str (es, envname, common_name);
 #endif
 
-#ifdef ENABLE_EUREPHIA
   /* export X509 cert SHA1 fingerprint */
   {
     unsigned char *sha1_hash = x509_get_sha1_hash(peer_cert, &gc);
@@ -434,11 +433,15 @@ verify_cert_set_env(struct env_set *es, openvpn_x509_cert_t *peer_cert, int cert
     setenv_str (es, envname, format_hex_ex(sha1_hash, SHA_DIGEST_LENGTH, 0, 1,
 					  ":", &gc));
   }
-#endif
 
   /* export serial number as environmental variable */
-  serial = x509_get_serial(peer_cert, &gc);
+  serial = backend_x509_get_serial(peer_cert, &gc);
   openvpn_snprintf (envname, sizeof(envname), "tls_serial_%d", cert_depth);
+  setenv_str (es, envname, serial);
+
+  /* export serial number in hex as environmental variable */
+  serial = backend_x509_get_serial_hex(peer_cert, &gc);
+  openvpn_snprintf (envname, sizeof(envname), "tls_serial_hex_%d", cert_depth);
   setenv_str (es, envname, serial);
 
   gc_free(&gc);
@@ -564,7 +567,7 @@ verify_check_crl_dir(const char *crl_dir, openvpn_x509_cert_t *cert)
   int fd = -1;
   struct gc_arena gc = gc_new();
 
-  char *serial = x509_get_serial(cert, &gc);
+  char *serial = backend_x509_get_serial(cert, &gc);
 
   if (!openvpn_snprintf(fn, sizeof(fn), "%s%c%s", crl_dir, OS_SPECIFIC_DIRSEP, serial))
     {
@@ -593,7 +596,7 @@ verify_cert(struct tls_session *session, openvpn_x509_cert_t *cert, int cert_dep
 {
   result_t ret = FAILURE;
   char *subject = NULL;
-  char common_name[TLS_USERNAME_LEN] = {0};
+  char common_name[TLS_USERNAME_LEN+1] = {0}; /* null-terminated */
   const struct tls_options *opt;
   struct gc_arena gc = gc_new();
 
@@ -616,7 +619,7 @@ verify_cert(struct tls_session *session, openvpn_x509_cert_t *cert, int cert_dep
   string_replace_leading (subject, '-', '_');
 
   /* extract the username (default is CN) */
-  if (SUCCESS != x509_get_username (common_name, TLS_USERNAME_LEN,
+  if (SUCCESS != backend_x509_get_username (common_name, sizeof(common_name),
       opt->x509_username_field, cert))
     {
       if (!cert_depth)
@@ -1162,7 +1165,7 @@ verify_user_pass(struct user_pass *up, struct tls_multi *multi,
     s2 = verify_user_pass_script (session, up);
 
   /* check sizing of username if it will become our common name */
-  if ((session->opt->ssl_flags & SSLF_USERNAME_AS_COMMON_NAME) && strlen (up->username) >= TLS_USERNAME_LEN)
+  if ((session->opt->ssl_flags & SSLF_USERNAME_AS_COMMON_NAME) && strlen (up->username) > TLS_USERNAME_LEN)
     {
       msg (D_TLS_ERRORS, "TLS Auth Error: --username-as-common name specified and username is longer than the maximum permitted Common Name length of %d characters", TLS_USERNAME_LEN);
       s1 = OPENVPN_PLUGIN_FUNC_ERROR;

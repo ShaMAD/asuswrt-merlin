@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -11,65 +11,20 @@
 <title><#Web_Title#> - <#menu5_3_2#></title>
 <link rel="stylesheet" type="text/css" href="/index_style.css"> 
 <link rel="stylesheet" type="text/css" href="/form_style.css">
-
+<link rel="stylesheet" type="text/css" href="device-map/device-map.css">
 <script type="text/javascript" src="/state.js"></script>
 <script type="text/javascript" src="/help.js"></script>
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
-
+<script type="text/javascript" src="/validator.js"></script>
+<script language="JavaScript" type="text/javascript" src="/client_function.js"></script>
 <style>
 .Portrange{
 	font-size: 12px;
 	font-family: Lucida Console;
 }
-
-#ClientList_Block_PC{
-	border:1px outset #999;
-	background-color:#576D73;
-	position:absolute;
-	margin-top:25px;
-	margin-left:3px;
-	*margin-left:-125px;
-	width:255px;
-	*width:259px;
-	text-align:left;
-	height:auto;
-	overflow-y:auto;
-	z-index:200;
-	padding: 1px;
-	display:none;
-}
-#ClientList_Block_PC div{
-	background-color:#576D73;
-	height:20px;
-	line-height:20px;
-	text-decoration:none;
-	font-family: Lucida Console;
-	padding-left:2px;
-}
-
-#ClientList_Block_PC a{
-	background-color:#EFEFEF;
-	color:#FFF;
-	font-size:12px;
-	font-family:Arial, Helvetica, sans-serif;
-	text-decoration:none;	
-}
-#ClientList_Block_PC div:hover, #ClientList_Block a:hover{
-	background-color:#3366FF;
-	color:#FFFFFF;
-	cursor:default;
-}
 </style>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
-<% login_state_hook(); %>
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
-
 var qos_rulelist_array = "<% nvram_char_to_ascii("","qos_rulelist"); %>";
 
 var overlib_str0 = new Array();	//Viz add 2011.06 for record longer qos rule desc
@@ -83,13 +38,19 @@ function key_event(evt){
 
 function initial(){
 	show_menu();
+	if(bwdpi_support){
+		document.getElementById('content_title').innerHTML = "<#menu5_3_2#> - <#EzQoS_type_traditional#>";
+	}
+	else{
+		document.getElementById('content_title').innerHTML = "<#Menu_TrafficManager#> - QoS";
+	}
+	
 	showqos_rulelist();
-
 	load_QoS_rule();
 	if('<% nvram_get("qos_enable"); %>' == "1")
-		$('is_qos_enable_desc').style.display = "none";
+		document.getElementById('is_qos_enable_desc').style.display = "none";
 		
-	showLANIPList();	
+	setTimeout("showDropdownClientList('setClientIP_mac', 'name>mac', 'all', 'ClientList_Block_PC', 'pull_arrow_mac', 'all');", 1000);
 }
 
 function applyRule(){	
@@ -99,8 +60,8 @@ function applyRule(){
 }
 
 function save_table(){
-	var rule_num = $('qos_rulelist_table').rows.length;
-	var item_num = $('qos_rulelist_table').rows[0].cells.length;
+	var rule_num = document.getElementById('qos_rulelist_table').rows.length;
+	var item_num = document.getElementById('qos_rulelist_table').rows[0].cells.length;
 	var tmp_value = "";
      var comp_tmp = "";
 
@@ -108,12 +69,12 @@ function save_table(){
 		tmp_value += "<"		
 		for(j=0; j<item_num-1; j++){							
 			if(j==5){
-				tmp_value += $('qos_rulelist_table').rows[i].cells[j].firstChild.value;
+				tmp_value += document.getElementById('qos_rulelist_table').rows[i].cells[j].firstChild.value;
 			}else{						
-				if($('qos_rulelist_table').rows[i].cells[j].innerHTML.lastIndexOf("...")<0){
-					tmp_value += $('qos_rulelist_table').rows[i].cells[j].innerHTML;
+				if(document.getElementById('qos_rulelist_table').rows[i].cells[j].innerHTML.lastIndexOf("...")<0){
+					tmp_value += document.getElementById('qos_rulelist_table').rows[i].cells[j].innerHTML;
 				}else{
-					tmp_value += $('qos_rulelist_table').rows[i].cells[j].title;
+					tmp_value += document.getElementById('qos_rulelist_table').rows[i].cells[j].title;
 				}
 			}
 			
@@ -173,8 +134,8 @@ function validForm(){
 
 function addRow_Group(upper){
 	if(validForm()){
-		var rule_num = $('qos_rulelist_table').rows.length;
-		var item_num = $('qos_rulelist_table').rows[0].cells.length;	
+		var rule_num = document.getElementById('qos_rulelist_table').rows.length;
+		var item_num = document.getElementById('qos_rulelist_table').rows[0].cells.length;	
 
 		if(rule_num >= upper){
 			alert("<#JS_itemlimit1#> " + upper + " <#JS_itemlimit2#>");
@@ -185,22 +146,22 @@ function addRow_Group(upper){
 		if(item_num >=2){		//duplicate check: {IP/MAC, port, proto, transferred}
 			for(i=0; i<rule_num; i++){
 				if(overlib_str[i]){
-					if(document.form.qos_ip_x_0.value == $('qos_rulelist_table').rows[i].cells[1].innerHTML
+					if(document.form.qos_ip_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[1].innerHTML
 						&& document.form.qos_port_x_0.value == overlib_str[i] 
-						&& document.form.qos_transferred_x_0.value == $('qos_rulelist_table').rows[i].cells[4].innerHTML){
+						&& document.form.qos_transferred_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[4].innerHTML){
 						
-							if(document.form.qos_proto_x_0.value == $('qos_rulelist_table').rows[i].cells[3].innerHTML
+							if(document.form.qos_proto_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML
 								|| document.form.qos_proto_x_0.value == 'any'
-								|| $('qos_rulelist_table').rows[i].cells[3].innerHTML == 'any'){
+								|| document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'any'){
 										alert("<#JS_duplicate#>");
 										parse_port="";
 										document.form.qos_port_x_0.value =="";
 										document.form.qos_ip_x_0.focus();
 										document.form.qos_ip_x_0.select();
 										return;
-							}else if(document.form.qos_proto_x_0.value == $('qos_rulelist_table').rows[i].cells[3].innerHTML
-											|| (document.form.qos_proto_x_0.value == 'tcp/udp' && ($('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp' || $('qos_rulelist_table').rows[i].cells[3].innerHTML == 'udp'))
-											|| ($('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp/udp' && (document.form.qos_proto_x_0.value == 'tcp' || document.form.qos_proto_x_0.value == 'udp'))){
+							}else if(document.form.qos_proto_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML
+											|| (document.form.qos_proto_x_0.value == 'tcp/udp' && (document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp' || document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'udp'))
+											|| (document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp/udp' && (document.form.qos_proto_x_0.value == 'tcp' || document.form.qos_proto_x_0.value == 'udp'))){
 													alert("<#JS_duplicate#>");
 													parse_port="";
 													document.form.qos_port_x_0.value =="";
@@ -210,13 +171,13 @@ function addRow_Group(upper){
 							}				
 					}
 				}else{
-					if(document.form.qos_ip_x_0.value == $('qos_rulelist_table').rows[i].cells[1].innerHTML 
-						&& document.form.qos_port_x_0.value == $('qos_rulelist_table').rows[i].cells[2].innerHTML
-						&& document.form.qos_transferred_x_0.value == $('qos_rulelist_table').rows[i].cells[4].innerHTML){
+					if(document.form.qos_ip_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[1].innerHTML 
+						&& document.form.qos_port_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[2].innerHTML
+						&& document.form.qos_transferred_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[4].innerHTML){
 						
-								if(document.form.qos_proto_x_0.value == $('qos_rulelist_table').rows[i].cells[3].innerHTML
+								if(document.form.qos_proto_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML
 										|| document.form.qos_proto_x_0.value == 'any'
-										|| $('qos_rulelist_table').rows[i].cells[3].innerHTML == 'any'){
+										|| document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'any'){
 												alert("<#JS_duplicate#>");							
 												parse_port="";
 												document.form.qos_port_x_0.value =="";
@@ -224,9 +185,9 @@ function addRow_Group(upper){
 												document.form.qos_ip_x_0.select();
 												return;
 											
-								}else if(document.form.qos_proto_x_0.value == $('qos_rulelist_table').rows[i].cells[3].innerHTML
-											|| (document.form.qos_proto_x_0.value == 'tcp/udp' && ($('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp' || $('qos_rulelist_table').rows[i].cells[3].innerHTML == 'udp'))
-											|| ($('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp/udp' && (document.form.qos_proto_x_0.value == 'tcp' || document.form.qos_proto_x_0.value == 'udp'))){
+								}else if(document.form.qos_proto_x_0.value == document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML
+											|| (document.form.qos_proto_x_0.value == 'tcp/udp' && (document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp' || document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'udp'))
+											|| (document.getElementById('qos_rulelist_table').rows[i].cells[3].innerHTML == 'tcp/udp' && (document.form.qos_proto_x_0.value == 'tcp' || document.form.qos_proto_x_0.value == 'udp'))){
 													alert("<#JS_duplicate#>");							
 													parse_port="";
 													document.form.qos_port_x_0.value =="";
@@ -255,22 +216,22 @@ function addRow_Group(upper){
 
 function del_Row(r){
   var i=r.parentNode.parentNode.rowIndex;
-  $('qos_rulelist_table').deleteRow(i);
+  document.getElementById('qos_rulelist_table').deleteRow(i);
   
   var qos_rulelist_value = "";
-	for(k=0; k<$('qos_rulelist_table').rows.length; k++){
-		for(j=0; j<$('qos_rulelist_table').rows[k].cells.length-1; j++){
+	for(k=0; k<document.getElementById('qos_rulelist_table').rows.length; k++){
+		for(j=0; j<document.getElementById('qos_rulelist_table').rows[k].cells.length-1; j++){
 			if(j == 0)	
 				qos_rulelist_value += "<";
 			else
 				qos_rulelist_value += ">";
 				
 			if(j == 5){
-				qos_rulelist_value += $('qos_rulelist_table').rows[k].cells[j].firstChild.value;
-			}else if($('qos_rulelist_table').rows[k].cells[j].innerHTML.lastIndexOf("...")<0){	
-				qos_rulelist_value += $('qos_rulelist_table').rows[k].cells[j].innerHTML;	
+				qos_rulelist_value += document.getElementById('qos_rulelist_table').rows[k].cells[j].firstChild.value;
+			}else if(document.getElementById('qos_rulelist_table').rows[k].cells[j].innerHTML.lastIndexOf("...")<0){	
+				qos_rulelist_value += document.getElementById('qos_rulelist_table').rows[k].cells[j].innerHTML;	
 			}else{
-				qos_rulelist_value += $('qos_rulelist_table').rows[k].cells[j].title;
+				qos_rulelist_value += document.getElementById('qos_rulelist_table').rows[k].cells[j].title;
 			}
 		}
 	}
@@ -294,7 +255,7 @@ function showqos_rulelist(){
 			overlib_str[i] ="";			
 			code +='<tr id="row'+i+'">';
 			var qos_rulelist_col = qos_rulelist_row[i].split('>');
-			var wid=[21, 20, 14, 12, 15, 9];						
+			var wid=[20, 20, 10, 14, 15, 15];						
 				for(var j = 0; j < qos_rulelist_col.length; j++){
 						if(j != 0 && j !=2 && j!=5){
 							code +='<td width="'+wid[j]+'%">'+ qos_rulelist_col[j] +'</td>';
@@ -344,12 +305,12 @@ function showqos_rulelist(){
 								code += '</select></td>';
 						}
 				}
-				code +='<td  width="9%">';
-				code +='<input class="remove_btn" type="button" onclick="del_Row(this);"/></td></tr>';
+				code +='<td  width="6%">';
+				code +='<input class="remove_btn" type="button" onclick="del_Row(this);" style="width:36px;"/></td></tr>';
 		}
 	}
 	code +='</table>';
-	$("qos_rulelist_Block").innerHTML = code;
+	document.getElementById("qos_rulelist_Block").innerHTML = code;
 	
 	
 	parse_port="";
@@ -394,7 +355,7 @@ function validate_multi_range(val, mini, maxi){
 	var rangere=new RegExp("^([0-9]{1,5})\:([0-9]{1,5})$", "gi");
 	if(rangere.test(val)){
 		
-		if(!validate_each_port(document.form.qos_port_x_0, RegExp.$1, mini, maxi) || !validate_each_port(document.form.qos_port_x_0, RegExp.$2, mini, maxi)){
+		if(!validator.eachPort(document.form.qos_port_x_0, RegExp.$1, mini, maxi) || !validator.eachPort(document.form.qos_port_x_0, RegExp.$2, mini, maxi)){
 				return false;								
 		}else if(parseInt(RegExp.$1) >= parseInt(RegExp.$2)){
 				alert("<#JS_validport#>");	
@@ -649,20 +610,20 @@ function showQoSList(){
 			code += '<a><div onclick="setClientIP('+i+');"><dd>'+rule_desc[i]+'</dd></div></a>';
 	}
 	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
-	$("QoSList_Block").innerHTML = code;
+	document.getElementById("QoSList_Block").innerHTML = code;
 }
 
 var isMenuopen = 0;
 function pullQoSList(obj){
 	if(isMenuopen == 0){
 		obj.src = "/images/arrow-top.gif"
-		$("QoSList_Block").style.display = 'block';
+		document.getElementById("QoSList_Block").style.display = 'block';
 		//document.form.qos_service_name_x_0.focus();		
 		isMenuopen = 1;
 	}
 	else{
-		$("pull_arrow").src = "/images/arrow-down.gif";
-		$('QoSList_Block').style.display='none';
+		document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
+		document.getElementById('QoSList_Block').style.display='none';
 		isMenuopen = 0;
 	}
 }
@@ -677,8 +638,8 @@ function hideClients_Block(evt){
 		}
 	}
 
-	$("pull_arrow").src = "/images/arrow-down.gif";
-	$('QoSList_Block').style.display='none';
+	document.getElementById("pull_arrow").src = "/images/arrow-down.gif";
+	document.getElementById('QoSList_Block').style.display='none';
 	isMenuopen = 0;
 }
 /*----------} Mouse event of fake LAN IP select menu-----------------*/
@@ -719,12 +680,12 @@ function valid_IPorMAC(obj){
     					return true;
 			}		
 			else if(obj.value.split("*").length >= 2){
-					if(!valid_IP_subnet(obj))
+					if(!validator.ipSubnet(obj))
 							return false;
 					else
 							return true;				
 			}
-			else if(!valid_IP_form(obj, 0)){
+			else if(!validator.validIPForm(obj, 0)){
     			return false;
 			}
 			else
@@ -732,56 +693,29 @@ function valid_IPorMAC(obj){
 	}	
 }
 
-
-function showLANIPList(){
-	var code = "";
-	var show_name = "";
-	var client_list_array = '<% get_client_detail_info(); %>';	
-	var client_list_row = client_list_array.split('<');
-
-	for(var i = 1; i < client_list_row.length; i++){
-		var client_list_col = client_list_row[i].split('>');
-		if(client_list_col[1] && client_list_col[1].length > 20)
-			show_name = client_list_col[1].substring(0, 16) + "..";
-		else
-			show_name = client_list_col[1];
-
-		if(client_list_col[1])
-			code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP_mac(\''+client_list_col[1]+'\', \''+client_list_col[3]+'\');"><strong>'+client_list_col[2]+'</strong> ';
-		else
-			code += '<a><div onmouseover="over_var=1;" onmouseout="over_var=0;" onclick="setClientIP_mac(\''+client_list_col[3]+'\', \''+client_list_col[3]+'\');"><strong>'+client_list_col[2]+'</strong> ';
-			if(show_name && show_name.length > 0)
-				code += '( '+show_name+')';
-			code += ' </div></a>';
-		}
-	code +='<!--[if lte IE 6.5]><iframe class="hackiframe2"></iframe><![endif]-->';	
-	$("ClientList_Block_PC").innerHTML = code;
-}
-
 function pullLANIPList(obj){
-	if(isMenuopen_mac == 0){		
+	var element = document.getElementById('ClientList_Block_PC');
+	var isMenuopen = element.offsetWidth > 0 || element.offsetHeight > 0;
+	if(isMenuopen == 0){		
 		obj.src = "/images/arrow-top.gif"
-		$("ClientList_Block_PC").style.display = 'block';		
-		document.form.qos_ip_x_0.focus();		
-		isMenuopen_mac = 1;
+		element.style.display = 'block';		
+		document.form.qos_ip_x_0.focus();
 	}
 	else
 		hideClients_Block_mac();
 }
 
-var over_var = 0;
-var isMenuopen_mac = 0;
-
 function hideClients_Block_mac(){
-	$("pull_arrow_mac").src = "/images/arrow-down.gif";
-	$('ClientList_Block_PC').style.display='none';
-	isMenuopen_mac = 0;
+	document.getElementById("pull_arrow_mac").src = "/images/arrow-down.gif";
+	document.getElementById('ClientList_Block_PC').style.display='none';
 }
 
 function setClientIP_mac(devname, macaddr){
 	document.form.qos_ip_x_0.value = macaddr;
+	if(document.form.qos_service_name_x_0.value.length == 0)
+		document.form.qos_service_name_x_0.value = devname;
+
 	hideClients_Block_mac();
-	over_var = 0;
 }
 
 //Viz add 2013.03 for "iptables rule -p xxx --d port", that xxx is not allowed to set null
@@ -806,7 +740,7 @@ function linkport(obj){
 <input type="hidden" name="modified" value="0">
 <input type="hidden" name="action_mode" value="apply">
 <input type="hidden" name="action_wait" value="5">
-<input type="hidden" name="action_script" value="restart_qos">
+<input type="hidden" name="action_script" value="restart_qos;restart_firewall">
 <input type="hidden" name="first_time" value="">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
@@ -835,13 +769,13 @@ function linkport(obj){
 						<table width="100%" >
 						<tr >
 						<td  class="formfonttitle" align="left">								
-										<div style="margin-top:5px;"><#Menu_TrafficManager#> - QoS</div>
-									</td>
+							<div id="content_title" style="margin-top:5px;"></div>
+						</td>
 						<td align="right" >	
 						<div style="margin-top:5px;">
 							<select onchange="switchPage(this.options[this.selectedIndex].value)" class="input_option">
 								<!--option><#switchpage#></option-->
-								<option value="1"><#qos_automatic_mode#></option>
+								<option value="1"><#Adaptive_QoS_Conf#></option>
 								<option value="2" selected><#qos_user_rules#></option>
 								<option value="3"><#qos_user_prio#></option>
 							</select>	    
@@ -882,28 +816,28 @@ function linkport(obj){
 			
 							<tr>
 								<th><#BM_UserList1#></th>
-								<th><a href="javascript:void(0);" onClick="openHint(18,6);"><div class="table_text">Source IP or MAC</div></a></th>
+								<th><a href="javascript:void(0);" onClick="openHint(18,6);"><div class="table_text"><#BM_UserList2#></div></a></th>
 								<th><a href="javascript:void(0);" onClick="openHint(18,4);"><div class="table_text"><#BM_UserList3#></div></a></th>
 								<th><div class="table_text"><#IPConnection_VServerProto_itemname#></div></th>
-								<th><a href="javascript:void(0);" onClick="openHint(18,5);"><div class="table_text"><div class="table_text">Transferred</div></a></th>
+								<th><a href="javascript:void(0);" onClick="openHint(18,5);"><div class="table_text"><div class="table_text"><#UserQoS_transferred#></div></a></th>
 								<th><#BM_UserList4#></th>
 								<th><#list_add_delete#></th>
 							</tr>							
 							<tr>
-								<td width="21%">							
-									<input type="text" class="input_12_table" style="float:left;width:105px;" placeholder="<#Select_menu_default#>" name="qos_service_name_x_0" onKeyPress="return is_string(this, event)">
+								<td width="20%">							
+									<input type="text" maxlength="32" class="input_12_table" style="float:left;width:105px;" placeholder="<#Select_menu_default#>" name="qos_service_name_x_0" onKeyPress="return validator.isString(this, event)" autocorrect="off" autocapitalize="off">
 									<img id="pull_arrow" height="14px;" src="/images/arrow-down.gif" onclick="pullQoSList(this);" title="<#select_service#>">
 									<div id="QoSList_Block" class="QoSList_Block" onclick="hideClients_Block()"></div>
 								</td>
 								<td width="20%">
-									<input type="text" maxlength="17" class="input_15_table" name="qos_ip_x_0" style="width:100px;float:left">
+									<input type="text" maxlength="17" class="input_15_table" name="qos_ip_x_0" style="width:100px;float:left" autocorrect="off" autocapitalize="off">
 									<img id="pull_arrow_mac" class="pull_arrow"height="14px;" src="/images/arrow-down.gif" onclick="pullLANIPList(this);" title="<#select_client#>">
-									<div id="ClientList_Block_PC" class="ClientList_Block_PC" ></div>
+									<div id="ClientList_Block_PC" class="clientlist_dropdown" style="margin-left:2px;margin-top: 25px;"></div>
 								</td>
 								
 								
-								<td width="14%"><input type="text" class="input_12_table" name="qos_port_x_0" onKeyPress="return is_portrange(this, event)"></td>
-								<td width="12%">
+								<td width="10%"><input type="text" maxlength="32" class="input_6_table" name="qos_port_x_0" onKeyPress="return validator.isPortRange(this, event)" autocorrect="off" autocapitalize="off"></td>
+								<td width="14%">
 									<select name="qos_proto_x_0" class="input_option" style="width:75px;" onChange="linkport(this);">
 										<option value="tcp">TCP</option>
 										<option value="udp">UDP</option>
@@ -915,11 +849,11 @@ function linkport(obj){
 									</select>
 								</td>
 								<td width="15%">
-									<input type="text" class="input_3_table" maxlength="7" onKeyPress="return is_number(this,event);" onblur="conv_to_transf();" name="qos_min_transferred_x_0">~
-									<input type="text" class="input_3_table" maxlength="7" onKeyPress="return is_number(this,event);" onblur="conv_to_transf();" name="qos_max_transferred_x_0"> KB
+									<input type="text" class="input_3_table" maxlength="7" onKeyPress="return validator.isNumber(this,event);" onblur="conv_to_transf();" name="qos_min_transferred_x_0" autocorrect="off" autocapitalize="off">~
+									<input type="text" class="input_3_table" maxlength="7" onKeyPress="return validator.isNumber(this,event);" onblur="conv_to_transf();" name="qos_max_transferred_x_0" autocorrect="off" autocapitalize="off"> KB
 									<input type="hidden" name="qos_transferred_x_0" value="">
 								</td>
-								<td width="9%">
+								<td width="15%">
 									<select name='qos_prio_x_0' class="input_option" style="width:87px;"> <!--style="width:auto;"-->
 										<option value='0'><#Highest#></option>
 										<option value='1' selected><#High#></option>
@@ -929,7 +863,7 @@ function linkport(obj){
 									</select>
 								</td>
 								
-								<td width="9%">
+								<td width="6%">
 									<input type="button" class="add_btn" onClick="addRow_Group(128);">
 								</td>
 							</tr>

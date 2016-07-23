@@ -276,8 +276,17 @@ ip_conntrack_ipct_add(struct sk_buff *skb, u_int32_t hooknum,
 #endif /* CONFIG_IPV6 */
 	}
 	ipc_entry.tuple.proto = protocol;
-	ipc_entry.tuple.sp = tcph->source;
-	ipc_entry.tuple.dp = tcph->dest;
+#ifdef CONFIG_IPV6
+	if (ipver == 6 && protocol == IPPROTO_UDP) {
+		ipc_entry.tuple.sp = FRAG_IPV6_UDP_DUMMY_PORT;
+		ipc_entry.tuple.dp = FRAG_IPV6_UDP_DUMMY_PORT;
+	}
+	else
+#endif
+	{
+		ipc_entry.tuple.sp = tcph->source;
+		ipc_entry.tuple.dp = tcph->dest;
+	}
 
 	ipc_entry.next = NULL;
 
@@ -527,6 +536,9 @@ ip_conntrack_ipct_delete(struct nf_conn *ct, int ct_timeout)
 	bool v6;
 
 	if (!CTF_ENAB(kcih))
+		return (0);
+
+	if (!(ct->ctf_flags & CTF_FLAGS_CACHED))
 		return (0);
 
 	orig = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;

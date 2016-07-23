@@ -2,33 +2,26 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
 <link rel="shortcut icon" href="images/favicon.png">
 <link rel="icon" href="images/favicon.png">
-<title><#Web_Title#> - <#menu3#></title>
+<title><#Web_Title#> - AiCloud 2.0</title>
 <link rel="stylesheet" type="text/css" href="index_style.css"> 
 <link rel="stylesheet" type="text/css" href="form_style.css">
 <script type="text/javascript" src="/state.js"></script>
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
 <script type="text/javascript" src="/help.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
 <script>
-<% login_state_hook(); %>
-
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
 
 function initial(){
 	show_menu();
 
 	if(!rrsut_support)
-		$("rrsLink").style.display = "none";
+		document.getElementById("rrsLink").style.display = "none";		
 }
 </script>
 </head>
@@ -39,8 +32,8 @@ function initial(){
 <form method="post" name="form" action="/start_apply.htm" target="hidden_frame">
 <input type="hidden" name="preferred_lang" id="preferred_lang" value="<% nvram_get("preferred_lang"); %>">
 <input type="hidden" name="firmver" value="<% nvram_get("firmver"); %>">
-<input type="hidden" name="current_page" value="cloud_settings.asp">
-<input type="hidden" name="next_page" value="cloud_settings.asp">
+<input type="hidden" name="current_page" value="cloud_syslog.asp">
+<input type="hidden" name="next_page" value="cloud_syslog.asp">
 <input type="hidden" name="action_mode" value="apply">
 <input type="hidden" name="action_script" value="restart_webdav">
 <input type="hidden" name="action_wait" value="3">
@@ -58,19 +51,19 @@ function initial(){
 					<tbody>
 					<tr>
 						<td>
-							<a href="cloud_main.asp"><div class="tab"><span>AiCloud</span></div></a>
+							<a href="cloud_main.asp"><div class="tab"><span>AiCloud 2.0</span></div></a>
 						</td>
 						<td>
-							<a href="cloud_sync.asp"><div class="tab"><span>Smart Sync</span></div></a>
+							<a id="smart_sync_link" href="cloud_sync.asp"><div class="tab"><span><#smart_sync#></span></div></a>
 						</td>
 						<td>
-							<a id="rrsLink" href="cloud_router_sync.asp"><div class="tab"><span>Sync Server</span></div></a>
+							<a id="rrsLink" href="cloud_router_sync.asp"><div class="tab"><span><#Server_Sync#></span></div></a>
 						</td>
 						<td>
-							<a href="cloud_settings.asp"><div class="tab"><span>Settings</span></div></a>
+							<a href="cloud_settings.asp"><div class="tab"><span><#Settings#></span></div></a>
 						</td>
 						<td>
-							<div class="tabclick"><span>Log</span></div>
+							<div class="tabclick"><span><#Log#></span></div>
 						</td>
 					</tr>
 					</tbody>
@@ -85,7 +78,7 @@ function initial(){
 							<tr>
 							  <td bgcolor="#4D595D" valign="top">
 								<div>&nbsp;</div>
-								<div class="formfonttitle">AiCloud - Settings</div>
+								<div class="formfonttitle">AiCloud 2.0 - <#Log#></div>
 								<div style="margin-left:5px;margin-top:10px;margin-bottom:10px"><img src="/images/New_ui/export/line_export.png"></div>
 								<div class="formfontdesc" style="font-style: italic;font-size: 14px;"><#AiCloud_Log_desc#></div>
 

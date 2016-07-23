@@ -16,7 +16,7 @@
 
 #include "dnsmasq.h"
 
-#ifdef HAVE_IPSET
+#if defined(HAVE_IPSET) && defined(HAVE_LINUX_NETWORK)
 
 #include <string.h>
 #include <errno.h>
@@ -100,7 +100,7 @@ void ipset_init(void)
   version = version * 256 + (split ? atoi(split) : 0);
   split = strtok(NULL, ".");
   version = version * 256 + (split ? atoi(split) : 0);
-  old_kernel = (version < KERNEL_VERSION(2,6,32));
+  old_kernel = (version < KERNEL_VERSION(2,6,37));
   
   if (old_kernel && (ipset_sock = socket(AF_INET, SOCK_RAW, IPPROTO_RAW)) != -1)
     return;
@@ -121,7 +121,6 @@ static int new_add_to_ipset(const char *setname, const struct all_addr *ipaddr, 
   struct my_nlattr *nested[2];
   uint8_t proto;
   int addrsz = INADDRSZ;
-  ssize_t rc;
 
 #ifdef HAVE_IPV6
   if (af == AF_INET6)
@@ -162,9 +161,10 @@ static int new_add_to_ipset(const char *setname, const struct all_addr *ipaddr, 
   nested[1]->nla_len = (void *)buffer + NL_ALIGN(nlh->nlmsg_len) - (void *)nested[1];
   nested[0]->nla_len = (void *)buffer + NL_ALIGN(nlh->nlmsg_len) - (void *)nested[0];
 	
-  while ((rc = sendto(ipset_sock, buffer, nlh->nlmsg_len, 0,
-		      (struct sockaddr *)&snl, sizeof(snl))) == -1 && retry_send());
-  return rc;
+  while (retry_send(sendto(ipset_sock, buffer, nlh->nlmsg_len, 0,
+			   (struct sockaddr *)&snl, sizeof(snl))));
+								    
+  return errno == 0 ? 0 : -1;
 }
 
 

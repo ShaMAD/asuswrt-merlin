@@ -331,6 +331,7 @@ void
 check_server_poll_timeout_dowork (struct context *c)
 {
   event_timeout_reset (&c->c2.server_poll_interval);
+  ASSERT(c->c2.tls_multi);
   if (!tls_initial_packet_received (c->c2.tls_multi))
     {
       msg (M_INFO, "Server poll timeout, restarting");
@@ -951,6 +952,16 @@ read_incoming_tun (struct context *c)
       perf_pop ();
       return;		  
     }
+
+  /* Was TUN/TAP I/O operation aborted? */
+  if (tuntap_abort(c->c2.buf.len))
+  {
+     register_signal(c, SIGHUP, "tun-abort");
+     c->persist.restart_sleep_seconds = 10;
+     msg(M_INFO, "TUN/TAP I/O operation aborted, restarting");
+     perf_pop();
+     return;
+  }
 
   /* Check the status return from read() */
   check_status (c->c2.buf.len, "read from TUN/TAP", NULL, c->c1.tuntap);

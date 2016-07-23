@@ -45,6 +45,7 @@
 #define HAVE_SYS_STAT_H 1
 #define HAVE_LZO_LZO1X_H 1
 #define HAVE_LZO_LZOUTIL_H 1
+#define HAVE_VERSIONHELPERS_H 1
 
 #define HAVE_ACCESS 1
 #define HAVE_CHDIR 1
@@ -76,6 +77,9 @@
 
 #define HAVE_OPENSSL_ENGINE 1
 
+#define PATH_SEPARATOR     '\\'
+#define PATH_SEPARATOR_STR "\\"
+
 #ifndef __cplusplus
 #define inline __inline
 #endif
@@ -89,7 +93,10 @@
 #define strncasecmp strnicmp
 #define strcasecmp _stricmp
 #define snprintf _snprintf
+
+#if _MSC_VER < 1800
 #define strtoull strtoul
+#endif
 
 #define in_addr_t uint32_t
 #define ssize_t SSIZE_T

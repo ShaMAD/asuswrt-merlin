@@ -1,7 +1,7 @@
 /*
  * Broadcom 53xx RoboSwitch device driver.
  *
- * Copyright (C) 2013, Broadcom Corporation. All Rights Reserved.
+ * Copyright (C) 2015, Broadcom Corporation. All Rights Reserved.
  * 
  * Permission to use, copy, modify, and/or distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,7 +15,7 @@
  * OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
  * CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *
- * $Id: bcmrobo.c 428037 2013-10-07 14:50:53Z $
+ * $Id: bcmrobo.c 473904 2014-04-30 02:41:11Z $
  */
 
 
@@ -48,6 +48,10 @@
 #define VARG(var, len) (((len) == 1) ? *((uint8 *)(var)) : \
 		        ((len) == 2) ? *((uint16 *)(var)) : \
 		        *((uint32 *)(var)))
+
+#if defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
+void robo_chk_regs(robo_info_t *robo);
+#endif
 
 /*
  * Switch can be programmed through SPI interface, which
@@ -216,6 +220,9 @@ do { \
 		break; \
 	bcm_mdelay(1); \
 } while (1)
+
+/* a flag to control Manage Mode enable/disable */
+static bool mang_mode_en = FALSE;
 
 #define RXTX_FLOW_CTRL_MASK	0x3	/* 53125 flow control capability mask */
 #define RXTX_FLOW_CTRL_SHIFT	4	/* 53125 flow contorl capability offset */
@@ -938,10 +945,13 @@ bcm_robo_attach(si_t *sih, void *h, char *vars, miird_f miird, miiwr_f miiwr)
 {
 	robo_info_t *robo;
 	uint32 reset, idx;
-#ifndef	_CFE_
+//#ifndef	_CFE_
+#if !defined(_CFE_) || defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
 	const char *et1port, *et1phyaddr;
 	int mdcport = 0, phyaddr = 0;
-#endif /* _CFE_ */
+	uint8 val8;
+//#endif /* _CFE_ */
+#endif
 	int lan_portenable = 0;
 	int rc;
 
@@ -1172,6 +1182,7 @@ bcm_robo_attach(si_t *sih, void *h, char *vars, miird_f miird, miiwr_f miiwr)
 		robo->pwrsave_wake_time = PWRSAVE_WAKE_TIME;
 	robo->pwrsave_mode_auto = getintvar(robo->vars, "switch_mode_auto");
 
+#if defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
 	/* Determining what all phys need to be included in
 	 * power save operation
 	 */
@@ -1182,6 +1193,7 @@ bcm_robo_attach(si_t *sih, void *h, char *vars, miird_f miird, miiwr_f miiwr)
 	et1phyaddr = getvar(vars, "et1phyaddr");
 	if (et1phyaddr)
 		phyaddr = bcm_atoi(et1phyaddr);
+#endif
 
 	if ((mdcport == 0) && (phyaddr == 4))
 		/* For 5325F switch we need to do only phys 0-3 */
@@ -1195,6 +1207,28 @@ bcm_robo_attach(si_t *sih, void *h, char *vars, miird_f miird, miiwr_f miiwr)
 	/* See if one of the ports is connected to plc chipset */
 	robo->plc_hw = (getvar(vars, "plc_vifs") != NULL);
 #endif /* PLC */
+
+#if defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
+	/* reset p5 reg when needs to link up it in ac87u, ac88u */
+	if (ROBO_IS_BCM5301X(robo->devid) && mdcport == 0 && phyaddr == 30) {
+		val8 = 0xfb;
+		robo->ops->write_reg(robo, PAGE_CTRL, 0x5d, &val8, sizeof(val8));
+
+		robo_chk_regs(robo);
+	}
+#endif
+
+#ifdef BCMFA
+	robo->aux_pid = -1;
+	if (BCM4707_CHIP(CHIPID(robo->sih->chip))) {
+		if (getvar(robo->vars, "et0macaddr"))
+			robo->aux_pid = 5;	/* unit 0 maps to port 5 */
+		else if (getvar(robo->vars, "et1macaddr"))
+			robo->aux_pid = 7;	/* unit 1 maps to port 7 */
+
+		ASSERT(robo->aux_pid != -1);
+	}
+#endif /* BCMFA */
 
 	return robo;
 
@@ -1316,12 +1350,15 @@ pdesc_t pdesc25[] = {
 static int
 robo_fa_imp_port_upd(robo_info_t *robo, char *port, int pid, int vid, int pdescsz)
 {
-	char *u;
 	int newpid = pid;
 
+	if ((pid == robo->aux_pid)
 	/* Ugly, hard code to search port "5". */
-	if (strchr(port, FLAG_LAN) || strchr(port, FLAG_UNTAG) ||
-	    (vid == 2 && !strcmp(port, "5"))) {
+#if defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
+	|| (strchr(port, FLAG_LAN) || strchr(port, FLAG_UNTAG) ||
+		(vid == 2 && !strcmp(port, "5")))
+#endif
+	) {
 		if (BCM4707_CHIP(CHIPID(robo->sih->chip)) && (pid != pdescsz - 1) &&
 		    FA_ON(getintvar(robo->vars, "ctf_fa_mode"))) {
 			newpid = pdescsz - 1;
@@ -1389,22 +1426,29 @@ robo_cpu_port_upd(robo_info_t *robo, pdesc_t *pdesc, int pdescsz)
 }
 
 #if !defined(_CFE_) && defined(BCMFA)
-/* Default assume: Do copy to port 5 */
+/* Default assume: Do copy to aux port */
 static void
 robo_fa_aux_set_action_policy(robo_info_t *robo, uint32 index)
 {
 	uint32 val32;
+	uint32 aux_portmap;
+
+	/* bit[5:0]=p5~p0, bit6=p7, bit7=p8 */
+	if (robo->aux_pid > 5)
+		aux_portmap = (1 << (robo->aux_pid - 1));
+	else
+		aux_portmap = (1 << robo->aux_pid);
 
 	/* Set to both in-band and out-band */
 
 	/* In-Band */
 	val32 = ((3 << CFP_ACT_POL_DATA0_CFMI_SHIFT) | /* do copy */
-		 (0x20 << CFP_ACT_POL_DATA0_DMI_SHIFT) | /* port 5 */
+		 (aux_portmap << CFP_ACT_POL_DATA0_DMI_SHIFT) | /* aux port */
 		 7); /* STP_BYP | EAP_BYP | VLAN_BYP */
 	robo->ops->write_reg(robo, PAGE_CFPTCAM, REG_CFPTCAM_ACT_POL_DATA0, &val32, sizeof(val32));
 	/* Out-Band */
 	val32 = ((3 << CFP_ACT_POL_DATA1_CFMO_SHIFT) | /* do copy */
-		 (0x20 << CFP_ACT_POL_DATA1_DMO_SHIFT)); /* port 5 */
+		 (aux_portmap << CFP_ACT_POL_DATA1_DMO_SHIFT)); /* aux port */
 	robo->ops->write_reg(robo, PAGE_CFPTCAM, REG_CFPTCAM_ACT_POL_DATA1, &val32, sizeof(val32));
 	/* Issue write command */
 	val32 = ((index << CFP_ACC_XCESS_ADDR_SHIFT) | /* index */
@@ -1419,6 +1463,15 @@ robo_fa_aux_set_tcam(robo_info_t *robo, bool ipv6, bool tcp_rst, uint32 index)
 {
 	uint32 val32;
 	uint8 l3_framing_bit, tcp_flags_bit;
+	uint8 phy_portmap = 0x1F; /* port 0~4 by default */
+#ifdef RGMII_BCM_FA
+	char *rgmii_port;
+
+	/* Add rgmii port into phy_portmap */
+	rgmii_port = getvar(robo->vars, "rgmii_port");
+	if (rgmii_port)
+		phy_portmap |= (1 << bcm_strtoul(rgmii_port, NULL, 0));
+#endif
 
 	if (ipv6)
 		l3_framing_bit = 1; /* IPv6 */
@@ -1456,7 +1509,7 @@ robo_fa_aux_set_tcam(robo_info_t *robo, bool ipv6, bool tcp_rst, uint32 index)
 	/* DATA7 = SRC_PortMap */
 	val32 = 0;
 	robo->ops->write_reg(robo, PAGE_CFPTCAM, REG_CFPTCAM_DATA7, &val32, sizeof(val32));
-	val32 = 0xE0; /* ~0x1F */
+	val32 = 0xFF & ~phy_portmap; /* ~phy_portmap */
 	robo->ops->write_reg(robo, PAGE_CFPTCAM, REG_CFPTCAM_MASK7, &val32, sizeof(val32));
 
 	/* Issue write command */
@@ -1562,13 +1615,19 @@ robo_fa_aux_init(robo_info_t *robo)
 	if (!robo)
 		return;
 
+	if (robo->aux_pid == -1) {
+		ET_ERROR(("Invalid aux_pid\n"));
+		return;
+	}
+
 	/* Enable management interface access */
 	if (robo->ops->enable_mgmtif)
 		robo->ops->enable_mgmtif(robo);
 
-	/* Port 5 GMII Port States Override Register */
+	/* AUX Port GMII Port States Override Register */
 	val8 = 0;
-	robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_PORT5_GMIIPO, &val8, sizeof(val8));
+	robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_PORT0_GMIIPO + robo->aux_pid,
+		&val8, sizeof(val8));
 	val8 |=
 		(1 << 7) |	/* GMII_SPEED_UP_2G */
 		(1 << 6) |	/* SW_OVERRIDE */
@@ -1581,9 +1640,10 @@ robo_fa_aux_init(robo_info_t *robo)
 				 * Full Duplex
 				 */
 		(1 << 0);	/* LINK_STS: Link up */
-	robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_PORT5_GMIIPO, &val8, sizeof(val8));
+	robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_PORT0_GMIIPO + robo->aux_pid,
+		&val8, sizeof(val8));
 
-	/* CFP: filter TCP FIN/RST and copy to port 5 */
+	/* CFP: filter TCP FIN/RST and copy to AUX port */
 	/* 1. Action policy */
 	/* Index 0~4 (IPv4/6 TCP FIN/RST) */
 	robo_fa_aux_set_action_policy(robo, 0);
@@ -1620,6 +1680,10 @@ void
 robo_fa_aux_enable(robo_info_t *robo, bool enable)
 {
 	uint8 val8 = 0x0;
+	uint8 phy_portmap = 0x1F; /* port 0~4 by default */
+#ifdef RGMII_BCM_FA
+	char *rgmii_port;
+#endif
 
 	if (!robo)
 		return;
@@ -1628,9 +1692,17 @@ robo_fa_aux_enable(robo_info_t *robo, bool enable)
 	if (robo->ops->enable_mgmtif)
 		robo->ops->enable_mgmtif(robo);
 
-	/* Enable CFP on port 0 ~ 4 */
+#ifdef RGMII_BCM_FA
+	/* Add rgmii port into phy_portmap */
+	rgmii_port = getvar(robo->vars, "rgmii_port");
+	if (rgmii_port)
+		phy_portmap |= (1 << bcm_strtoul(rgmii_port, NULL, 0));
+#endif
+
+	/* Enable CFP on phy ports */
 	if (enable)
-		val8 = 0x1F;
+		val8 = phy_portmap;
+
 	robo->ops->write_reg(robo, PAGE_CFP, REG_CFP_CTL_REG, &val8, sizeof(val8));
 
 	/* Disable management interface access */
@@ -1998,6 +2070,43 @@ vlan_setup:
 	return 0;
 }
 
+#ifdef RGMII_BCM_FA
+static void
+bcm_robo_enable_rgmii_port(robo_info_t *robo)
+{
+	char *var;
+	int rgmii_port = -1;
+	uint8 val8;
+
+	var = getvar(robo->vars, "rgmii_port");
+	if (var)
+		rgmii_port = bcm_strtoul(var, NULL, 0);
+
+	if (SRAB_ENAB() && ROBO_IS_BCM5301X(robo->devid)) {
+		if (rgmii_port == 5) {
+			val8 = 0;
+			robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_PORT5_GMIIPO,
+				&val8, sizeof(val8));
+			val8 |=
+				(1 << 7) |	/* GMII_SPEED_UP_2G */
+				(1 << 6) |	/* SW_OVERRIDE */
+				(1 << 5) |	/* TXFLOW_CNTL */
+				(1 << 4) |	/* RXFLOW_CNTL */
+						/* default(2 << 2) SPEED :
+						 * 2b10 1000/2000Mbps
+						 */
+						/* default(1 << 1) DUPLX_MODE:
+						 * Full Duplex
+						 */
+				(1 << 0);	/* LINK_STS: Link up */
+			robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_PORT5_GMIIPO,
+				&val8, sizeof(val8));
+		}
+	}
+}
+
+#endif
+
 /* Enable switching/forwarding */
 int
 bcm_robo_enable_switch(robo_info_t *robo)
@@ -2011,6 +2120,12 @@ bcm_robo_enable_switch(robo_info_t *robo)
 
 	/* Switch Mode register (Page 0, Address 0x0B) */
 	robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_MODE, &val8, sizeof(val8));
+
+	if (!mang_mode_en) {
+		/* Set unmanaged mode if no any other GMAC enable mang mode */
+		val8 &= (~(1 << 0));
+		robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_MODE, &val8, sizeof(val8));
+	}
 
 	/* Bit 1 enables switching/forwarding */
 	if (!(val8 & (1 << 1))) {
@@ -2129,6 +2244,15 @@ bcm_robo_enable_switch(robo_info_t *robo)
 				robo->ops->write_reg(robo, PAGE_VLAN, REG_VLAN_CTRL5,
 					&val8, sizeof(val8));
 
+				/* Switch Mode Register (Page 0, Address 0x0B): Set Managed Mode */
+				val8 = 0;
+				robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_MODE,
+					&val8, sizeof(val8));
+				val8 |= (1 << 0);	/* SW_FWDG_MODE Managed Mode */
+				robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_MODE,
+					&val8, sizeof(val8));
+				mang_mode_en = TRUE;
+
 				/* Enable ports 5 and 7 for SMP dual core 3 GMAC setup */
 
 				/* Port 5 GMII Port States Override Register
@@ -2184,14 +2308,17 @@ bcm_robo_enable_switch(robo_info_t *robo)
 		/* Disable CFP by default */
 		val8 = 0x0;
 		robo->ops->write_reg(robo, PAGE_CFP, REG_CFP_CTL_REG, &val8, sizeof(val8));
+	}
 
-		/* Switch Mode Register (Page 0, Address 0x0B): Managed and SW Fwding */
-		val8 = 0;
-		robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_MODE, &val8, sizeof(val8));
-		val8 |=
-			(1 << 1) |		/* SW_FWDG_EN Frame Forwarding is enabled */
-			(1 << 0);		/* SW_FWDG_MODE Managed Mode */
-		robo->ops->write_reg(robo, PAGE_CTRL, REG_CTRL_MODE, &val8, sizeof(val8));
+#ifdef RGMII_BCM_FA
+	bcm_robo_enable_rgmii_port(robo);
+#endif
+
+	/* Drop reserved bit, if any */
+	robo->ops->read_reg(robo, PAGE_CTRL, 0x2f, &val8, sizeof(val8));
+	if (robo->devid != DEVID5325 && val8 & (1 << 1)) {
+		val8 &= ~(1 << 1);
+		robo->ops->write_reg(robo, PAGE_CTRL, 0x2f, &val8, sizeof(val8));
 	}
 
 	/* Disable management interface access */
@@ -2200,6 +2327,43 @@ bcm_robo_enable_switch(robo_info_t *robo)
 
 	return ret;
 }
+
+#if defined(RTAC87U) || defined(CONFIG_RTAC87U) || defined(RTAC88U) || defined(CONFIG_RTAC88U)
+void
+robo_chk_regs(robo_info_t *robo)
+{
+	uint8 val8;
+
+	printf("\n=================\nrobo chk regs:\n===================\n");
+        if (SRAB_ENAB() && ROBO_IS_BCM5301X(robo->devid)) {
+                robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_PORT5_GMIIPO, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x)Port 5 States Override: 0x%02x\n",
+                        PAGE_CTRL, REG_CTRL_PORT5_GMIIPO, val8);
+                robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_PORT7_GMIIPO, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x)Port 7 States Override: 0x%02x\n",
+                        PAGE_CTRL, REG_CTRL_PORT7_GMIIPO, val8);
+                robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_MIIPO, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x)Port 8 States Override: 0x%02x\n",
+                        PAGE_CTRL, REG_CTRL_MIIPO, val8);
+                robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_IMP, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x)Port 8 IMP Control Register: 0x%02x\n",
+                        PAGE_CTRL, REG_CTRL_IMP, val8);
+                robo->ops->read_reg(robo, PAGE_MMR, REG_MGMT_CFG, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x) Global Management Config: 0x%02x\n",
+                        PAGE_MMR, REG_MGMT_CFG, val8);
+                robo->ops->read_reg(robo, PAGE_MMR, REG_MGMT_CFG, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x) 802.1Q VLAN Control 5: 0x%02x\n",
+                        PAGE_MMR, REG_MGMT_CFG, val8);
+                robo->ops->read_reg(robo, PAGE_MMR, REG_BRCM_HDR, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x) BRCM HDR Control Register: 0x%02x\n",
+                        PAGE_MMR, REG_BRCM_HDR, val8);
+                robo->ops->read_reg(robo, PAGE_CTRL, REG_CTRL_MODE, &val8, sizeof(val8));
+                printf("(0x%02x,0x%02x) Switch Mode Register: 0x%02x\n",
+                        PAGE_CTRL, REG_CTRL_MODE, val8);
+	}
+
+}
+#endif
 
 #ifdef BCMDBG
 void

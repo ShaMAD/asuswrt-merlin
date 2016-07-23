@@ -689,7 +689,7 @@ vsf_sysutil_set_lfp(int fd)
                           sizeof(lfp));
   if (retval != 0)
   {
-    ftp_dbg("setsockopt: lfp");
+    //ftp_dbg("setsockopt: lfp.\n");
   }
 }
 #else
@@ -1041,6 +1041,11 @@ vsf_sysutil_next_dirent(const char* session_user, const char *base_dir, struct v
 	}
 	else if(layer == SHARE_LAYER){
 		if(!check_if_dir_exist(truepath)){
+			free(mount_path);
+			free(share_name);
+			return DENIED_DIR;
+		}
+		if(test_if_System_folder(share_name)){
 			free(mount_path);
 			free(share_name);
 			return DENIED_DIR;
@@ -2341,23 +2346,9 @@ vsf_sysutil_getpwnam(const char* p_user){
 		return (struct vsf_sysutil_user *)result;
 	}
 
-	if(nvram_match("st_ftp_mode", "1")){
-		if(strcmp(p_user, "anonymous") == 0){
-			result = (struct passwd *)(malloc(sizeof(struct passwd)));
-	 		if (result == NULL)
-	 			return NULL;
-
-	 		result->pw_name = "anonymous";
-	 		result->pw_passwd = "";
-	 		result->pw_uid = 0;
-	 		result->pw_gid = 0;
-	 		result->pw_gecos = "anonymous";
-			result->pw_dir = POOL_MOUNT_ROOT;
-
-			return (struct vsf_sysutil_user *)result;
-		}
-	}
-	else if(nvram_match("st_ftp_mode", "2")){
+	if(nvram_match("st_ftp_mode", "2")
+			|| (nvram_match("st_ftp_mode", "1") && !strcmp(nvram_safe_get("st_ftp_force_mode"), ""))
+			){
 		acc_num = atoi(nvram_safe_get("acc_num"));
 		if(acc_num < 0)
 			acc_num = 0;
@@ -2399,6 +2390,22 @@ vsf_sysutil_getpwnam(const char* p_user){
 			free(nv);
 
 		return NULL;
+	}
+	else if(nvram_match("st_ftp_mode", "1")){
+		if(strcmp(p_user, "anonymous") == 0){
+			result = (struct passwd *)(malloc(sizeof(struct passwd)));
+	 		if (result == NULL)
+	 			return NULL;
+
+	 		result->pw_name = "anonymous";
+	 		result->pw_passwd = "";
+	 		result->pw_uid = 0;
+	 		result->pw_gid = 0;
+	 		result->pw_gecos = "anonymous";
+			result->pw_dir = POOL_MOUNT_ROOT;
+
+			return (struct vsf_sysutil_user *)result;
+		}
 	}
 
 	return NULL;

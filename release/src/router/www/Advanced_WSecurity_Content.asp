@@ -2,7 +2,7 @@
 <html xmlns="http://www.w3.org/1999/xhtml">
 <html xmlns:v>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7"/>
+<meta http-equiv="X-UA-Compatible" content="IE=Edge"/>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta HTTP-EQUIV="Pragma" CONTENT="no-cache">
 <meta HTTP-EQUIV="Expires" CONTENT="-1">
@@ -15,47 +15,74 @@
 <script type="text/javascript" src="/help.js"></script>
 <script type="text/javascript" src="/general.js"></script>
 <script type="text/javascript" src="/popup.js"></script>
-<script type="text/javascript" src="/detect.js"></script>
+<script type="text/javascript" src="/validator.js"></script>
 <script>
-wan_route_x = '<% nvram_get("wan_route_x"); %>';
-wan_nat_x = '<% nvram_get("wan_nat_x"); %>';
-wan_proto = '<% nvram_get("wan_proto"); %>';
-
-<% login_state_hook(); %>
 <% wl_get_parameter(); %>
 
-var wireless = [<% wl_auth_list(); %>];	// [[MAC, associated, authorized], ...]
 
 function initial(){
 	show_menu();
 
-	if(!band5g_support)	
-		$("wl_unit_field").style.display = "none";
+	// special case after modifing GuestNetwork
+	if("<% nvram_get("wl_unit"); %>" == "-1" && "<% nvram_get("wl_subunit"); %>" == "-1"){
+		var guestWLUnit = '<% get_parameter("gwlu"); %>';
+		if(guestWLUnit === "1") {
+			document.form.wl_unit.value = "1";
+		}
+		change_wl_unit();
+	}
+
+	regen_band(document.form.wl_unit);
+
+	if(!band5g_support || based_modelid == "RT-AC87U")
+		document.getElementById("wl_unit_field").style.display = "none";
+
+	if(smart_connect_support && '<% nvram_get("smart_connect_x"); %>' == '1')
+		document.getElementById("wl_unit_field").style.display = "none";
 
 	if((sw_mode == 2 || sw_mode == 4) && '<% nvram_get("wl_unit"); %>' == '<% nvram_get("wlc_band"); %>'){
 		for(var i=4; i>=2; i--)
-			$("MainTable1").deleteRow(i);
-		$("repeaterModeHint").style.display = "";
-		$("submitBtn").style.display = "none";
+			document.getElementById("MainTable1").deleteRow(i);
+		document.getElementById("repeaterModeHint").style.display = "";
+		document.getElementById("submitBtn").style.display = "none";
 	}
 }
 
 function applyRule(){
 	if(validForm()){
 		showLoading()
-		document.form.current_page.value = "/Advanced_Wireless_Content.asp";
 		document.form.submit();
 	}
 }
 
 function validForm(){
-	if(!validate_ipaddr_final(document.form.wl_radius_ipaddr, 'wl_radius_ipaddr'))
+	if(sw_mode == 1 && IPv6_support){
+		var notIPv6 = false;
+		var notIPv4 = false;
+
+		if(!ipv6_valid(document.form.wl_radius_ipaddr))
+			notIPv6 = true;
+
+		if(!validator.ipAddrFinal(document.form.wl_radius_ipaddr, 'wl_radius_ipaddr', 1))
+			notIPv4 = true;
+
+		if(notIPv6 && notIPv4){
+			alert(document.form.wl_radius_ipaddr.value+" <#JS_validip#>");
+			document.form.wl_radius_ipaddr.value = "";
+			document.form.wl_radius_ipaddr.focus();
+			document.form.wl_radius_ipaddr.select();
+			return false;
+		}
+	}
+	else{
+		if(!validator.ipAddrFinal(document.form.wl_radius_ipaddr, 'wl_radius_ipaddr'))
+			return false;
+	}
+	
+	if(!validator.range(document.form.wl_radius_port, 0, 65535))
 		return false;
 	
-	if(!validate_range(document.form.wl_radius_port, 0, 65535))
-		return false;
-	
-	if(!validate_string(document.form.wl_radius_key))
+	if(!validator.string(document.form.wl_radius_key))
 		return false;
 	
 	return true;
@@ -63,6 +90,18 @@ function validForm(){
 
 function done_validating(action){
 	refreshpage();
+}
+
+function ipv6_valid(obj){
+	//var rangere=new RegExp("^[a-f0-9]{1,4}:([a-f0-9]{0,4}:){2,6}[a-f0-9]{1,4}$", "gi");
+	var rangere=new RegExp("^((([0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){6}:[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){5}:([0-9A-Fa-f]{1,4}:)?[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){4}:([0-9A-Fa-f]{1,4}:){0,2}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){3}:([0-9A-Fa-f]{1,4}:){0,3}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){2}:([0-9A-Fa-f]{1,4}:){0,4}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){6}((\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b)\\.){3}(\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b))|(([0-9A-Fa-f]{1,4}:){0,5}:((\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b)\\.){3}(\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b))|(::([0-9A-Fa-f]{1,4}:){0,5}((\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b)\\.){3}(\\b((25[0-5])|(1\\d{2})|(2[0-4]\\d)|(\\d{1,2}))\\b))|([0-9A-Fa-f]{1,4}::([0-9A-Fa-f]{1,4}:){0,5}[0-9A-Fa-f]{1,4})|(::([0-9A-Fa-f]{1,4}:){0,6}[0-9A-Fa-f]{1,4})|(([0-9A-Fa-f]{1,4}:){1,7}:))$", "gi");
+	if(rangere.test(obj.value)){
+			return true;
+	}else{
+			obj.focus();
+			obj.select();
+			return false;
+	}
 }
 </script>
 </head>
@@ -90,10 +129,10 @@ function done_validating(action){
 	<tr>
 		<td width="17">&nbsp;</td>
 		
-		<td valign="top" width="202">				
-		<div id="mainMenu"></div>	
-		<div id="subMenu"></div>		
-		</td>				
+		<td valign="top" width="202">
+		<div id="mainMenu"></div>
+		<div id="subMenu"></div>
+		</td>
 		
     <td valign="top">
 	<div id="tabMenu" class="submenuBlock"></div>
@@ -119,7 +158,7 @@ function done_validating(action){
 				<select name="wl_unit" class="input_option" onChange="change_wl_unit();">
 					<option class="content_input_fd" value="0" <% nvram_match("wl_unit", "0","selected"); %>>2.4GHz</option>
 					<option class="content_input_fd" value="1"<% nvram_match("wl_unit", "1","selected"); %>>5GHz</option>
-				</select>			
+				</select>
 			</td>
 	  </tr>
 
@@ -130,10 +169,10 @@ function done_validating(action){
 		<tr>
 			<th>
 				<a class="hintstyle" href="javascript:void(0);"  onClick="openHint(2,1);">
-			  	<#WLANAuthentication11a_ExAuthDBIPAddr_itemname#></a>			  
+			  	<#WLANAuthentication11a_ExAuthDBIPAddr_itemname#></a>
 			</th>
 			<td>
-				<input type="text" maxlength="15" class="input_15_table" name="wl_radius_ipaddr" value="<% nvram_get("wl_radius_ipaddr"); %>" onKeyPress="return is_ipaddr(this, event)">
+				<input type="text" maxlength="39" class="input_32_table" name="wl_radius_ipaddr" value="<% nvram_get("wl_radius_ipaddr"); %>" onKeyPress="return validator.isIPAddr(this, event)" autocorrect="off" autocapitalize="off">
 			</td>
 		</tr>
 		<tr>
@@ -142,7 +181,7 @@ function done_validating(action){
 			  	<#WLANAuthentication11a_ExAuthDBPortNumber_itemname#></a>
 			</th>
 			<td>
-				<input type="text" maxlength="5" class="input_6_table" name="wl_radius_port" value="<% nvram_get("wl_radius_port"); %>" onkeypress="return is_number(this,event)"/>
+				<input type="text" maxlength="5" class="input_6_table" name="wl_radius_port" value="<% nvram_get("wl_radius_port"); %>" onkeypress="return validator.isNumber(this,event)" autocorrect="off" autocapitalize="off"/>
 			</td>
 		</tr>
 		<tr>
@@ -151,14 +190,14 @@ function done_validating(action){
 				<#WLANAuthentication11a_ExAuthDBPassword_itemname#></a>
 			</th>
 			<td>
-				<input type="password" autocapitalization="off" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>">
+				<input type="password" maxlength="64" class="input_32_table" name="wl_radius_key" value="<% nvram_get("wl_radius_key"); %>" autocorrect="off" autocapitalize="off">
 			</td>
 		</tr>
 		</table>
 		
 			<div id="submitBtn" class="apply_gen">
 				<input class="button_gen" onclick="applyRule()" type="button" value="<#CTL_apply#>"/>
-			</div>		
+			</div>
 		
 		
 		</td>
@@ -170,8 +209,8 @@ function done_validating(action){
 		
 
   </tr>
-</table>				
-<!--===================================Ending of Main Content===========================================-->		
+</table>
+<!--===================================Ending of Main Content===========================================-->
 
 	</td>
 		
